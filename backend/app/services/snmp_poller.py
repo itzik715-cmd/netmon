@@ -2,6 +2,22 @@
 SNMP Poller Service
 Polls devices via SNMP for interface metrics and device health.
 """
+# ---------------------------------------------------------------------------
+# Python 3.10+ removed deprecated top-level aliases in `collections`
+# (e.g. collections.MutableMapping).  pysnmp 4.4.x uses the old names;
+# restore them before the first pysnmp import to avoid AttributeError.
+import collections
+import collections.abc as _abc
+for _n in (
+    "Callable", "Container", "Hashable", "ItemsView", "Iterator",
+    "KeysView", "Mapping", "MappingView", "MutableMapping",
+    "MutableSequence", "MutableSet", "Sequence", "Set", "Sized",
+    "ValuesView", "Awaitable", "Coroutine", "AsyncIterable",
+    "AsyncIterator", "Generator", "Iterable",
+):
+    if not hasattr(collections, _n):
+        setattr(collections, _n, getattr(_abc, _n, None))
+# ---------------------------------------------------------------------------
 import asyncio
 import logging
 from datetime import datetime, timezone

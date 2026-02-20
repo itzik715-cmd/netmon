@@ -278,16 +278,37 @@ fi
 
 # Wait for health
 step "Waiting for Services to be Ready"
-MAX_WAIT=180
+MAX_WAIT=240
 ELAPSED=0
 log "Waiting for backend to be healthy..."
-while ! $DOCKER_COMPOSE exec -T backend curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
+# Poll the host-mapped port (127.0.0.1:8000) — avoids needing 'docker exec'
+# to work while the container is still initialising.
+while true; do
+  if curl -sf http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+    break
+  fi
+
   sleep 5
   ELAPSED=$((ELAPSED + 5))
-  if [ $ELAPSED -ge $MAX_WAIT ]; then
-    error "Backend failed to start within ${MAX_WAIT}s. Check logs: $DOCKER_COMPOSE logs backend"
-  fi
   echo -n "."
+
+  if [ $ELAPSED -ge $MAX_WAIT ]; then
+    echo ""
+    warn "Backend did not respond within ${MAX_WAIT}s — last container logs:"
+    $DOCKER_COMPOSE logs --tail=40 backend 2>/dev/null || true
+    error "Backend failed to start. Fix the issue above and re-run the installer."
+  fi
+
+  # If the container has exited (crash-loop), show logs and abort early
+  STATUS=$($DOCKER_COMPOSE ps --format '{{.State}}' backend 2>/dev/null \
+           || $DOCKER_COMPOSE ps backend 2>/dev/null | awk 'NR>1 {print $4}' \
+           || echo "unknown")
+  if echo "$STATUS" | grep -qiE "exit|dead|error"; then
+    echo ""
+    warn "Backend container exited unexpectedly — logs:"
+    $DOCKER_COMPOSE logs --tail=50 backend 2>/dev/null || true
+    error "Backend container crashed. Fix the issue above and re-run the installer."
+  fi
 done
 echo ""
 log "Backend is healthy!"
