@@ -6,7 +6,6 @@ from app.database import get_db
 from app.models.device import Device, DeviceLocation
 from app.models.interface import Interface
 from app.services.auth import log_audit
-from app.services.snmp_poller import discover_interfaces, poll_device
 from app.middleware.rbac import get_current_user, require_admin, require_operator_or_above
 from app.schemas.device import (
     DeviceCreate, DeviceUpdate, DeviceResponse,
@@ -228,6 +227,7 @@ async def create_location(payload: LocationCreate, db: AsyncSession = Depends(ge
 async def discover_and_poll(device_id: int):
     """Background task: discover interfaces then poll."""
     from app.database import AsyncSessionLocal
+    from app.services.snmp_poller import discover_interfaces, poll_device
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
@@ -238,6 +238,7 @@ async def discover_and_poll(device_id: int):
 
 async def run_discovery(device_id: int):
     from app.database import AsyncSessionLocal
+    from app.services.snmp_poller import discover_interfaces
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
