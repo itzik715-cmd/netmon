@@ -47,7 +47,7 @@ install_docker() {
       step "Installing Docker (apt)"
       apt-get update -qq
       apt-get install -y -qq \
-        ca-certificates curl gnupg lsb-release
+        ca-certificates curl gnupg lsb-release openssl
 
       install -m 0755 -d /etc/apt/keyrings
       curl -fsSL https://download.docker.com/linux/${OS_ID}/gpg \
@@ -258,6 +258,33 @@ for udp_port in 2055 6343; do
   fi
 done
 
+# Generate self-signed TLS certificate (if not already present)
+step "Setting Up TLS Certificate"
+SSL_DIR="$PROJECT_DIR/nginx/ssl"
+mkdir -p "$SSL_DIR"
+if [ ! -f "$SSL_DIR/cert.pem" ] || [ ! -f "$SSL_DIR/key.pem" ]; then
+  if ! command -v openssl >/dev/null 2>&1; then
+    detect_os
+    case "${OS_ID}" in
+      ubuntu|debian|linuxmint|pop) apt-get install -y -qq openssl ;;
+      *) yum install -y -q openssl 2>/dev/null || dnf install -y -q openssl 2>/dev/null || true ;;
+    esac
+  fi
+  log "Generating self-signed certificate (valid 10 years)..."
+  SERVER_IP_FOR_CERT=$(hostname -I | awk '{print $1}')
+  openssl req -x509 -nodes -days 3650 \
+    -newkey rsa:2048 \
+    -keyout "$SSL_DIR/key.pem" \
+    -out "$SSL_DIR/cert.pem" \
+    -subj "/C=US/ST=Local/L=Local/O=NetMon/CN=${SERVER_IP_FOR_CERT:-netmon.local}" \
+    -addext "subjectAltName=IP:${SERVER_IP_FOR_CERT:-127.0.0.1},DNS:localhost" \
+    2>/dev/null
+  chmod 600 "$SSL_DIR/key.pem"
+  log "Certificate generated: $SSL_DIR/cert.pem"
+else
+  log "TLS certificate already exists — skipping generation."
+fi
+
 # Build and start services
 step "Building Docker Images"
 cd "$PROJECT_DIR"
@@ -321,8 +348,9 @@ echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║         NetMon Platform is Ready!                  ║${NC}"
 echo -e "${GREEN}╠════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║${NC} Web UI:      http://${SERVER_IP}                      ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC} API Docs:    http://${SERVER_IP}/api/docs             ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC} Web UI:      https://${SERVER_IP}                     ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC} API Docs:    https://${SERVER_IP}/api/docs            ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC} ${YELLOW}Note: browser will warn about self-signed cert${NC}     ${GREEN}║${NC}"
 echo -e "${GREEN}╠════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║${NC} Default Login:                                     ${GREEN}║${NC}"
 echo -e "${GREEN}║${NC}   Username: ${YELLOW}admin${NC}                               ${GREEN}    ║${NC}"
