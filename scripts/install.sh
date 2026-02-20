@@ -183,10 +183,16 @@ chmod 777 "$PROJECT_DIR/logs"
 # Build and start services
 step "Building Docker Images"
 cd "$PROJECT_DIR"
-$DOCKER_COMPOSE build --no-cache
+if ! $DOCKER_COMPOSE build --no-cache; then
+  echo ""
+  error "Docker build failed. Review the output above for the exact error.
+       Tip: run '$DOCKER_COMPOSE build --no-cache' manually to see the full log."
+fi
 
 step "Starting Services"
-$DOCKER_COMPOSE up -d
+if ! $DOCKER_COMPOSE up -d; then
+  error "Failed to start containers. Run '$DOCKER_COMPOSE logs' for details."
+fi
 
 # Wait for health
 step "Waiting for Services to be Ready"

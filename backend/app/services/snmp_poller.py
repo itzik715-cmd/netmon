@@ -6,9 +6,13 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
+# pysnmp 4.4.x: command generators live in pysnmp.hlapi.asyncio,
+# but auth/priv protocol constants live in pysnmp.hlapi (re-exported there).
 from pysnmp.hlapi.asyncio import (
     getCmd, bulkCmd, SnmpEngine, CommunityData, UsmUserData,
     UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
+)
+from pysnmp.hlapi import (
     usmHMACMD5AuthProtocol, usmHMACSHAAuthProtocol,
     usmDESPrivProtocol, usmAesCfb128Protocol,
 )

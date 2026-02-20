@@ -2,22 +2,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    libsnmp-dev \
-    snmp \
-    libldap2-dev \
-    libsasl2-dev \
-    libssl-dev \
-    netcat-traditional \
-    curl \
+# Install system packages needed at build time.
+# Note: ldap3 and pysnmp are pure-Python so libldap2-dev / libsnmp-dev are NOT needed.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        libpq-dev \
+        curl \
+        netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Upgrade pip and install Python dependencies.
+# --prefer-binary  → use pre-built wheels instead of compiling from source.
+# --no-cache-dir   → keep image small.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy application
 COPY . .
