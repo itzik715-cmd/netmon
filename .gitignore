@@ -1,0 +1,37 @@
+# Environment
+.env
+*.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Logs
+logs/
+*.log
+
+# SSL certificates (do not commit private keys)
+nginx/ssl/*.key
+nginx/ssl/*.pem
+
+# Docker volumes (local dev)
+postgres_data/
+redis_data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
