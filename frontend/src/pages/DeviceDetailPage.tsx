@@ -56,10 +56,11 @@ export default function DeviceDetailPage() {
       (i.alias || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const statusColor = {
+  const statusColorMap: Record<string, string> = {
     up: 'text-emerald-400', down: 'text-red-400',
     unknown: 'text-slate-400', degraded: 'text-amber-400',
-  }[device.status] || 'text-slate-400'
+  }
+  const statusColor = statusColorMap[device.status as string] || 'text-slate-400'
 
   return (
     <div className="space-y-6">
