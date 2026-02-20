@@ -180,6 +180,84 @@ fi
 mkdir -p "$PROJECT_DIR/logs"
 chmod 777 "$PROJECT_DIR/logs"
 
+# ─── Free Required Ports ──────────────────────────────────────────────────────
+free_port() {
+  local port="$1"
+  local proto="${2:-tcp}"
+
+  # Skip if nothing is listening
+  if ! ss -lnp "${proto}" 2>/dev/null | grep -q ":${port} " && \
+     ! netstat -lnp 2>/dev/null | grep -q ":${port} "; then
+    return 0
+  fi
+
+  warn "Port ${port}/${proto} is in use — attempting to free it..."
+
+  # Try stopping well-known services that commonly bind port 80/443
+  for svc in nginx apache2 httpd lighttpd caddy haproxy; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+      log "Stopping system service: $svc"
+      systemctl stop "$svc"  2>/dev/null || true
+      systemctl disable "$svc" 2>/dev/null || true
+    fi
+  done
+
+  # If still in use, kill the process directly
+  if ss -lnp "${proto}" 2>/dev/null | grep -q ":${port} " || \
+     netstat -lnp 2>/dev/null | grep -q ":${port} "; then
+    # Extract PID(s) via ss
+    local pids
+    pids=$(ss -lnp "${proto}" 2>/dev/null \
+           | grep ":${port} " \
+           | grep -oP 'pid=\K[0-9]+' \
+           | sort -u)
+    # Fallback: fuser
+    if [ -z "$pids" ] && command -v fuser >/dev/null 2>&1; then
+      pids=$(fuser "${port}/${proto}" 2>/dev/null | tr ' ' '\n' | grep -v '^$' || true)
+    fi
+    if [ -n "$pids" ]; then
+      for pid in $pids; do
+        warn "Killing PID $pid occupying port ${port}/${proto}"
+        kill -9 "$pid" 2>/dev/null || true
+      done
+      sleep 1
+    fi
+  fi
+
+  if ss -lnp "${proto}" 2>/dev/null | grep -q ":${port} " || \
+     netstat -lnp 2>/dev/null | grep -q ":${port} "; then
+    error "Could not free port ${port}/${proto}. Please stop the service manually and re-run."
+  fi
+  log "Port ${port}/${proto} is now free."
+}
+
+step "Checking Required Ports"
+# Install ss / netstat if missing (for port checks)
+if ! command -v ss >/dev/null 2>&1 && ! command -v netstat >/dev/null 2>&1; then
+  detect_os
+  case "${OS_ID}" in
+    ubuntu|debian|linuxmint|pop) apt-get install -y -qq iproute2 ;;
+    *) yum install -y -q iproute2 2>/dev/null || dnf install -y -q iproute2 2>/dev/null || true ;;
+  esac
+fi
+# Install fuser as a backup PID resolver
+if ! command -v fuser >/dev/null 2>&1; then
+  detect_os
+  case "${OS_ID}" in
+    ubuntu|debian|linuxmint|pop) apt-get install -y -qq psmisc ;;
+    *) yum install -y -q psmisc 2>/dev/null || true ;;
+  esac
+fi
+
+free_port 80  tcp
+free_port 443 tcp
+# UDP ports for NetFlow/sFlow — just warn, don't kill (they rarely conflict)
+for udp_port in 2055 6343; do
+  if ss -lnp udp 2>/dev/null | grep -q ":${udp_port} "; then
+    warn "UDP port ${udp_port} is already in use. NetFlow/sFlow collection may not work."
+  fi
+done
+
 # Build and start services
 step "Building Docker Images"
 cd "$PROJECT_DIR"
@@ -191,7 +269,11 @@ fi
 
 step "Starting Services"
 if ! $DOCKER_COMPOSE up -d; then
-  error "Failed to start containers. Run '$DOCKER_COMPOSE logs' for details."
+  # Show last 30 lines of logs for the failed container
+  echo ""
+  warn "Container start failed — showing recent logs:"
+  $DOCKER_COMPOSE logs --tail=30 2>/dev/null || true
+  error "Failed to start containers. See logs above or run '$DOCKER_COMPOSE logs' for details."
 fi
 
 # Wait for health
