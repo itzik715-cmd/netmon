@@ -21,11 +21,139 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 step "NetMon Platform Installation"
 log "Project directory: $PROJECT_DIR"
 
-# Check prerequisites
-command -v docker  >/dev/null 2>&1 || error "Docker is not installed. Please install Docker first."
-command -v docker-compose >/dev/null 2>&1 || \
-  docker compose version >/dev/null 2>&1 || \
-  error "Docker Compose is not installed."
+# ─── Detect OS ────────────────────────────────────────────────────────────────
+detect_os() {
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID="${ID}"
+    OS_ID_LIKE="${ID_LIKE:-}"
+    OS_VERSION_ID="${VERSION_ID:-}"
+  elif command -v lsb_release >/dev/null 2>&1; then
+    OS_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+    OS_VERSION_ID=$(lsb_release -sr)
+  else
+    OS_ID="unknown"
+    OS_VERSION_ID=""
+  fi
+}
+
+# ─── Install Docker ────────────────────────────────────────────────────────────
+install_docker() {
+  detect_os
+  log "Detected OS: ${OS_ID} ${OS_VERSION_ID}"
+
+  case "${OS_ID}" in
+    ubuntu|debian|linuxmint|pop)
+      step "Installing Docker (apt)"
+      apt-get update -qq
+      apt-get install -y -qq \
+        ca-certificates curl gnupg lsb-release
+
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/${OS_ID}/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      chmod a+r /etc/apt/keyrings/docker.gpg
+
+      echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/${OS_ID} \
+        $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        > /etc/apt/sources.list.d/docker.list
+
+      apt-get update -qq
+      apt-get install -y -qq \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      ;;
+
+    centos|rhel|rocky|almalinux|ol)
+      step "Installing Docker (yum/dnf)"
+      yum install -y -q yum-utils
+      yum-config-manager --add-repo \
+        https://download.docker.com/linux/centos/docker-ce.repo
+      yum install -y -q \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      systemctl enable --now docker
+      ;;
+
+    fedora)
+      step "Installing Docker (dnf)"
+      dnf install -y -q dnf-plugins-core
+      dnf config-manager --add-repo \
+        https://download.docker.com/linux/fedora/docker-ce.repo
+      dnf install -y -q \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      systemctl enable --now docker
+      ;;
+
+    *)
+      # Generic fallback: Docker's convenience script
+      step "Installing Docker (convenience script)"
+      warn "OS '${OS_ID}' not explicitly supported — using Docker's get.docker.com script"
+      curl -fsSL https://get.docker.com | sh
+      ;;
+  esac
+
+  # Start and enable Docker daemon
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable docker  2>/dev/null || true
+    systemctl start  docker  2>/dev/null || true
+  fi
+
+  log "Docker installed: $(docker --version)"
+}
+
+# ─── Check / Install Docker ───────────────────────────────────────────────────
+step "Checking Prerequisites"
+
+# Must run as root (or via sudo) to install packages
+if [ "$(id -u)" -ne 0 ]; then
+  error "Please run this script as root or with sudo."
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  warn "Docker not found — installing automatically..."
+  install_docker
+else
+  log "Docker already installed: $(docker --version)"
+fi
+
+# Verify docker compose (plugin v2 preferred, standalone v1 as fallback)
+if docker compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE="docker compose"
+  log "Docker Compose (plugin) available: $(docker compose version --short)"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DOCKER_COMPOSE="docker-compose"
+  log "Docker Compose (standalone) available: $(docker-compose --version)"
+else
+  warn "Docker Compose plugin not found — attempting install..."
+  detect_os
+  case "${OS_ID}" in
+    ubuntu|debian|linuxmint|pop)
+      apt-get install -y -qq docker-compose-plugin
+      ;;
+    centos|rhel|rocky|almalinux|ol|fedora)
+      yum install -y -q docker-compose-plugin 2>/dev/null || \
+        dnf install -y -q docker-compose-plugin
+      ;;
+    *)
+      # Fallback: install standalone docker-compose binary
+      COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest \
+        | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+      curl -fsSL \
+        "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
+        -o /usr/local/bin/docker-compose
+      chmod +x /usr/local/bin/docker-compose
+      ;;
+  esac
+  if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+  else
+    error "Docker Compose installation failed. Please install it manually."
+  fi
+  log "Docker Compose installed"
+fi
 
 # Generate .env from template
 step "Configuring Environment"
@@ -55,21 +183,21 @@ chmod 777 "$PROJECT_DIR/logs"
 # Build and start services
 step "Building Docker Images"
 cd "$PROJECT_DIR"
-docker compose build --no-cache
+$DOCKER_COMPOSE build --no-cache
 
 step "Starting Services"
-docker compose up -d
+$DOCKER_COMPOSE up -d
 
 # Wait for health
 step "Waiting for Services to be Ready"
-MAX_WAIT=120
+MAX_WAIT=180
 ELAPSED=0
 log "Waiting for backend to be healthy..."
-while ! docker compose exec -T backend curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
+while ! $DOCKER_COMPOSE exec -T backend curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
   sleep 5
   ELAPSED=$((ELAPSED + 5))
   if [ $ELAPSED -ge $MAX_WAIT ]; then
-    error "Backend failed to start. Check logs: docker compose logs backend"
+    error "Backend failed to start within ${MAX_WAIT}s. Check logs: $DOCKER_COMPOSE logs backend"
   fi
   echo -n "."
 done
@@ -95,6 +223,6 @@ echo -e "${GREEN}╠════════════════════
 echo -e "${GREEN}║${NC} NetFlow/sFlow: UDP port 2055 / 6343                ${GREEN}║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
 echo ""
-log "To view logs: docker compose logs -f"
-log "To stop:      docker compose down"
-log "To update:    git pull && docker compose up -d --build"
+log "To view logs: $DOCKER_COMPOSE logs -f"
+log "To stop:      $DOCKER_COMPOSE down"
+log "To update:    git pull && $DOCKER_COMPOSE up -d --build"
