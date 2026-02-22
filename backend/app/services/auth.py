@@ -4,6 +4,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.models.user import User, AuditLog
 from app.schemas.auth import TokenData
@@ -63,7 +64,9 @@ async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(
+        select(User).options(selectinload(User.role)).where(User.id == user_id)
+    )
     return result.scalar_one_or_none()
 
 

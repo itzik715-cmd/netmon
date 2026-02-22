@@ -50,7 +50,7 @@ async def list_devices(
     return device_list
 
 
-@router.post("/", response_model=DeviceResponse, dependencies=[Depends(require_operator_or_above())])
+@router.post("/", response_model=DeviceResponse)
 async def create_device(
     request: Request,
     payload: DeviceCreate,
@@ -119,7 +119,7 @@ async def get_device(
     return d
 
 
-@router.patch("/{device_id}", response_model=DeviceResponse, dependencies=[Depends(require_operator_or_above())])
+@router.patch("/{device_id}", response_model=DeviceResponse)
 async def update_device(
     request: Request,
     device_id: int,
@@ -153,7 +153,7 @@ async def update_device(
     return d
 
 
-@router.delete("/{device_id}", dependencies=[Depends(require_admin())])
+@router.delete("/{device_id}")
 async def delete_device(
     request: Request,
     device_id: int,
@@ -178,7 +178,7 @@ async def delete_device(
     return {"message": "Device deleted"}
 
 
-@router.post("/{device_id}/poll", dependencies=[Depends(require_operator_or_above())])
+@router.post("/{device_id}/poll")
 async def manual_poll(
     device_id: int,
     background_tasks: BackgroundTasks,
@@ -193,7 +193,7 @@ async def manual_poll(
     return {"message": "Poll scheduled"}
 
 
-@router.post("/{device_id}/discover", dependencies=[Depends(require_operator_or_above())])
+@router.post("/{device_id}/discover")
 async def discover_device_interfaces(
     device_id: int,
     background_tasks: BackgroundTasks,

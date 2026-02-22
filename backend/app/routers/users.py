@@ -24,7 +24,7 @@ async def list_users(db: AsyncSession = Depends(get_db)):
     return users
 
 
-@router.post("/", response_model=UserResponse, dependencies=[Depends(require_admin())])
+@router.post("/", response_model=UserResponse)
 async def create_user(
     request: Request,
     payload: UserCreate,
@@ -74,7 +74,7 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.patch("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_admin())])
+@router.patch("/{user_id}", response_model=UserResponse)
 async def update_user(
     request: Request,
     user_id: int,
@@ -108,7 +108,7 @@ async def update_user(
     return user
 
 
-@router.post("/{user_id}/reset-password", dependencies=[Depends(require_admin())])
+@router.post("/{user_id}/reset-password")
 async def reset_user_password(
     request: Request,
     user_id: int,
@@ -134,7 +134,7 @@ async def reset_user_password(
     return {"message": "Password reset required on next login"}
 
 
-@router.post("/{user_id}/unlock", dependencies=[Depends(require_admin())])
+@router.post("/{user_id}/unlock")
 async def unlock_account(
     request: Request,
     user_id: int,
@@ -159,7 +159,7 @@ async def unlock_account(
     return {"message": "Account unlocked"}
 
 
-@router.delete("/{user_id}", dependencies=[Depends(require_admin())])
+@router.delete("/{user_id}")
 async def delete_user(
     request: Request,
     user_id: int,

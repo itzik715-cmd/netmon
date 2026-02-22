@@ -25,7 +25,7 @@ async def list_rules(
     return result.scalars().all()
 
 
-@router.post("/rules", response_model=AlertRuleResponse, dependencies=[Depends(require_operator_or_above())])
+@router.post("/rules", response_model=AlertRuleResponse)
 async def create_rule(
     request: Request,
     payload: AlertRuleCreate,
@@ -47,7 +47,7 @@ async def create_rule(
     return rule
 
 
-@router.patch("/rules/{rule_id}", response_model=AlertRuleResponse, dependencies=[Depends(require_operator_or_above())])
+@router.patch("/rules/{rule_id}", response_model=AlertRuleResponse)
 async def update_rule(
     request: Request,
     rule_id: int,
@@ -75,7 +75,7 @@ async def update_rule(
     return rule
 
 
-@router.delete("/rules/{rule_id}", dependencies=[Depends(require_admin())])
+@router.delete("/rules/{rule_id}")
 async def delete_rule(
     rule_id: int,
     current_user: User = Depends(require_admin()),
@@ -135,7 +135,7 @@ async def events_summary(
     }
 
 
-@router.post("/events/{event_id}/acknowledge", dependencies=[Depends(require_operator_or_above())])
+@router.post("/events/{event_id}/acknowledge")
 async def acknowledge_event(
     request: Request,
     event_id: int,
@@ -170,7 +170,7 @@ async def acknowledge_event(
     return {"message": "Alert acknowledged"}
 
 
-@router.post("/events/{event_id}/resolve", dependencies=[Depends(require_operator_or_above())])
+@router.post("/events/{event_id}/resolve")
 async def resolve_event(
     event_id: int,
     current_user: User = Depends(require_operator_or_above()),

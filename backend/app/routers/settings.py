@@ -49,7 +49,7 @@ async def get_setting(
     }
 
 
-@router.put("/{key}", dependencies=[Depends(require_admin())])
+@router.put("/{key}")
 async def update_setting(
     key: str,
     payload: SettingUpdate,
@@ -87,7 +87,7 @@ async def get_ldap_config(
     return settings_map
 
 
-@router.put("/ldap/config", dependencies=[Depends(require_admin())])
+@router.put("/ldap/config")
 async def save_ldap_config(
     payload: dict,
     current_user: User = Depends(require_admin()),
