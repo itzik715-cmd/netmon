@@ -57,23 +57,23 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-300 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#f0f4f8] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-amber-900/30 rounded-2xl border border-amber-700/50 mb-4">
-            <Shield className="h-10 w-10 text-amber-400" />
+          <div className="inline-flex items-center justify-center p-3 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
+            <Shield className="h-10 w-10 text-amber-600" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">Change Password</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Change Password</h1>
           {isMustChange && (
-            <p className="text-amber-400 text-sm mt-2">
+            <p className="text-amber-600 text-sm mt-2">
               You must change your password before accessing the system
             </p>
           )}
         </div>
 
-        <div className="card shadow-2xl">
+        <div className="card shadow-lg">
           {error && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-red-400 text-sm">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
               {error}
             </div>
           )}
@@ -105,7 +105,7 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
                 >
                   {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -114,16 +114,16 @@ export default function ChangePasswordPage() {
 
             {/* Password Rules */}
             {newPassword.length > 0 && (
-              <div className="p-3 bg-dark-200 rounded-lg space-y-1">
+              <div className="p-3 bg-gray-50 rounded-lg space-y-1">
                 {RULES.map((rule) => {
                   const passes = rule.test(newPassword)
                   return (
                     <div key={rule.label} className="flex items-center gap-2 text-xs">
                       {passes
-                        ? <CheckCircle className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
-                        : <XCircle className="h-3.5 w-3.5 text-slate-600 flex-shrink-0" />
+                        ? <CheckCircle className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
+                        : <XCircle className="h-3.5 w-3.5 text-gray-300 flex-shrink-0" />
                       }
-                      <span className={passes ? 'text-emerald-400' : 'text-slate-500'}>
+                      <span className={passes ? 'text-green-600' : 'text-gray-400'}>
                         {rule.label}
                       </span>
                     </div>
@@ -142,7 +142,7 @@ export default function ChangePasswordPage() {
                 required
               />
               {confirmPassword && !passwordsMatch && (
-                <p className="text-red-400 text-xs mt-1">Passwords do not match</p>
+                <p className="text-red-600 text-xs mt-1">Passwords do not match</p>
               )}
             </div>
 

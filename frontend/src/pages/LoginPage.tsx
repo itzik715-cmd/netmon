@@ -54,28 +54,28 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-300 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#f0f4f8] flex items-center justify-center p-4">
       {/* Background pattern */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-900/10 via-transparent to-purple-900/10" />
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-100/50 via-transparent to-indigo-100/50" />
       </div>
 
       <div className="w-full max-w-md z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-blue-900/50 rounded-2xl border border-blue-700/50 mb-4">
-            <Network className="h-10 w-10 text-blue-400" />
+          <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl mb-4 shadow-md">
+            <Network className="h-10 w-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-100">NetMon Platform</h1>
-          <p className="text-slate-400 mt-1">Network Monitoring & Visibility</p>
+          <h1 className="text-3xl font-bold text-gray-900">NetMon Platform</h1>
+          <p className="text-gray-500 mt-1">Network Monitoring & Visibility</p>
         </div>
 
         {/* Login Card */}
-        <div className="card shadow-2xl">
-          <h2 className="text-lg font-semibold mb-6 text-slate-100">Sign In</h2>
+        <div className="card shadow-lg">
+          <h2 className="text-lg font-semibold mb-6 text-gray-900">Sign In</h2>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-red-400 text-sm">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
               {error}
             </div>
           )}
@@ -110,7 +110,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -128,7 +128,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-xs text-slate-600 mt-6">
+        <p className="text-center text-xs text-gray-400 mt-6">
           NetMon Platform — Secure Network Monitoring
         </p>
       </div>

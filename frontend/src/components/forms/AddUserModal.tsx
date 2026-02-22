@@ -42,11 +42,11 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
     setForm((p) => ({ ...p, [key]: e.target.value }))
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-100 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md shadow-xl">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200">
           <h3>Create User</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-100">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -81,15 +81,15 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
                 id="must_change"
                 checked={form.must_change_password}
                 onChange={(e) => setForm((p) => ({ ...p, must_change_password: e.target.checked }))}
-                className="h-4 w-4 rounded bg-dark-200 border-slate-600"
+                className="h-4 w-4 rounded bg-white border-gray-300"
               />
-              <label htmlFor="must_change" className="text-sm text-slate-300">
+              <label htmlFor="must_change" className="text-sm text-gray-700">
                 Force password change on first login
               </label>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 p-5 border-t border-slate-700">
+          <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={mutation.isPending} className="btn-primary flex items-center gap-2">
               {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

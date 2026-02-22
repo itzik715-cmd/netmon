@@ -28,47 +28,47 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-dark-200 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
-      <div className="text-sm text-slate-400">
+    <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+      <div className="text-sm text-gray-500">
         Network Monitoring & Visibility Platform
       </div>
 
       <div className="relative">
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-dark-100 transition-colors"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
         >
-          <div className="p-1.5 bg-blue-900/50 rounded-full">
-            <User className="h-4 w-4 text-blue-400" />
+          <div className="p-1.5 bg-blue-100 rounded-full">
+            <User className="h-4 w-4 text-blue-600" />
           </div>
           <div className="text-left">
-            <div className="text-sm font-medium text-slate-200">{user?.username}</div>
+            <div className="text-sm font-medium text-gray-800">{user?.username}</div>
             <div className="text-xs">
               <span className={roleColors[user?.role || 'readonly'] || 'badge-gray'}>
                 {user?.role}
               </span>
             </div>
           </div>
-          <ChevronDown className="h-4 w-4 text-slate-400" />
+          <ChevronDown className="h-4 w-4 text-gray-400" />
         </button>
 
         {dropdownOpen && (
-          <div className="absolute right-0 top-full mt-1 w-48 bg-dark-100 border border-slate-700 rounded-xl shadow-xl z-50">
-            <div className="p-3 border-b border-slate-700">
-              <div className="text-sm font-medium text-slate-200">{user?.username}</div>
-              <div className="text-xs text-slate-500">{user?.role} account</div>
+          <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+            <div className="p-3 border-b border-gray-100">
+              <div className="text-sm font-medium text-gray-800">{user?.username}</div>
+              <div className="text-xs text-gray-500">{user?.role} account</div>
             </div>
             <div className="p-2">
               <button
                 onClick={() => { setDropdownOpen(false); navigate('/change-password') }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-slate-100 hover:bg-dark-200 rounded-lg transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
               >
                 <User className="h-4 w-4" />
                 Change Password
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
               >
                 <LogOut className="h-4 w-4" />
                 Logout

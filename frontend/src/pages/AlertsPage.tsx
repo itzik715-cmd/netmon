@@ -78,7 +78,7 @@ export default function AlertsPage() {
       <div className="page-header">
         <div>
           <h1>Alerts</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Monitor and manage alerts</p>
+          <p className="text-sm text-gray-500 mt-0.5">Monitor and manage alerts</p>
         </div>
         {isOperator && tab === 'rules' && (
           <button
@@ -92,13 +92,13 @@ export default function AlertsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-dark-200 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         {(['events', 'rules'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
-              tab === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              tab === t ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
             }`}
           >
             {t === 'events' ? 'Alert Events' : 'Alert Rules'}
@@ -114,7 +114,7 @@ export default function AlertsPage() {
                 key={s}
                 onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  statusFilter === s ? 'bg-blue-900/50 text-blue-400 border border-blue-700/50' : 'text-slate-400 hover:text-slate-200'
+                  statusFilter === s ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
                 {s || 'All'}
@@ -145,7 +145,7 @@ export default function AlertsPage() {
                     <td className="font-mono text-sm">
                       {event.metric_value?.toFixed(2)} / {event.threshold_value?.toFixed(2)}
                     </td>
-                    <td className="text-slate-500 text-xs">
+                    <td className="text-gray-400 text-xs">
                       {formatDistanceToNow(new Date(event.triggered_at), { addSuffix: true })}
                     </td>
                     <td>
@@ -153,14 +153,14 @@ export default function AlertsPage() {
                         <div className="flex gap-1">
                           <button
                             onClick={() => ackMutation.mutate(event.id)}
-                            className="p-1.5 text-amber-400 hover:bg-amber-900/20 rounded transition-colors"
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors"
                             title="Acknowledge"
                           >
                             <CheckCircle className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => resolveMutation.mutate(event.id)}
-                            className="p-1.5 text-emerald-400 hover:bg-emerald-900/20 rounded transition-colors"
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
                             title="Resolve"
                           >
                             <XCircle className="h-4 w-4" />
@@ -170,7 +170,7 @@ export default function AlertsPage() {
                       {isOperator && event.status === 'acknowledged' && (
                         <button
                           onClick={() => resolveMutation.mutate(event.id)}
-                          className="p-1.5 text-emerald-400 hover:bg-emerald-900/20 rounded transition-colors"
+                          className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
                           title="Resolve"
                         >
                           <XCircle className="h-4 w-4" />
@@ -181,7 +181,7 @@ export default function AlertsPage() {
                 ))}
                 {(!events || events.length === 0) && (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 text-slate-500">
+                    <td colSpan={6} className="text-center py-12 text-gray-400">
                       No alerts found
                     </td>
                   </tr>
@@ -210,7 +210,7 @@ export default function AlertsPage() {
               {(rules || []).map((rule) => (
                 <tr key={rule.id}>
                   <td className="font-medium">{rule.name}</td>
-                  <td className="font-mono text-sm text-slate-400">{rule.metric}</td>
+                  <td className="font-mono text-sm text-gray-500">{rule.metric}</td>
                   <td className="font-mono text-sm">{rule.condition}</td>
                   <td className="font-mono text-sm">{rule.threshold}</td>
                   <td>{severityBadge(rule.severity)}</td>
@@ -218,7 +218,7 @@ export default function AlertsPage() {
                     {isOperator ? (
                       <button
                         onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
-                        className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${rule.is_active ? 'bg-blue-600' : 'bg-slate-700'}`}
+                        className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${rule.is_active ? 'bg-blue-600' : 'bg-gray-300'}`}
                       >
                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow mt-0.5 transition-transform ${rule.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
                       </button>
@@ -236,7 +236,7 @@ export default function AlertsPage() {
                             deleteRuleMutation.mutate(rule.id)
                           }
                         }}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -246,7 +246,7 @@ export default function AlertsPage() {
               ))}
               {(!rules || rules.length === 0) && (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-slate-500">
+                  <td colSpan={7} className="text-center py-12 text-gray-400">
                     No alert rules configured
                   </td>
                 </tr>

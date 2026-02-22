@@ -6,11 +6,11 @@ import { ClipboardList, Search } from 'lucide-react'
 import { format } from 'date-fns'
 
 function actionColor(action: string): string {
-  if (action.includes('login')) return action.includes('failed') ? 'text-red-400' : 'text-emerald-400'
-  if (action.includes('delete') || action.includes('deleted')) return 'text-red-400'
-  if (action.includes('created') || action.includes('added')) return 'text-blue-400'
-  if (action.includes('updated') || action.includes('changed')) return 'text-amber-400'
-  return 'text-slate-400'
+  if (action.includes('login')) return action.includes('failed') ? 'text-red-600' : 'text-green-600'
+  if (action.includes('delete') || action.includes('deleted')) return 'text-red-600'
+  if (action.includes('created') || action.includes('added')) return 'text-blue-600'
+  if (action.includes('updated') || action.includes('changed')) return 'text-amber-600'
+  return 'text-gray-500'
 }
 
 export default function AuditLogPage() {
@@ -37,12 +37,12 @@ export default function AuditLogPage() {
       <div className="page-header">
         <div>
           <h1>Audit Log</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Read-only system activity log</p>
+          <p className="text-sm text-gray-500 mt-0.5">Read-only system activity log</p>
         </div>
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
           className="input pl-10"
           placeholder="Search by username, action, IP..."
@@ -52,7 +52,7 @@ export default function AuditLogPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-slate-500">Loading audit logs...</div>
+        <div className="text-center py-12 text-gray-400">Loading audit logs...</div>
       ) : (
         <>
           <div className="table-container">
@@ -71,7 +71,7 @@ export default function AuditLogPage() {
               <tbody>
                 {filtered.map((log) => (
                   <tr key={log.id}>
-                    <td className="text-xs text-slate-500 font-mono">
+                    <td className="text-xs text-gray-400 font-mono">
                       {format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                     </td>
                     <td className="font-medium text-sm">{log.username || '—'}</td>
@@ -80,16 +80,16 @@ export default function AuditLogPage() {
                         {log.action}
                       </span>
                     </td>
-                    <td className="text-slate-400 text-sm">
+                    <td className="text-gray-500 text-sm">
                       {log.resource_type && (
                         <span>
                           {log.resource_type}
-                          {log.resource_id && <span className="text-slate-600"> #{log.resource_id}</span>}
+                          {log.resource_id && <span className="text-gray-400"> #{log.resource_id}</span>}
                         </span>
                       )}
                     </td>
-                    <td className="text-slate-500 text-xs max-w-xs truncate">{log.details}</td>
-                    <td className="font-mono text-xs text-slate-500">{log.source_ip || '—'}</td>
+                    <td className="text-gray-400 text-xs max-w-xs truncate">{log.details}</td>
+                    <td className="font-mono text-xs text-gray-400">{log.source_ip || '—'}</td>
                     <td>
                       <span className={log.success ? 'badge-success' : 'badge-danger'}>
                         {log.success ? 'OK' : 'FAIL'}
@@ -99,7 +99,7 @@ export default function AuditLogPage() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-slate-500">No audit logs found</td>
+                    <td colSpan={7} className="text-center py-12 text-gray-400">No audit logs found</td>
                   </tr>
                 )}
               </tbody>
@@ -107,7 +107,7 @@ export default function AuditLogPage() {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-gray-400">
               Showing {filtered.length} of {logs?.length} entries
             </span>
             <div className="flex gap-2">
@@ -118,7 +118,7 @@ export default function AuditLogPage() {
               >
                 Previous
               </button>
-              <span className="px-3 py-1.5 text-sm text-slate-400">Page {page + 1}</span>
+              <span className="px-3 py-1.5 text-sm text-gray-500">Page {page + 1}</span>
               <button
                 onClick={() => setPage(page + 1)}
                 disabled={(logs?.length || 0) < pageSize}

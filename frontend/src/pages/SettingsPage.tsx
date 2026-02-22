@@ -108,12 +108,12 @@ export default function SettingsPage() {
       <div className="page-header">
         <div>
           <h1>System Settings</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Configure platform settings</p>
+          <p className="text-sm text-gray-500 mt-0.5">Configure platform settings</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-dark-200 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         {[
           { id: 'ldap', label: 'LDAP / Active Directory', icon: Server },
           { id: 'security', label: 'Security', icon: Shield },
@@ -122,7 +122,7 @@ export default function SettingsPage() {
             key={id}
             onClick={() => setTab(id as Tab)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+              tab === id ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
             }`}
           >
             <Icon className="h-4 w-4" />
@@ -134,20 +134,20 @@ export default function SettingsPage() {
       {tab === 'ldap' && (
         <div className="card max-w-2xl">
           <h3 className="mb-6 flex items-center gap-2">
-            <Server className="h-5 w-5 text-blue-400" />
+            <Server className="h-5 w-5 text-blue-600" />
             LDAP / Active Directory Integration
           </h3>
 
           <div className="space-y-4">
             {/* Enable toggle */}
-            <div className="flex items-center justify-between p-3 bg-dark-200 rounded-lg">
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div>
-                <div className="font-medium text-slate-200">Enable LDAP Authentication</div>
-                <div className="text-xs text-slate-500">Allow users to authenticate via Active Directory</div>
+                <div className="font-medium text-gray-800">Enable LDAP Authentication</div>
+                <div className="text-xs text-gray-500">Allow users to authenticate via Active Directory</div>
               </div>
               <button
                 onClick={() => setLdapConfig((p) => ({ ...p, enabled: !p.enabled }))}
-                className={`relative inline-flex h-6 w-11 rounded-full transition-colors ${ldapConfig.enabled ? 'bg-blue-600' : 'bg-slate-700'}`}
+                className={`relative inline-flex h-6 w-11 rounded-full transition-colors ${ldapConfig.enabled ? 'bg-blue-600' : 'bg-gray-300'}`}
               >
                 <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow mt-0.5 transition-transform ${ldapConfig.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
@@ -174,9 +174,9 @@ export default function SettingsPage() {
                     id="ssl"
                     checked={ldapConfig.use_ssl}
                     onChange={(e) => setLdapConfig((p) => ({ ...p, use_ssl: e.target.checked }))}
-                    className="h-4 w-4 rounded bg-dark-200 border-slate-600"
+                    className="h-4 w-4 rounded bg-white border-gray-300"
                   />
-                  <label htmlFor="ssl" className="text-sm text-slate-300">Use SSL/LDAPS (port 636)</label>
+                  <label htmlFor="ssl" className="text-sm text-gray-700">Use SSL/LDAPS (port 636)</label>
                 </div>
 
                 {field('Base DN', 'base_dn')}
@@ -184,8 +184,8 @@ export default function SettingsPage() {
                 {field('Bind Password', 'bind_password', 'password')}
                 {field('User Search Filter', 'user_filter')}
 
-                <div className="border-t border-slate-700 pt-4">
-                  <h4 className="text-sm font-semibold text-slate-300 mb-3">Group → Role Mapping</h4>
+                <div className="border-t border-gray-200 pt-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Group → Role Mapping</h4>
                   {field('Admin Group DN', 'group_admin')}
                   {field('Operator Group DN', 'group_operator')}
                   {field('Read-Only Group DN', 'group_readonly')}
@@ -197,9 +197,9 @@ export default function SettingsPage() {
                     id="fallback"
                     checked={ldapConfig.local_fallback}
                     onChange={(e) => setLdapConfig((p) => ({ ...p, local_fallback: e.target.checked }))}
-                    className="h-4 w-4 rounded bg-dark-200 border-slate-600"
+                    className="h-4 w-4 rounded bg-white border-gray-300"
                   />
-                  <label htmlFor="fallback" className="text-sm text-slate-300">
+                  <label htmlFor="fallback" className="text-sm text-gray-700">
                     Allow local fallback authentication (admin always allowed)
                   </label>
                 </div>
@@ -220,8 +220,8 @@ export default function SettingsPage() {
                 {testResult && (
                   <div className={`mt-3 p-3 rounded-lg text-sm ${
                     testResult.success
-                      ? 'bg-emerald-900/20 border border-emerald-700/50 text-emerald-400'
-                      : 'bg-red-900/20 border border-red-700/50 text-red-400'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
                   }`}>
                     {testResult.success ? '✓' : '✗'} {testResult.message}
                   </div>
@@ -246,37 +246,37 @@ export default function SettingsPage() {
       {tab === 'security' && (
         <div className="card max-w-2xl">
           <h3 className="mb-6 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-amber-400" />
+            <Shield className="h-5 w-5 text-amber-600" />
             Security Settings
           </h3>
           <div className="space-y-4">
-            <div className="p-4 bg-dark-200 rounded-lg">
-              <div className="font-medium text-slate-200 mb-1">Password Policy</div>
-              <ul className="text-sm text-slate-400 space-y-1">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="font-medium text-gray-800 mb-1">Password Policy</div>
+              <ul className="text-sm text-gray-500 space-y-1">
                 <li>• Minimum length: 10 characters</li>
                 <li>• Must include uppercase, lowercase, number, and special character</li>
                 <li>• Hashed with bcrypt (cost factor 12)</li>
               </ul>
             </div>
-            <div className="p-4 bg-dark-200 rounded-lg">
-              <div className="font-medium text-slate-200 mb-1">Account Lockout</div>
-              <ul className="text-sm text-slate-400 space-y-1">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="font-medium text-gray-800 mb-1">Account Lockout</div>
+              <ul className="text-sm text-gray-500 space-y-1">
                 <li>• Locked after 5 failed login attempts</li>
                 <li>• Lockout duration: 30 minutes</li>
                 <li>• Administrators can manually unlock accounts</li>
               </ul>
             </div>
-            <div className="p-4 bg-dark-200 rounded-lg">
-              <div className="font-medium text-slate-200 mb-1">Session Security</div>
-              <ul className="text-sm text-slate-400 space-y-1">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="font-medium text-gray-800 mb-1">Session Security</div>
+              <ul className="text-sm text-gray-500 space-y-1">
                 <li>• JWT access tokens: 60 minute expiry</li>
                 <li>• Refresh tokens: 7 day expiry</li>
                 <li>• Security headers: HSTS, X-Frame-Options, CSP</li>
               </ul>
             </div>
-            <div className="p-4 bg-dark-200 rounded-lg">
-              <div className="font-medium text-slate-200 mb-1">API Security</div>
-              <ul className="text-sm text-slate-400 space-y-1">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="font-medium text-gray-800 mb-1">API Security</div>
+              <ul className="text-sm text-gray-500 space-y-1">
                 <li>• RBAC enforced on all API endpoints</li>
                 <li>• Rate limiting on login endpoint (10/minute)</li>
                 <li>• All changes logged to audit trail</li>

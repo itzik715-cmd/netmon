@@ -15,10 +15,11 @@ export default {
         success: '#10b981',
         warning: '#f59e0b',
         danger: '#ef4444',
+        // Remapped to light equivalents so inline bg-dark-* classes work in light theme
         dark: {
-          100: '#1e2333',
-          200: '#161b2d',
-          300: '#0f1420',
+          100: '#f5f8fc',  // subtle hover/alternate bg
+          200: '#ffffff',  // white panels, sidebar, header
+          300: '#f0f4f8',  // main body background
         },
       },
     },

@@ -46,8 +46,8 @@ export default function DeviceDetailPage() {
     onSuccess: () => toast.success('Interface discovery started'),
   })
 
-  if (deviceLoading) return <div className="text-center py-12 text-slate-500">Loading...</div>
-  if (!device) return <div className="text-center py-12 text-slate-500">Device not found</div>
+  if (deviceLoading) return <div className="text-center py-12 text-gray-400">Loading...</div>
+  if (!device) return <div className="text-center py-12 text-gray-400">Device not found</div>
 
   const filteredIfs = (interfaces || []).filter(
     (i) =>
@@ -57,16 +57,16 @@ export default function DeviceDetailPage() {
   )
 
   const statusColorMap: Record<string, string> = {
-    up: 'text-emerald-400', down: 'text-red-400',
-    unknown: 'text-slate-400', degraded: 'text-amber-400',
+    up: 'text-green-600', down: 'text-red-600',
+    unknown: 'text-gray-400', degraded: 'text-amber-600',
   }
-  const statusColor = statusColorMap[device.status as string] || 'text-slate-400'
+  const statusColor = statusColorMap[device.status as string] || 'text-gray-400'
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link to="/devices" className="p-2 text-slate-400 hover:text-slate-100 hover:bg-dark-100 rounded-lg transition-colors">
+        <Link to="/devices" className="p-2 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div className="flex-1">
@@ -74,7 +74,7 @@ export default function DeviceDetailPage() {
             <h1 className="text-2xl">{device.hostname}</h1>
             <span className={`font-semibold ${statusColor}`}>● {device.status}</span>
           </div>
-          <p className="text-slate-400 text-sm">{device.ip_address}</p>
+          <p className="text-gray-500 text-sm">{device.ip_address}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -97,51 +97,51 @@ export default function DeviceDetailPage() {
       {/* Device Info Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">Vendor / Model</div>
-          <div className="font-medium text-slate-200">
+          <div className="text-xs text-gray-500 mb-1">Vendor / Model</div>
+          <div className="font-medium text-gray-800">
             {[device.vendor, device.model].filter(Boolean).join(' ') || '—'}
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">OS Version</div>
-          <div className="font-medium text-slate-200">{device.os_version || '—'}</div>
+          <div className="text-xs text-gray-500 mb-1">OS Version</div>
+          <div className="font-medium text-gray-800">{device.os_version || '—'}</div>
         </div>
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">Uptime</div>
-          <div className="font-medium text-slate-200">
+          <div className="text-xs text-gray-500 mb-1">Uptime</div>
+          <div className="font-medium text-gray-800">
             {device.uptime ? formatUptime(device.uptime) : '—'}
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">Location</div>
-          <div className="font-medium text-slate-200">{device.location?.name || '—'}</div>
+          <div className="text-xs text-gray-500 mb-1">Location</div>
+          <div className="font-medium text-gray-800">{device.location?.name || '—'}</div>
         </div>
         {device.cpu_usage != null && (
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">CPU Usage</div>
-            <div className={`font-bold text-xl ${device.cpu_usage > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">CPU Usage</div>
+            <div className={`font-bold text-xl ${device.cpu_usage > 80 ? 'text-red-600' : 'text-green-600'}`}>
               {device.cpu_usage.toFixed(1)}%
             </div>
           </div>
         )}
         {device.memory_usage != null && (
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">Memory Usage</div>
-            <div className={`font-bold text-xl ${device.memory_usage > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">Memory Usage</div>
+            <div className={`font-bold text-xl ${device.memory_usage > 80 ? 'text-red-600' : 'text-green-600'}`}>
               {device.memory_usage.toFixed(1)}%
             </div>
           </div>
         )}
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">Last Seen</div>
-          <div className="font-medium text-slate-200 text-sm">
+          <div className="text-xs text-gray-500 mb-1">Last Seen</div>
+          <div className="font-medium text-gray-800 text-sm">
             {device.last_seen
               ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })
               : 'Never'}
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-slate-500 mb-1">Device Type</div>
+          <div className="text-xs text-gray-500 mb-1">Device Type</div>
           <div className="font-medium">
             {device.device_type ? (
               <span className="badge-info">{device.device_type}</span>
@@ -154,7 +154,7 @@ export default function DeviceDetailPage() {
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-blue-400" />
+            <Activity className="h-4 w-4 text-blue-600" />
             Interfaces ({interfaces?.length || 0})
           </h3>
           <input
@@ -166,7 +166,7 @@ export default function DeviceDetailPage() {
         </div>
 
         {ifLoading ? (
-          <div className="text-center py-8 text-slate-500">Loading interfaces...</div>
+          <div className="text-center py-8 text-gray-400">Loading interfaces...</div>
         ) : (
           <div className="table-container">
             <table>
@@ -188,7 +188,7 @@ export default function DeviceDetailPage() {
                     <td>
                       <Link
                         to={`/interfaces/${iface.id}`}
-                        className="text-blue-400 hover:text-blue-300 font-mono text-sm"
+                        className="text-blue-600 hover:text-blue-700 font-mono text-sm"
                       >
                         {iface.name}
                       </Link>
@@ -196,10 +196,10 @@ export default function DeviceDetailPage() {
                         <span className="ml-2 badge-warning text-xs">uplink</span>
                       )}
                     </td>
-                    <td className="text-slate-400 text-sm">
+                    <td className="text-gray-500 text-sm">
                       {iface.alias || iface.description || '—'}
                     </td>
-                    <td className="text-slate-400 text-sm">
+                    <td className="text-gray-500 text-sm">
                       {iface.speed ? formatBps(iface.speed) : '—'}
                     </td>
                     <td>
@@ -212,12 +212,12 @@ export default function DeviceDetailPage() {
                         {iface.oper_status || '—'}
                       </span>
                     </td>
-                    <td className="font-mono text-sm text-slate-400">{iface.ip_address || '—'}</td>
-                    <td className="text-slate-400">{iface.vlan_id || '—'}</td>
+                    <td className="font-mono text-sm text-gray-500">{iface.ip_address || '—'}</td>
+                    <td className="text-gray-500">{iface.vlan_id || '—'}</td>
                     <td>
                       <Link
                         to={`/interfaces/${iface.id}`}
-                        className="text-xs text-blue-400 hover:text-blue-300"
+                        className="text-xs text-blue-600 hover:text-blue-700"
                       >
                         Graphs →
                       </Link>
@@ -226,7 +226,7 @@ export default function DeviceDetailPage() {
                 ))}
                 {filteredIfs.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 text-slate-500">
+                    <td colSpan={8} className="text-center py-8 text-gray-400">
                       {interfaces?.length === 0
                         ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
                         : 'No interfaces match your search'}

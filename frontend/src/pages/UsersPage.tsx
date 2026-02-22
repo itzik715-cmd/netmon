@@ -49,7 +49,7 @@ export default function UsersPage() {
       <div className="page-header">
         <div>
           <h1>User Management</h1>
-          <p className="text-sm text-slate-400 mt-0.5">{users?.length || 0} active users</p>
+          <p className="text-sm text-gray-500 mt-0.5">{users?.length || 0} active users</p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
@@ -61,7 +61,7 @@ export default function UsersPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-slate-500">Loading users...</div>
+        <div className="text-center py-12 text-gray-400">Loading users...</div>
       ) : (
         <div className="table-container">
           <table>
@@ -86,7 +86,7 @@ export default function UsersPage() {
                       <span className="ml-2 badge-warning text-xs">pwd change</span>
                     )}
                   </td>
-                  <td className="text-slate-400 text-sm">{user.email}</td>
+                  <td className="text-gray-500 text-sm">{user.email}</td>
                   <td>{roleBadge(user.role.name)}</td>
                   <td>{authBadge(user.auth_source)}</td>
                   <td>
@@ -98,13 +98,13 @@ export default function UsersPage() {
                       <span className="badge-gray">Inactive</span>
                     )}
                   </td>
-                  <td className="text-slate-500 text-xs">
+                  <td className="text-gray-400 text-xs">
                     {user.last_login
                       ? formatDistanceToNow(new Date(user.last_login), { addSuffix: true })
                       : 'Never'}
                   </td>
                   <td>
-                    <span className={user.failed_attempts > 0 ? 'text-amber-400' : 'text-slate-400'}>
+                    <span className={user.failed_attempts > 0 ? 'text-amber-600' : 'text-gray-500'}>
                       {user.failed_attempts}
                     </span>
                   </td>
@@ -112,7 +112,7 @@ export default function UsersPage() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => resetPwMutation.mutate(user.id)}
-                        className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-amber-900/20 rounded transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
                         title="Force password reset"
                       >
                         <RefreshCw className="h-4 w-4" />
@@ -120,7 +120,7 @@ export default function UsersPage() {
                       {user.account_locked && (
                         <button
                           onClick={() => unlockMutation.mutate(user.id)}
-                          className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-900/20 rounded transition-colors"
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
                           title="Unlock account"
                         >
                           <Unlock className="h-4 w-4" />
@@ -132,7 +132,7 @@ export default function UsersPage() {
                             deleteMutation.mutate(user.id)
                           }
                         }}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                         title="Deactivate user"
                       >
                         <Trash2 className="h-4 w-4" />

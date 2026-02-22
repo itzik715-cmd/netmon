@@ -25,6 +25,13 @@ const TIME_RANGES = [
   { label: '30d', hours: 720 },
 ]
 
+const CHART_TOOLTIP_STYLE = {
+  background: '#ffffff',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+  color: '#374151',
+}
+
 export default function InterfaceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const ifId = parseInt(id!)
@@ -61,14 +68,14 @@ export default function InterfaceDetailPage() {
         {iface && (
           <Link
             to={`/devices/${iface.device_id}`}
-            className="p-2 text-slate-400 hover:text-slate-100 hover:bg-dark-100 rounded-lg transition-colors"
+            className="p-2 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
         )}
         <div>
           <h1 className="font-mono">{iface?.name || `Interface ${ifId}`}</h1>
-          {iface?.alias && <p className="text-slate-400 text-sm">{iface.alias}</p>}
+          {iface?.alias && <p className="text-gray-500 text-sm">{iface.alias}</p>}
         </div>
         <div className="ml-auto flex gap-1">
           {TIME_RANGES.map((r) => (
@@ -78,7 +85,7 @@ export default function InterfaceDetailPage() {
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                 hours === r.hours
                   ? 'bg-blue-600 text-white'
-                  : 'bg-dark-100 text-slate-400 hover:text-slate-200'
+                  : 'bg-gray-100 text-gray-500 hover:text-gray-800'
               }`}
             >
               {r.label}
@@ -91,40 +98,40 @@ export default function InterfaceDetailPage() {
       {latest && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">In Throughput</div>
-            <div className="text-2xl font-bold text-blue-400">{formatBps(latest.in_bps)}</div>
+            <div className="text-xs text-gray-500 mb-1">In Throughput</div>
+            <div className="text-2xl font-bold text-blue-600">{formatBps(latest.in_bps)}</div>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">Out Throughput</div>
-            <div className="text-2xl font-bold text-purple-400">{formatBps(latest.out_bps)}</div>
+            <div className="text-xs text-gray-500 mb-1">Out Throughput</div>
+            <div className="text-2xl font-bold text-purple-600">{formatBps(latest.out_bps)}</div>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">In Utilization</div>
-            <div className={`text-2xl font-bold ${latest.utilization_in > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">In Utilization</div>
+            <div className={`text-2xl font-bold ${latest.utilization_in > 80 ? 'text-red-600' : 'text-green-600'}`}>
               {latest.utilization_in.toFixed(1)}%
             </div>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">Out Utilization</div>
-            <div className={`text-2xl font-bold ${latest.utilization_out > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">Out Utilization</div>
+            <div className={`text-2xl font-bold ${latest.utilization_out > 80 ? 'text-red-600' : 'text-green-600'}`}>
               {latest.utilization_out.toFixed(1)}%
             </div>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">Oper Status</div>
+            <div className="text-xs text-gray-500 mb-1">Oper Status</div>
             <span className={latest.oper_status === 'up' ? 'badge-success' : 'badge-danger'}>
               {latest.oper_status}
             </span>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">In Errors</div>
-            <div className={`text-2xl font-bold ${latest.in_errors > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">In Errors</div>
+            <div className={`text-2xl font-bold ${latest.in_errors > 0 ? 'text-red-600' : 'text-gray-500'}`}>
               {latest.in_errors}
             </div>
           </div>
           <div className="card">
-            <div className="text-xs text-slate-500 mb-1">Out Errors</div>
-            <div className={`text-2xl font-bold ${latest.out_errors > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+            <div className="text-xs text-gray-500 mb-1">Out Errors</div>
+            <div className={`text-2xl font-bold ${latest.out_errors > 0 ? 'text-red-600' : 'text-gray-500'}`}>
               {latest.out_errors}
             </div>
           </div>
@@ -134,36 +141,36 @@ export default function InterfaceDetailPage() {
       {/* Throughput Chart */}
       <div className="card">
         <h3 className="flex items-center gap-2 mb-4">
-          <Activity className="h-4 w-4 text-blue-400" />
+          <Activity className="h-4 w-4 text-blue-600" />
           Throughput — Last {hours}h
         </h3>
         {isLoading ? (
-          <div className="h-64 flex items-center justify-center text-slate-500">Loading...</div>
+          <div className="h-64 flex items-center justify-center text-gray-400">Loading...</div>
         ) : chartData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-slate-500">
+          <div className="h-64 flex items-center justify-center text-gray-400">
             No data available for this period
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2333" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
                 dataKey="time"
-                tick={{ fill: '#64748b', fontSize: 11 }}
+                tick={{ fill: '#6b7280', fontSize: 11 }}
                 tickLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fill: '#64748b', fontSize: 11 }}
+                tick={{ fill: '#6b7280', fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 unit=" Mbps"
                 width={70}
               />
               <Tooltip
-                contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
-                labelStyle={{ color: '#94a3b8' }}
-                itemStyle={{ color: '#e2e8f0' }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                labelStyle={{ color: '#6b7280' }}
+                itemStyle={{ color: '#374151' }}
               />
               <Legend />
               <Line
@@ -193,15 +200,15 @@ export default function InterfaceDetailPage() {
         {chartData.length > 0 && (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2333" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
                 dataKey="time"
-                tick={{ fill: '#64748b', fontSize: 11 }}
+                tick={{ fill: '#6b7280', fontSize: 11 }}
                 tickLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fill: '#64748b', fontSize: 11 }}
+                tick={{ fill: '#6b7280', fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 unit="%"
@@ -209,8 +216,8 @@ export default function InterfaceDetailPage() {
                 width={45}
               />
               <Tooltip
-                contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
-                labelStyle={{ color: '#94a3b8' }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                labelStyle={{ color: '#6b7280' }}
               />
               <Legend />
               <Line

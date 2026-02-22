@@ -24,6 +24,13 @@ const TIME_RANGES = [
   { label: '7d', hours: 168 },
 ]
 
+const CHART_TOOLTIP_STYLE = {
+  background: '#ffffff',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+  color: '#374151',
+}
+
 export default function FlowsPage() {
   const [hours, setHours] = useState(1)
 
@@ -44,7 +51,7 @@ export default function FlowsPage() {
       <div className="page-header">
         <div>
           <h1>Flow Analysis</h1>
-          <p className="text-sm text-slate-400 mt-0.5">NetFlow & sFlow traffic analysis</p>
+          <p className="text-sm text-gray-500 mt-0.5">NetFlow & sFlow traffic analysis</p>
         </div>
         <div className="flex gap-1">
           {TIME_RANGES.map((r) => (
@@ -52,7 +59,7 @@ export default function FlowsPage() {
               key={r.hours}
               onClick={() => setHours(r.hours)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                hours === r.hours ? 'bg-blue-600 text-white' : 'bg-dark-100 text-slate-400 hover:text-slate-200'
+                hours === r.hours ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-800'
               }`}
             >
               {r.label}
@@ -65,14 +72,14 @@ export default function FlowsPage() {
       {stats && (
         <div className="grid grid-cols-2 gap-4">
           <div className="card">
-            <div className="text-sm text-slate-400">Total Flows</div>
-            <div className="text-3xl font-bold text-slate-100 mt-1">
+            <div className="text-sm text-gray-500">Total Flows</div>
+            <div className="text-3xl font-bold text-gray-900 mt-1">
               {stats.total_flows.toLocaleString()}
             </div>
           </div>
           <div className="card">
-            <div className="text-sm text-slate-400">Total Traffic</div>
-            <div className="text-3xl font-bold text-slate-100 mt-1">
+            <div className="text-sm text-gray-500">Total Traffic</div>
+            <div className="text-3xl font-bold text-gray-900 mt-1">
               {formatBytes(stats.total_bytes)}
             </div>
           </div>
@@ -80,12 +87,12 @@ export default function FlowsPage() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-slate-500">Loading flow data...</div>
+        <div className="text-center py-12 text-gray-400">Loading flow data...</div>
       ) : !stats || stats.total_flows === 0 ? (
         <div className="card text-center py-16">
-          <Activity className="h-12 w-12 mx-auto mb-4 text-slate-600" />
-          <p className="text-slate-400 font-medium">No flow data available</p>
-          <p className="text-slate-500 text-sm mt-2">
+          <Activity className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p className="text-gray-600 font-medium">No flow data available</p>
+          <p className="text-gray-400 text-sm mt-2">
             Configure your network devices to export NetFlow to this server on UDP port 2055
           </p>
         </div>
@@ -95,17 +102,17 @@ export default function FlowsPage() {
             {/* Top Talkers */}
             <div className="card">
               <h3 className="mb-4 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-blue-400" />
+                <TrendingUp className="h-4 w-4 text-blue-600" />
                 Top Talkers (by bytes)
               </h3>
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={stats.top_talkers} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2333" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false}
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false}
                     tickFormatter={(v) => formatBytes(v)} />
-                  <YAxis type="category" dataKey="ip" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} width={80} />
+                  <YAxis type="category" dataKey="ip" tick={{ fill: '#374151', fontSize: 11 }} tickLine={false} width={80} />
                   <Tooltip
-                    contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v: number) => [formatBytes(v), 'Traffic']}
                   />
                   <Bar dataKey="bytes" fill="#3b82f6" radius={[0, 4, 4, 0]} />
@@ -118,12 +125,12 @@ export default function FlowsPage() {
               <h3 className="mb-4">Top Destinations</h3>
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={stats.top_destinations} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2333" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false}
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false}
                     tickFormatter={(v) => formatBytes(v)} />
-                  <YAxis type="category" dataKey="ip" tick={{ fill: '#94a3b8', fontSize: 11 }} tickLine={false} width={80} />
+                  <YAxis type="category" dataKey="ip" tick={{ fill: '#374151', fontSize: 11 }} tickLine={false} width={80} />
                   <Tooltip
-                    contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v: number) => [formatBytes(v), 'Traffic']}
                   />
                   <Bar dataKey="bytes" fill="#10b981" radius={[0, 4, 4, 0]} />
@@ -153,7 +160,7 @@ export default function FlowsPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v: number) => formatBytes(v)}
                   />
                 </PieChart>
@@ -178,10 +185,10 @@ export default function FlowsPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: '#1e2333', border: '1px solid #2d3748', borderRadius: '8px' }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v: number) => formatBytes(v)}
                   />
-                  <Legend formatter={(v) => <span className="text-slate-300 text-xs">{v}</span>} />
+                  <Legend formatter={(v) => <span className="text-gray-600 text-xs">{v}</span>} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -212,11 +219,11 @@ export default function FlowsPage() {
                       <td>
                         <span className="badge-info">{flow.protocol}</span>
                       </td>
-                      <td className="font-mono text-sm text-slate-400">{flow.dst_port}</td>
-                      <td className="text-slate-400 text-sm">{flow.application || '—'}</td>
+                      <td className="font-mono text-sm text-gray-500">{flow.dst_port}</td>
+                      <td className="text-gray-500 text-sm">{flow.application || '—'}</td>
                       <td className="font-mono text-sm">{formatBytes(flow.bytes)}</td>
-                      <td className="text-slate-400">{flow.packets?.toLocaleString()}</td>
-                      <td className="text-slate-500 text-xs">
+                      <td className="text-gray-500">{flow.packets?.toLocaleString()}</td>
+                      <td className="text-gray-400 text-xs">
                         {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}
                       </td>
                     </tr>

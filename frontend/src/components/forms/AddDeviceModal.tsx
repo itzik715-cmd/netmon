@@ -49,11 +49,11 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
     setForm((p) => ({ ...p, [key]: e.target.value }))
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-100 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-2xl shadow-xl">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200">
           <h3>Add Device</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-100">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -111,8 +111,8 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            <div className="border-t border-slate-700 pt-4">
-              <div className="text-sm font-semibold text-slate-400 mb-3">SNMP Configuration</div>
+            <div className="border-t border-gray-200 pt-4">
+              <div className="text-sm font-semibold text-gray-600 mb-3">SNMP Configuration</div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="label">SNMP Version</label>
@@ -143,7 +143,7 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 p-5 border-t border-slate-700">
+          <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={mutation.isPending} className="btn-primary flex items-center gap-2">
               {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
