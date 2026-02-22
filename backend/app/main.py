@@ -16,6 +16,7 @@ from app.config import settings
 from app.database import init_db
 from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router
 from app.services.alert_engine import evaluate_rules
+from app.services.flow_collector import FlowCollector
 import os
 
 logging.basicConfig(
@@ -158,9 +159,21 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduled tasks started")
 
+    # Start flow collector (NetFlow + sFlow UDP listeners)
+    from app.database import AsyncSessionLocal
+    flow_collector = FlowCollector(AsyncSessionLocal)
+    collector_task = asyncio.create_task(flow_collector.start())
+    logger.info("Flow collector started (NetFlow UDP:2055, sFlow UDP:6343)")
+
     yield
 
     # Shutdown
+    flow_collector.stop()
+    collector_task.cancel()
+    try:
+        await collector_task
+    except asyncio.CancelledError:
+        pass
     scheduler.shutdown()
     logger.info("NetMon Platform shutting down")
 
