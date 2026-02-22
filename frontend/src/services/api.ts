@@ -87,6 +87,9 @@ export const devicesApi = {
   summary: () => api.get('/devices/summary'),
   poll: (id: number) => api.post(`/devices/${id}/poll`),
   discover: (id: number) => api.post(`/devices/${id}/discover`),
+  routes: (id: number) => api.get(`/devices/${id}/routes`),
+  discoverRoutes: (id: number) => api.post(`/devices/${id}/discover-routes`),
+  scanSubnet: (data: object) => api.post('/devices/scan-subnet', data),
   locations: () => api.get('/devices/locations/list'),
   createLocation: (data: object) => api.post('/devices/locations/', data),
 }

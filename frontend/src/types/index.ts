@@ -160,3 +160,23 @@ export interface Role {
   name: string
   description?: string
 }
+
+export interface DeviceRoute {
+  id: number
+  destination: string
+  mask?: string
+  prefix_len?: number
+  next_hop?: string
+  protocol?: string
+  metric?: number
+  updated_at?: string
+}
+
+export interface SubnetScanResult {
+  subnet: string
+  total_hosts: number
+  responsive: number
+  new_devices: number
+  existing_devices: number
+  ips_found: string[]
+}

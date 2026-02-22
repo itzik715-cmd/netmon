@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Search, Trash2 } from 'lucide-react'
+import { RefreshCw, Search, Trash2, Wifi } from 'lucide-react'
 import { devicesApi } from '../services/api'
 import { Device } from '../types'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import AddDeviceModal from '../components/forms/AddDeviceModal'
+import ScanSubnetModal from '../components/forms/ScanSubnetModal'
 
 function statusTag(status: string) {
   const map: Record<string, string> = {
@@ -29,6 +30,7 @@ export default function DevicesPage() {
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [showScan, setShowScan] = useState(false)
   const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   const { data: devices, isLoading, refetch } = useQuery({
@@ -69,6 +71,12 @@ export default function DevicesPage() {
             <RefreshCw size={13} />
             Refresh
           </button>
+          {isOperator && (
+            <button onClick={() => setShowScan(true)} className="btn btn-outline btn-sm">
+              <Wifi size={13} />
+              Scan Subnet
+            </button>
+          )}
           {isOperator && (
             <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-sm">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 13, height: 13 }}>
@@ -213,6 +221,7 @@ export default function DevicesPage() {
       </div>
 
       {showAdd && <AddDeviceModal onClose={() => setShowAdd(false)} />}
+      {showScan && <ScanSubnetModal onClose={() => setShowScan(false)} onDone={() => { qc.invalidateQueries({ queryKey: ['devices'] }); setShowScan(false) }} />}
     </div>
   )
 }

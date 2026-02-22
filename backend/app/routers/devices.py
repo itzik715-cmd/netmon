@@ -3,13 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from app.database import get_db
-from app.models.device import Device, DeviceLocation
+from app.models.device import Device, DeviceLocation, DeviceRoute
 from app.models.interface import Interface
 from app.services.auth import log_audit
 from app.middleware.rbac import get_current_user, require_admin, require_operator_or_above
 from app.schemas.device import (
     DeviceCreate, DeviceUpdate, DeviceResponse,
-    LocationCreate, LocationResponse
+    LocationCreate, LocationResponse,
+    DeviceRouteResponse, SubnetScanRequest, SubnetScanResponse,
 )
 from app.models.user import User
 
@@ -35,16 +36,14 @@ async def list_devices(
     result = await db.execute(query)
     devices = result.scalars().all()
 
-    # Load location and count interfaces
     device_list = []
     for device in devices:
         await db.refresh(device, ["location"])
         count_result = await db.execute(
             select(func.count(Interface.id)).where(Interface.device_id == device.id)
         )
-        interface_count = count_result.scalar() or 0
         d = DeviceResponse.model_validate(device)
-        d.interface_count = interface_count
+        d.interface_count = count_result.scalar() or 0
         device_list.append(d)
 
     return device_list
@@ -58,7 +57,6 @@ async def create_device(
     current_user: User = Depends(require_operator_or_above()),
     db: AsyncSession = Depends(get_db),
 ):
-    # Check IP uniqueness
     existing = await db.execute(select(Device).where(Device.ip_address == payload.ip_address))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Device with this IP already exists")
@@ -76,7 +74,7 @@ async def create_device(
         source_ip=request.client.host if request.client else None,
     )
 
-    # Trigger initial discovery in background
+    # Enrich + discover in background
     background_tasks.add_task(discover_and_poll, device.id)
 
     d = DeviceResponse.model_validate(device)
@@ -86,10 +84,9 @@ async def create_device(
 
 @router.get("/summary")
 async def get_summary(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
-    """Dashboard summary statistics."""
     total = await db.execute(select(func.count(Device.id)).where(Device.is_active == True))
-    up = await db.execute(select(func.count(Device.id)).where(Device.status == "up", Device.is_active == True))
-    down = await db.execute(select(func.count(Device.id)).where(Device.status == "down", Device.is_active == True))
+    up    = await db.execute(select(func.count(Device.id)).where(Device.status == "up", Device.is_active == True))
+    down  = await db.execute(select(func.count(Device.id)).where(Device.status == "down", Device.is_active == True))
     iface_count = await db.execute(select(func.count(Interface.id)))
 
     return {
@@ -98,6 +95,31 @@ async def get_summary(db: AsyncSession = Depends(get_db), _: User = Depends(get_
         "devices_down": down.scalar() or 0,
         "total_interfaces": iface_count.scalar() or 0,
     }
+
+
+@router.post("/scan-subnet", response_model=SubnetScanResponse)
+async def scan_subnet_endpoint(
+    payload: SubnetScanRequest,
+    _: User = Depends(require_operator_or_above()),
+):
+    """
+    Scan a CIDR subnet for SNMP-responsive devices.
+    Automatically creates Device records for new responsive hosts.
+    """
+    from app.database import AsyncSessionLocal
+    from app.services.subnet_scanner import scan_subnet
+
+    result = await scan_subnet(
+        subnet=payload.subnet,
+        snmp_community=payload.snmp_community,
+        snmp_version=payload.snmp_version,
+        snmp_port=payload.snmp_port,
+        device_type=payload.device_type,
+        layer=payload.layer,
+        location_id=payload.location_id,
+        session_factory=AsyncSessionLocal,
+    )
+    return result
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)
@@ -186,8 +208,7 @@ async def manual_poll(
     _: User = Depends(require_operator_or_above()),
 ):
     result = await db.execute(select(Device).where(Device.id == device_id))
-    device = result.scalar_one_or_none()
-    if not device:
+    if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Device not found")
     background_tasks.add_task(discover_and_poll, device_id)
     return {"message": "Poll scheduled"}
@@ -201,11 +222,43 @@ async def discover_device_interfaces(
     _: User = Depends(require_operator_or_above()),
 ):
     result = await db.execute(select(Device).where(Device.id == device_id))
-    device = result.scalar_one_or_none()
-    if not device:
+    if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Device not found")
     background_tasks.add_task(run_discovery, device_id)
     return {"message": "Interface discovery started"}
+
+
+@router.get("/{device_id}/routes", response_model=List[DeviceRouteResponse])
+async def get_device_routes(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return the routing table discovered for this device."""
+    result = await db.execute(select(Device).where(Device.id == device_id, Device.is_active == True))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    routes_result = await db.execute(
+        select(DeviceRoute).where(DeviceRoute.device_id == device_id)
+        .order_by(DeviceRoute.destination)
+    )
+    return routes_result.scalars().all()
+
+
+@router.post("/{device_id}/discover-routes")
+async def discover_device_routes(
+    device_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Trigger SNMP route table discovery for an L3 device."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Device not found")
+    background_tasks.add_task(run_route_discovery, device_id)
+    return {"message": "Route discovery started"}
 
 
 # Locations
@@ -224,16 +277,25 @@ async def create_location(payload: LocationCreate, db: AsyncSession = Depends(ge
     return loc
 
 
+# ---------------------------------------------------------------------------
+# Background tasks
+# ---------------------------------------------------------------------------
+
 async def discover_and_poll(device_id: int):
-    """Background task: discover interfaces then poll."""
+    """Enrich device info, discover interfaces, poll, and discover routes for L3."""
     from app.database import AsyncSessionLocal
-    from app.services.snmp_poller import discover_interfaces, poll_device
+    from app.services.snmp_poller import enrich_device_info, discover_interfaces, poll_device, discover_routes
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
-        if device:
-            await discover_interfaces(device, db)
-            await poll_device(device, db)
+        if not device:
+            return
+        await enrich_device_info(device, db)
+        await db.refresh(device)
+        await discover_interfaces(device, db)
+        await poll_device(device, db)
+        if device.layer in ("L3", "L2/L3") or device.device_type in ("router", "spine", "leaf"):
+            await discover_routes(device, db)
 
 
 async def run_discovery(device_id: int):
@@ -243,5 +305,14 @@ async def run_discovery(device_id: int):
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
         if device:
-            count = await discover_interfaces(device, db)
-            return count
+            await discover_interfaces(device, db)
+
+
+async def run_route_discovery(device_id: int):
+    from app.database import AsyncSessionLocal
+    from app.services.snmp_poller import discover_routes
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Device).where(Device.id == device_id))
+        device = result.scalar_one_or_none()
+        if device:
+            await discover_routes(device, db)

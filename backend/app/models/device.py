@@ -27,7 +27,7 @@ class Device(Base):
     layer = Column(String(20))        # L2, L3, L2/L3
     vendor = Column(String(100))
     model = Column(String(100))
-    os_version = Column(String(100))
+    os_version = Column(String(200))
     location_id = Column(Integer, ForeignKey("device_locations.id"), nullable=True)
     snmp_community = Column(String(100))
     snmp_version = Column(String(10), default="2c")
@@ -53,3 +53,20 @@ class Device(Base):
     location = relationship("DeviceLocation", back_populates="devices")
     interfaces = relationship("Interface", back_populates="device", cascade="all, delete-orphan")
     alert_rules = relationship("AlertRule", back_populates="device")
+    routes = relationship("DeviceRoute", back_populates="device", cascade="all, delete-orphan")
+
+
+class DeviceRoute(Base):
+    __tablename__ = "device_routes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    destination = Column(String(50), nullable=False)
+    mask = Column(String(50))
+    prefix_len = Column(Integer)
+    next_hop = Column(String(50))
+    protocol = Column(String(20))  # static, bgp, ospf, rip, local, other
+    metric = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    device = relationship("Device", back_populates="routes")
