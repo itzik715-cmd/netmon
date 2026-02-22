@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Shield, Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -57,105 +57,101 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f4f8] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
-            <Shield className="h-10 w-10 text-amber-600" />
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <div className="auth-logo-icon" style={{ background: 'var(--accent-orange)' }}>
+            <Shield size={28} color="white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Change Password</h1>
+          <h1>Change Password</h1>
           {isMustChange && (
-            <p className="text-amber-600 text-sm mt-2">
+            <p style={{ color: 'var(--accent-orange)' }}>
               You must change your password before accessing the system
             </p>
           )}
         </div>
 
-        <div className="card shadow-lg">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div className="alert-error" style={{ marginBottom: 16 }}>{error}</div>
+        )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isMustChange && (
-              <div>
-                <label className="label">Current Password</label>
-                <input
-                  type="password"
-                  className="input"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required={!isMustChange}
-                />
-              </div>
-            )}
-
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {!isMustChange && (
             <div>
-              <label className="label">New Password</label>
-              <div className="relative">
-                <input
-                  type={showNew ? 'text' : 'password'}
-                  className="input pr-10"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                >
-                  {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Password Rules */}
-            {newPassword.length > 0 && (
-              <div className="p-3 bg-gray-50 rounded-lg space-y-1">
-                {RULES.map((rule) => {
-                  const passes = rule.test(newPassword)
-                  return (
-                    <div key={rule.label} className="flex items-center gap-2 text-xs">
-                      {passes
-                        ? <CheckCircle className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-                        : <XCircle className="h-3.5 w-3.5 text-gray-300 flex-shrink-0" />
-                      }
-                      <span className={passes ? 'text-green-600' : 'text-gray-400'}>
-                        {rule.label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            <div>
-              <label className="label">Confirm New Password</label>
+              <label className="label">Current Password</label>
               <input
                 type="password"
                 className="input"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required={!isMustChange}
               />
-              {confirmPassword && !passwordsMatch && (
-                <p className="text-red-600 text-xs mt-1">Passwords do not match</p>
-              )}
             </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading || !allRulesPass || !passwordsMatch}
-              className="btn-primary w-full flex items-center justify-center gap-2"
-            >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Change Password
-            </button>
-          </form>
-        </div>
+          <div>
+            <label className="label">New Password</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showNew ? 'text' : 'password'}
+                className="input"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                style={{ paddingRight: 40 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNew(!showNew)}
+                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)', display: 'flex', alignItems: 'center' }}
+              >
+                {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+
+          {newPassword.length > 0 && (
+            <div style={{ padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {RULES.map((rule) => {
+                const passes = rule.test(newPassword)
+                return (
+                  <div key={rule.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <span style={{ color: passes ? 'var(--accent-green)' : 'var(--text-light)', fontSize: 14, lineHeight: 1 }}>
+                      {passes ? '✓' : '○'}
+                    </span>
+                    <span style={{ color: passes ? 'var(--accent-green)' : 'var(--text-muted)' }}>
+                      {rule.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div>
+            <label className="label">Confirm New Password</label>
+            <input
+              type="password"
+              className="input"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+            {confirmPassword && !passwordsMatch && (
+              <p style={{ color: 'var(--accent-red)', fontSize: 11, marginTop: 4 }}>Passwords do not match</p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || !allRulesPass || !passwordsMatch}
+            className="btn btn-primary"
+            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
+          >
+            {loading && <Loader2 size={14} className="animate-spin" />}
+            Change Password
+          </button>
+        </form>
       </div>
     </div>
   )

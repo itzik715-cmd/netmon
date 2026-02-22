@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { devicesApi, interfacesApi } from '../services/api'
 import { Interface } from '../types'
-import { ArrowLeft, RefreshCw, Server, Wifi, WifiOff, Activity, Search } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Search } from 'lucide-react'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
@@ -17,6 +17,12 @@ function formatBps(bps: number): string {
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(2)} Mbps`
   if (bps >= 1_000) return `${(bps / 1_000).toFixed(2)} Kbps`
   return `${bps.toFixed(0)} bps`
+}
+
+function statusTag(status: string) {
+  const map: Record<string, string> = { up: 'tag-green', down: 'tag-red', unknown: 'tag-gray', degraded: 'tag-orange' }
+  const dotMap: Record<string, string> = { up: 'dot-green', down: 'dot-red', unknown: 'dot-orange', degraded: 'dot-orange' }
+  return <span className={map[status] || 'tag-gray'}><span className={`status-dot ${dotMap[status] || 'dot-orange'}`} />{status}</span>
 }
 
 export default function DeviceDetailPage() {
@@ -46,8 +52,8 @@ export default function DeviceDetailPage() {
     onSuccess: () => toast.success('Interface discovery started'),
   })
 
-  if (deviceLoading) return <div className="text-center py-12 text-gray-400">Loading...</div>
-  if (!device) return <div className="text-center py-12 text-gray-400">Device not found</div>
+  if (deviceLoading) return <div className="empty-state"><p>Loading device...</p></div>
+  if (!device) return <div className="empty-state"><p>Device not found</p></div>
 
   const filteredIfs = (interfaces || []).filter(
     (i) =>
@@ -56,182 +62,97 @@ export default function DeviceDetailPage() {
       (i.alias || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const statusColorMap: Record<string, string> = {
-    up: 'text-green-600', down: 'text-red-600',
-    unknown: 'text-gray-400', degraded: 'text-amber-600',
-  }
-  const statusColor = statusColorMap[device.status as string] || 'text-gray-400'
-
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/devices" className="p-2 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
-          <ArrowLeft className="h-5 w-5" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <Link to="/devices" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', textDecoration: 'none' }}>
+          <ArrowLeft size={16} />
         </Link>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl">{device.hostname}</h1>
-            <span className={`font-semibold ${statusColor}`}>● {device.status}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)' }}>{device.hostname}</h1>
+            {statusTag(device.status)}
           </div>
-          <p className="text-gray-500 text-sm">{device.ip_address}</p>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{device.ip_address}</div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => discoverMutation.mutate()}
-            className="btn-secondary btn-sm flex items-center gap-2"
-          >
-            <Search className="h-4 w-4" />
-            Discover Interfaces
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => discoverMutation.mutate()} className="btn btn-outline btn-sm">
+            <Search size={13} /> Discover Interfaces
           </button>
-          <button
-            onClick={() => pollMutation.mutate()}
-            className="btn-primary btn-sm flex items-center gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Poll Now
+          <button onClick={() => pollMutation.mutate()} className="btn btn-primary btn-sm">
+            <RefreshCw size={13} /> Poll Now
           </button>
         </div>
       </div>
 
-      {/* Device Info Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">Vendor / Model</div>
-          <div className="font-medium text-gray-800">
-            {[device.vendor, device.model].filter(Boolean).join(' ') || '—'}
+      {/* Info grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+        {[
+          { label: 'Vendor / Model', value: [device.vendor, device.model].filter(Boolean).join(' ') || '—' },
+          { label: 'OS Version', value: device.os_version || '—' },
+          { label: 'Uptime', value: device.uptime ? formatUptime(device.uptime) : '—' },
+          { label: 'Location', value: device.location?.name || '—' },
+          ...(device.cpu_usage != null ? [{ label: 'CPU Usage', value: `${device.cpu_usage.toFixed(1)}%`, color: device.cpu_usage > 80 ? 'var(--accent-red)' : 'var(--accent-green)' }] : []),
+          ...(device.memory_usage != null ? [{ label: 'Memory Usage', value: `${device.memory_usage.toFixed(1)}%`, color: device.memory_usage > 80 ? 'var(--accent-red)' : 'var(--accent-green)' }] : []),
+          { label: 'Device Type', value: device.device_type || '—' },
+          { label: 'Last Seen', value: device.last_seen ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true }) : 'Never' },
+        ].map((item: any, i) => (
+          <div key={i} className="info-card">
+            <div className="stat-label">{item.label}</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: item.color || 'var(--text-main)', marginTop: 4 }}>{item.value}</div>
           </div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">OS Version</div>
-          <div className="font-medium text-gray-800">{device.os_version || '—'}</div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">Uptime</div>
-          <div className="font-medium text-gray-800">
-            {device.uptime ? formatUptime(device.uptime) : '—'}
-          </div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">Location</div>
-          <div className="font-medium text-gray-800">{device.location?.name || '—'}</div>
-        </div>
-        {device.cpu_usage != null && (
-          <div className="card">
-            <div className="text-xs text-gray-500 mb-1">CPU Usage</div>
-            <div className={`font-bold text-xl ${device.cpu_usage > 80 ? 'text-red-600' : 'text-green-600'}`}>
-              {device.cpu_usage.toFixed(1)}%
-            </div>
-          </div>
-        )}
-        {device.memory_usage != null && (
-          <div className="card">
-            <div className="text-xs text-gray-500 mb-1">Memory Usage</div>
-            <div className={`font-bold text-xl ${device.memory_usage > 80 ? 'text-red-600' : 'text-green-600'}`}>
-              {device.memory_usage.toFixed(1)}%
-            </div>
-          </div>
-        )}
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">Last Seen</div>
-          <div className="font-medium text-gray-800 text-sm">
-            {device.last_seen
-              ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })
-              : 'Never'}
-          </div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-gray-500 mb-1">Device Type</div>
-          <div className="font-medium">
-            {device.device_type ? (
-              <span className="badge-info">{device.device_type}</span>
-            ) : '—'}
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Interfaces */}
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-blue-600" />
-            Interfaces ({interfaces?.length || 0})
-          </h3>
-          <input
-            className="input w-64 text-sm py-1.5"
-            placeholder="Search interfaces..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="card-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <h3>Interfaces ({interfaces?.length || 0})</h3>
+          <div className="search-bar" style={{ marginLeft: 'auto', height: 30 }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input placeholder="Search interfaces..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 160 }} />
+          </div>
         </div>
-
         {ifLoading ? (
-          <div className="text-center py-8 text-gray-400">Loading interfaces...</div>
+          <div className="empty-state card-body"><p>Loading interfaces...</p></div>
         ) : (
-          <div className="table-container">
+          <div className="table-wrap">
             <table>
               <thead>
-                <tr>
-                  <th>Interface</th>
-                  <th>Alias / Description</th>
-                  <th>Speed</th>
-                  <th>Admin</th>
-                  <th>Oper</th>
-                  <th>IP Address</th>
-                  <th>VLAN</th>
-                  <th>Actions</th>
-                </tr>
+                <tr><th>Interface</th><th>Alias / Description</th><th>Speed</th><th>Admin</th><th>Oper</th><th>IP Address</th><th>VLAN</th><th></th></tr>
               </thead>
               <tbody>
                 {filteredIfs.map((iface) => (
                   <tr key={iface.id}>
                     <td>
-                      <Link
-                        to={`/interfaces/${iface.id}`}
-                        className="text-blue-600 hover:text-blue-700 font-mono text-sm"
-                      >
-                        {iface.name}
-                      </Link>
-                      {iface.is_uplink && (
-                        <span className="ml-2 badge-warning text-xs">uplink</span>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Link to={`/interfaces/${iface.id}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
+                          {iface.name}
+                        </Link>
+                        {iface.is_uplink && <span className="tag-orange" style={{ fontSize: 10 }}>uplink</span>}
+                      </div>
                     </td>
-                    <td className="text-gray-500 text-sm">
-                      {iface.alias || iface.description || '—'}
-                    </td>
-                    <td className="text-gray-500 text-sm">
-                      {iface.speed ? formatBps(iface.speed) : '—'}
-                    </td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.alias || iface.description || '—'}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.speed ? formatBps(iface.speed) : '—'}</td>
+                    <td><span className={iface.admin_status === 'up' ? 'tag-green' : 'tag-gray'}>{iface.admin_status || '—'}</span></td>
+                    <td><span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status || '—'}</span></td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{iface.ip_address || '—'}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{iface.vlan_id || '—'}</td>
                     <td>
-                      <span className={iface.admin_status === 'up' ? 'badge-success' : 'badge-gray'}>
-                        {iface.admin_status || '—'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={iface.oper_status === 'up' ? 'badge-success' : 'badge-danger'}>
-                        {iface.oper_status || '—'}
-                      </span>
-                    </td>
-                    <td className="font-mono text-sm text-gray-500">{iface.ip_address || '—'}</td>
-                    <td className="text-gray-500">{iface.vlan_id || '—'}</td>
-                    <td>
-                      <Link
-                        to={`/interfaces/${iface.id}`}
-                        className="text-xs text-blue-600 hover:text-blue-700"
-                      >
-                        Graphs →
-                      </Link>
+                      <Link to={`/interfaces/${iface.id}`} className="btn btn-outline btn-sm">Graphs →</Link>
                     </td>
                   </tr>
                 ))}
                 {filteredIfs.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="text-center py-8 text-gray-400">
-                      {interfaces?.length === 0
-                        ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
-                        : 'No interfaces match your search'}
-                    </td>
-                  </tr>
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
+                    {interfaces?.length === 0 ? 'No interfaces discovered. Click "Discover Interfaces" to scan.' : 'No interfaces match your search'}
+                  </td></tr>
                 )}
               </tbody>
             </table>

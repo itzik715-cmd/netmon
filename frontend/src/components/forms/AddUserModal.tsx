@@ -42,17 +42,15 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
     setForm((p) => ({ ...p, [key]: e.target.value }))
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md shadow-xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-200">
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 480 }}>
+        <div className="modal-header">
           <h3>Create User</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
-            <X className="h-5 w-5" />
-          </button>
+          <button onClick={onClose} className="modal-close"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="p-5 space-y-4">
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <label className="label">Username *</label>
               <input className="input" value={form.username} onChange={set('username')} required
@@ -75,24 +73,23 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-3">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                id="must_change"
                 checked={form.must_change_password}
                 onChange={(e) => setForm((p) => ({ ...p, must_change_password: e.target.checked }))}
-                className="h-4 w-4 rounded bg-white border-gray-300"
+                style={{ width: 14, height: 14 }}
               />
-              <label htmlFor="must_change" className="text-sm text-gray-700">
+              <span style={{ fontSize: 13, color: 'var(--text-main)' }}>
                 Force password change on first login
-              </label>
-            </div>
+              </span>
+            </label>
           </div>
 
-          <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
-            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={mutation.isPending} className="btn-primary flex items-center gap-2">
-              {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn btn-outline">Cancel</button>
+            <button type="submit" disabled={mutation.isPending} className="btn btn-primary">
+              {mutation.isPending && <Loader2 size={13} className="animate-spin" />}
               Create User
             </button>
           </div>

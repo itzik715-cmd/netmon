@@ -1,13 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { flowsApi } from '../services/api'
-import { Activity, TrendingUp } from 'lucide-react'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#84cc16', '#f97316']
+const COLORS = ['#1a9dc8', '#27ae60', '#f39c12', '#e74c3c', '#a78bfa', '#06b6d4', '#84cc16', '#f97316']
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`
@@ -17,19 +13,9 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
-const TIME_RANGES = [
-  { label: '1h', hours: 1 },
-  { label: '6h', hours: 6 },
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 168 },
-]
+const TIME_RANGES = [{ label: '1h', hours: 1 }, { label: '6h', hours: 6 }, { label: '24h', hours: 24 }, { label: '7d', hours: 168 }]
 
-const CHART_TOOLTIP_STYLE = {
-  background: '#ffffff',
-  border: '1px solid #e5e7eb',
-  borderRadius: '8px',
-  color: '#374151',
-}
+const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
 
 export default function FlowsPage() {
   const [hours, setHours] = useState(1)
@@ -47,185 +33,150 @@ export default function FlowsPage() {
   })
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="page-header">
         <div>
           <h1>Flow Analysis</h1>
-          <p className="text-sm text-gray-500 mt-0.5">NetFlow & sFlow traffic analysis</p>
+          <p>NetFlow &amp; sFlow traffic analysis</p>
         </div>
-        <div className="flex gap-1">
+        <div className="time-range-bar">
           {TIME_RANGES.map((r) => (
-            <button
-              key={r.hours}
-              onClick={() => setHours(r.hours)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                hours === r.hours ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              {r.label}
-            </button>
+            <button key={r.hours} onClick={() => setHours(r.hours)} className={`time-btn${hours === r.hours ? ' active' : ''}`}>{r.label}</button>
           ))}
         </div>
       </div>
 
-      {/* Summary */}
       {stats && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="card">
-            <div className="text-sm text-gray-500">Total Flows</div>
-            <div className="text-3xl font-bold text-gray-900 mt-1">
-              {stats.total_flows.toLocaleString()}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="stat-card">
+            <div className="stat-icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Total Flows</div>
+              <div className="stat-value">{stats.total_flows.toLocaleString()}</div>
             </div>
           </div>
-          <div className="card">
-            <div className="text-sm text-gray-500">Total Traffic</div>
-            <div className="text-3xl font-bold text-gray-900 mt-1">
-              {formatBytes(stats.total_bytes)}
+          <div className="stat-card">
+            <div className="stat-icon green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Total Traffic</div>
+              <div className="stat-value">{formatBytes(stats.total_bytes)}</div>
             </div>
           </div>
         </div>
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Loading flow data...</div>
+        <div className="empty-state card"><p>Loading flow data...</p></div>
       ) : !stats || stats.total_flows === 0 ? (
-        <div className="card text-center py-16">
-          <Activity className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-          <p className="text-gray-600 font-medium">No flow data available</p>
-          <p className="text-gray-400 text-sm mt-2">
-            Configure your network devices to export NetFlow to this server on UDP port 2055
-          </p>
+        <div className="card">
+          <div className="card-body">
+            <div className="empty-state" style={{ padding: '48px 0' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 48, height: 48 }}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <p>No flow data available</p>
+              <p className="sub">Configure your network devices to export NetFlow to this server on UDP port 2055</p>
+            </div>
+          </div>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Top Talkers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div className="card">
-              <h3 className="mb-4 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-blue-600" />
-                Top Talkers (by bytes)
-              </h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={stats.top_talkers} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false}
-                    tickFormatter={(v) => formatBytes(v)} />
-                  <YAxis type="category" dataKey="ip" tick={{ fill: '#374151', fontSize: 11 }} tickLine={false} width={80} />
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(v: number) => [formatBytes(v), 'Traffic']}
-                  />
-                  <Bar dataKey="bytes" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <h3>Top Talkers (by bytes)</h3>
+              </div>
+              <div className="card-body">
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={stats.top_talkers} layout="vertical" margin={{ left: 80 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
+                    <YAxis type="category" dataKey="ip" tick={{ fill: '#1e293b', fontSize: 11 }} tickLine={false} width={80} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
+                    <Bar dataKey="bytes" fill="#1a9dc8" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            {/* Top Destinations */}
             <div className="card">
-              <h3 className="mb-4">Top Destinations</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={stats.top_destinations} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false}
-                    tickFormatter={(v) => formatBytes(v)} />
-                  <YAxis type="category" dataKey="ip" tick={{ fill: '#374151', fontSize: 11 }} tickLine={false} width={80} />
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(v: number) => [formatBytes(v), 'Traffic']}
-                  />
-                  <Bar dataKey="bytes" fill="#10b981" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <h3>Top Destinations</h3>
+              </div>
+              <div className="card-body">
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={stats.top_destinations} layout="vertical" margin={{ left: 80 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
+                    <YAxis type="category" dataKey="ip" tick={{ fill: '#1e293b', fontSize: 11 }} tickLine={false} width={80} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
+                    <Bar dataKey="bytes" fill="#27ae60" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            {/* Protocol Distribution */}
             <div className="card">
-              <h3 className="mb-4">Protocol Distribution</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={stats.protocol_distribution}
-                    dataKey="bytes"
-                    nameKey="protocol"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label={({ protocol, percent }: any) =>
-                      `${protocol} ${(percent * 100).toFixed(1)}%`
-                    }
-                    labelLine={false}
-                  >
-                    {stats.protocol_distribution.map((_: any, idx: number) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(v: number) => formatBytes(v)}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                <h3>Protocol Distribution</h3>
+              </div>
+              <div className="card-body">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={stats.protocol_distribution} dataKey="bytes" nameKey="protocol" cx="50%" cy="50%" outerRadius={80} label={({ protocol, percent }: any) => `${protocol} ${(percent * 100).toFixed(1)}%`} labelLine={false}>
+                      {stats.protocol_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            {/* Application Distribution */}
             <div className="card">
-              <h3 className="mb-4">Applications</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={stats.application_distribution}
-                    dataKey="bytes"
-                    nameKey="app"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                  >
-                    {stats.application_distribution.map((_: any, idx: number) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(v: number) => formatBytes(v)}
-                  />
-                  <Legend formatter={(v) => <span className="text-gray-600 text-xs">{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                <h3>Applications</h3>
+              </div>
+              <div className="card-body">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={stats.application_distribution} dataKey="bytes" nameKey="app" cx="50%" cy="50%" outerRadius={80}>
+                      {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                    <Legend formatter={(v) => <span style={{ color: '#64748b', fontSize: 12 }}>{v}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
-          {/* Conversations Table */}
           <div className="card">
-            <h3 className="mb-4">Top Conversations</h3>
-            <div className="table-container">
+            <div className="card-header">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <h3>Top Conversations</h3>
+            </div>
+            <div className="table-wrap">
               <table>
                 <thead>
-                  <tr>
-                    <th>Source IP</th>
-                    <th>Destination IP</th>
-                    <th>Protocol</th>
-                    <th>Dst Port</th>
-                    <th>Application</th>
-                    <th>Bytes</th>
-                    <th>Packets</th>
-                    <th>Time</th>
-                  </tr>
+                  <tr><th>Source IP</th><th>Destination IP</th><th>Protocol</th><th>Dst Port</th><th>Application</th><th>Bytes</th><th>Packets</th><th>Time</th></tr>
                 </thead>
                 <tbody>
                   {(conversations || []).map((flow: any) => (
                     <tr key={flow.id}>
-                      <td className="font-mono text-sm">{flow.src_ip}</td>
-                      <td className="font-mono text-sm">{flow.dst_ip}</td>
-                      <td>
-                        <span className="badge-info">{flow.protocol}</span>
-                      </td>
-                      <td className="font-mono text-sm text-gray-500">{flow.dst_port}</td>
-                      <td className="text-gray-500 text-sm">{flow.application || '—'}</td>
-                      <td className="font-mono text-sm">{formatBytes(flow.bytes)}</td>
-                      <td className="text-gray-500">{flow.packets?.toLocaleString()}</td>
-                      <td className="text-gray-400 text-xs">
-                        {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}
-                      </td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{flow.src_ip}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{flow.dst_ip}</td>
+                      <td><span className="tag-blue">{flow.protocol}</span></td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{flow.dst_port}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{flow.application || '—'}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{formatBytes(flow.bytes)}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{flow.packets?.toLocaleString()}</td>
+                      <td style={{ fontSize: 11, color: 'var(--text-light)' }}>{flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

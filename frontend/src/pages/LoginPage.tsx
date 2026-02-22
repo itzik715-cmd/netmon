@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Network, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -54,82 +54,75 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f4f8] flex items-center justify-center p-4">
-      {/* Background pattern */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-100/50 via-transparent to-indigo-100/50" />
-      </div>
-
-      <div className="w-full max-w-md z-10">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl mb-4 shadow-md">
-            <Network className="h-10 w-10 text-white" />
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <div className="auth-logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 28, height: 28, color: 'white' }}>
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">NetMon Platform</h1>
-          <p className="text-gray-500 mt-1">Network Monitoring & Visibility</p>
+          <h1>NMP</h1>
+          <p>Network Monitoring Platform</p>
         </div>
 
-        {/* Login Card */}
-        <div className="card shadow-lg">
-          <h2 className="text-lg font-semibold mb-6 text-gray-900">Sign In</h2>
+        {error && (
+          <div className="alert-error" style={{ marginBottom: 16 }}>{error}</div>
+        )}
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
-            </div>
-          )}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label className="label">Username</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Enter username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoFocus
+              autoComplete="username"
+            />
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="label">Username</label>
+          <div>
+            <label className="label">Password</label>
+            <div style={{ position: 'relative' }}>
               <input
-                type="text"
+                type={showPassword ? 'text' : 'password'}
                 className="input"
-                placeholder="Enter username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required
-                autoFocus
-                autoComplete="username"
+                autoComplete="current-password"
+                style={{ paddingRight: 40 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)', display: 'flex', alignItems: 'center' }}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
             </div>
+          </div>
 
-            <div>
-              <label className="label">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  className="input pr-10"
-                  placeholder="Enter password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
+          <button
+            type="submit"
+            disabled={loading || !username || !password}
+            className="btn btn-primary"
+            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
+          >
+            {loading && <Loader2 size={14} className="animate-spin" />}
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
 
-            <button
-              type="submit"
-              disabled={loading || !username || !password}
-              className="btn-primary w-full flex items-center justify-center gap-2"
-            >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-        </div>
-
-        <p className="text-center text-xs text-gray-400 mt-6">
-          NetMon Platform — Secure Network Monitoring
+        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-light)', marginTop: 20 }}>
+          Secure Network Monitoring — NMP
         </p>
       </div>
     </div>

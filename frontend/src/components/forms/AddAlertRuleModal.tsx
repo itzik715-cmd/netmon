@@ -68,23 +68,21 @@ export default function AddAlertRuleModal({ onClose }: { onClose: () => void }) 
     setForm((p) => ({ ...p, [key]: e.target.value }))
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-xl shadow-xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-200">
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 560 }}>
+        <div className="modal-header">
           <h3>Create Alert Rule</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
-            <X className="h-5 w-5" />
-          </button>
+          <button onClick={onClose} className="modal-close"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <label className="label">Rule Name *</label>
               <input className="input" value={form.name} onChange={set('name')} required placeholder="High CPU Alert" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Device (optional)</label>
                 <select className="select" value={form.device_id} onChange={set('device_id')}>
@@ -105,7 +103,7 @@ export default function AddAlertRuleModal({ onClose }: { onClose: () => void }) 
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Condition *</label>
                 <select className="select" value={form.condition} onChange={set('condition')}>
@@ -128,11 +126,11 @@ export default function AddAlertRuleModal({ onClose }: { onClose: () => void }) 
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label className="label">Duration (seconds)</label>
                 <input className="input" type="number" min="0" value={form.duration_seconds} onChange={set('duration_seconds')} />
-                <p className="text-xs text-gray-400 mt-1">Trigger only if sustained for this long</p>
+                <p style={{ fontSize: 11, color: 'var(--text-light)', marginTop: 4 }}>Trigger only if sustained for this long</p>
               </div>
               <div>
                 <label className="label">Cooldown (minutes)</label>
@@ -151,10 +149,10 @@ export default function AddAlertRuleModal({ onClose }: { onClose: () => void }) 
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
-            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={mutation.isPending} className="btn-primary flex items-center gap-2">
-              {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn btn-outline">Cancel</button>
+            <button type="submit" disabled={mutation.isPending} className="btn btn-primary">
+              {mutation.isPending && <Loader2 size={13} className="animate-spin" />}
               Create Rule
             </button>
           </div>
