@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { flowsApi } from '../services/api'
+import { flowsApi, devicesApi } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend, Label,
@@ -280,18 +280,21 @@ export default function FlowsPage() {
 
   // Fetch devices that have flow data in this time window
   const { data: flowDevices = [] } = useQuery<{ device_id: number; hostname: string; ip_address: string; flow_count: number }[]>({
-    queryKey: ['flow-devices', hours],
-    queryFn: () => flowsApi.devices(hours).then((r) => r.data),
-    refetchInterval: 60_000,
+    queryKey: ['flow-devices'],
+    queryFn: () =>
+      devicesApi.list().then((r) =>
+        (r.data as any[]).filter((d) => d.flow_enabled === true)
+      ),
+    staleTime: 5 * 60_000,
   })
 
-  // When device list changes (or time range changes), reset to all selected
+  // Reset selection when time range changes
   useEffect(() => {
     setSelectedDeviceIds(null)
-  }, [hours, flowDevices.map((d) => d.device_id).join(',')])
+  }, [hours])
 
   function toggleDevice(id: number) {
-    const allIds = new Set(flowDevices.map((d) => d.device_id))
+    const allIds = new Set(flowDevices.map((d) => d.id))
     const current = selectedDeviceIds ?? allIds
     const next = new Set(current)
     if (next.has(id)) {
@@ -299,7 +302,6 @@ export default function FlowsPage() {
     } else {
       next.add(id)
     }
-    // If all selected again, go back to null (= no filter)
     setSelectedDeviceIds(next.size === allIds.size ? null : next)
   }
 
@@ -369,11 +371,11 @@ export default function FlowsPage() {
               Devices
             </span>
             {flowDevices.map((d) => {
-              const isSelected = selectedDeviceIds === null || selectedDeviceIds.has(d.device_id)
+              const isSelected = selectedDeviceIds === null || selectedDeviceIds.has(d.id)
               return (
                 <button
-                  key={d.device_id}
-                  onClick={() => toggleDevice(d.device_id)}
+                  key={d.id}
+                  onClick={() => toggleDevice(d.id)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '4px 11px', borderRadius: 20, fontSize: 12,
@@ -390,7 +392,7 @@ export default function FlowsPage() {
                   }} />
                   {d.hostname}
                   <span style={{ fontSize: 10, opacity: 0.65, fontFamily: 'DM Mono, monospace' }}>
-                    {d.flow_count >= 1000 ? `${(d.flow_count / 1000).toFixed(0)}k` : d.flow_count}
+                    {d.ip_address}
                   </span>
                 </button>
               )
