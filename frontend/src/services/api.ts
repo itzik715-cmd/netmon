@@ -122,6 +122,7 @@ export const alertsApi = {
 export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),
   conversations: (params?: object) => api.get('/flows/conversations', { params }),
+  ipProfile: (ip: string, hours: number) => api.get('/flows/ip-profile', { params: { ip, hours } }),
 }
 
 // Users
