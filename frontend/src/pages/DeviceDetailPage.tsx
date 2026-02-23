@@ -46,6 +46,7 @@ export default function DeviceDetailPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('interfaces')
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'' | 'up' | 'down'>('')
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [showEdit, setShowEdit] = useState(false)
@@ -103,12 +104,14 @@ export default function DeviceDetailPage() {
   if (deviceLoading) return <div className="empty-state"><p>Loading device...</p></div>
   if (!device) return <div className="empty-state"><p>Device not found</p></div>
 
-  const filteredIfs = (interfaces || []).filter(
-    (i) =>
+  const filteredIfs = (interfaces || []).filter((i) => {
+    const matchesText =
       i.name.toLowerCase().includes(search.toLowerCase()) ||
       (i.description || '').toLowerCase().includes(search.toLowerCase()) ||
       (i.alias || '').toLowerCase().includes(search.toLowerCase())
-  )
+    const matchesStatus = statusFilter === '' || i.oper_status === statusFilter
+    return matchesText && matchesStatus
+  })
   const totalPages = Math.max(1, Math.ceil(filteredIfs.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const pagedIfs = filteredIfs.slice((safePage - 1) * pageSize, safePage * pageSize)
@@ -194,11 +197,32 @@ export default function DeviceDetailPage() {
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
             <h3>Interfaces</h3>
-            <div className="search-bar" style={{ marginLeft: 'auto', height: 30 }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input placeholder="Search interfaces..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} style={{ width: 160 }} />
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Oper-status filter */}
+              <div style={{ display: 'flex', gap: 3 }}>
+                {(['', 'up', 'down'] as const).map((s) => (
+                  <button
+                    key={s || 'all'}
+                    onClick={() => { setStatusFilter(s); setPage(1) }}
+                    className={`btn btn-sm ${statusFilter === s ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ padding: '2px 9px', fontSize: 11, minWidth: 36 }}
+                  >
+                    {s === '' ? 'All' : s === 'up' ? '▲ Up' : '▼ Down'}
+                  </button>
+                ))}
+              </div>
+              {/* Text search */}
+              <div className="search-bar" style={{ height: 30 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  placeholder="Search name / description…"
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                  style={{ width: 190 }}
+                />
+              </div>
             </div>
           </div>
           {ifLoading ? (
