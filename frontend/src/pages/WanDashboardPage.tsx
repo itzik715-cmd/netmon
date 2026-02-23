@@ -40,16 +40,27 @@ export default function WanDashboardPage() {
     refetchInterval: 60_000,
   })
 
+  const p95In = wanData?.p95_in_bps || 0
+  const p95Out = wanData?.p95_out_bps || 0
+
+  // Determine if we should display in Gbps (when max value exceeds 1024 Mbps)
+  const allInMbps = (wanData?.timeseries || []).map((m: any) => m.in_bps / 1_000_000)
+  const allOutMbps = (wanData?.timeseries || []).map((m: any) => m.out_bps / 1_000_000)
+  const maxMbps = Math.max(0, ...allInMbps, ...allOutMbps, p95In / 1_000_000, p95Out / 1_000_000)
+  const useGbps = maxMbps > 1024
+  const divisor = useGbps ? 1_000_000_000 : 1_000_000
+  const unit = useGbps ? 'Gbps' : 'Mbps'
+
   const chartData = (wanData?.timeseries || []).map((m: any) => ({
     time: format(new Date(m.timestamp), hours <= 24 ? 'HH:mm' : 'MM/dd HH:mm'),
-    'In (Mbps)': +(m.in_bps / 1_000_000).toFixed(3),
-    'Out (Mbps)': +(m.out_bps / 1_000_000).toFixed(3),
+    [`In (${unit})`]: +(m.in_bps / divisor).toFixed(3),
+    [`Out (${unit})`]: +(m.out_bps / divisor).toFixed(3),
     'In %': +m.utilization_in.toFixed(2),
     'Out %': +m.utilization_out.toFixed(2),
   }))
 
-  const p95In = wanData?.p95_in_bps || 0
-  const p95Out = wanData?.p95_out_bps || 0
+  const p95InChart = +(p95In / divisor).toFixed(3)
+  const p95OutChart = +(p95Out / divisor).toFixed(3)
 
   const timeLabel = hours <= 24 ? `${hours}h` : `${hours / 24}d`
 
@@ -137,11 +148,11 @@ export default function WanDashboardPage() {
         </div>
       </div>
 
-      {/* Throughput graph */}
+      {/* Throughput graph with 95th percentile */}
       <div className="card">
         <div className="card-header">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-          <h3>Aggregate WAN Throughput — Last {hours <= 24 ? `${hours}h` : `${hours / 24}d`}</h3>
+          <h3>Aggregate WAN Throughput — Last {timeLabel}</h3>
         </div>
         <div className="card-body">
           {isLoading ? (
@@ -149,49 +160,24 @@ export default function WanDashboardPage() {
           ) : chartData.length === 0 ? (
             <div className="empty-state" style={{ height: 200 }}><p>No data available</p></div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit=" Mbps" width={70} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend />
-                <Line type="monotone" dataKey="In (Mbps)" stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                <Line type="monotone" dataKey="Out (Mbps)" stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* Throughput with 95th percentile */}
-      <div className="card">
-        <div className="card-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-          <h3>Throughput with 95th Percentile — Last {timeLabel}</h3>
-        </div>
-        <div className="card-body">
-          {chartData.length === 0 ? (
-            <div className="empty-state" style={{ height: 200 }}><p>No data available</p></div>
-          ) : (
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit=" Mbps" width={70} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${unit}`} width={80} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Legend />
-                <Line type="monotone" dataKey="In (Mbps)" stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                <Line type="monotone" dataKey="Out (Mbps)" stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey={`In (${unit})`} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey={`Out (${unit})`} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 <ReferenceLine
-                  y={+(p95In / 1_000_000).toFixed(3)}
+                  y={p95InChart}
                   stroke="#1a9dc8"
                   strokeDasharray="6 4"
                   strokeWidth={2}
                   label={{ value: `P95 In: ${formatBps(p95In)}`, position: 'insideTopRight', fill: '#1a9dc8', fontSize: 12, fontWeight: 600 }}
                 />
                 <ReferenceLine
-                  y={+(p95Out / 1_000_000).toFixed(3)}
+                  y={p95OutChart}
                   stroke="#a78bfa"
                   strokeDasharray="6 4"
                   strokeWidth={2}
