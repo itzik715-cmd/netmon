@@ -31,14 +31,14 @@ async def _snmp_probe(ip: str, community: str, version: str, port: int) -> Optio
     """Quick SNMP GET for sysDescr; returns description string or None."""
     try:
         from pysnmp.hlapi.asyncio import (
-            getCmd, SnmpEngine, CommunityData, UdpTransportTarget,
+            get_cmd, SnmpEngine, CommunityData, UdpTransportTarget,
             ContextData, ObjectType, ObjectIdentity,
         )
         engine = SnmpEngine()
         mp_model = 1 if version == "2c" else 0
         auth = CommunityData(community, mpModel=mp_model)
-        transport = UdpTransportTarget((ip, port), timeout=1, retries=0)
-        error_indication, error_status, _, var_binds = await getCmd(
+        transport = await UdpTransportTarget.create((ip, port), timeout=1, retries=0)
+        error_indication, error_status, _, var_binds = await get_cmd(
             engine, auth, transport, ContextData(),
             ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),  # sysDescr
         )

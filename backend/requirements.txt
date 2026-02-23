@@ -22,8 +22,8 @@ cryptography==42.0.7
 # LDAP / Active Directory (pure Python, no C extensions required)
 ldap3==2.9.1
 
-# SNMP (pure Python — lextudio-maintained fork, Python 3.9+ compatible)
-pysnmp>=5.0.0,<6.0.0
+# SNMP (pure Python — lextudio-maintained fork, Python 3.11+ compatible)
+pysnmp>=7.0.0
 
 # Redis with asyncio support (redis 5.x includes aioredis — no separate package needed)
 redis[asyncio]==5.0.4

@@ -8,10 +8,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from pysnmp.hlapi.asyncio import (
-    getCmd, bulkCmd, SnmpEngine, CommunityData, UsmUserData,
+    get_cmd, bulk_walk_cmd, SnmpEngine, CommunityData, UsmUserData,
     UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
-)
-from pysnmp.hlapi import (
     usmHMACMD5AuthProtocol, usmHMACSHAAuthProtocol,
     usmDESPrivProtocol, usmAesCfb128Protocol,
 )
@@ -132,12 +130,12 @@ async def snmp_get(device: Device, oid: str) -> Optional[Any]:
     try:
         engine = SnmpEngine()
         auth_data = make_auth_data(device)
-        transport = UdpTransportTarget(
+        transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
             timeout=settings.SNMP_TIMEOUT,
             retries=settings.SNMP_RETRIES,
         )
-        error_indication, error_status, error_index, var_binds = await getCmd(
+        error_indication, error_status, error_index, var_binds = await get_cmd(
             engine, auth_data, transport, ContextData(),
             ObjectType(ObjectIdentity(oid)),
         )
@@ -155,16 +153,15 @@ async def snmp_bulk_walk(device: Device, oid: str) -> Dict[str, Any]:
     try:
         engine = SnmpEngine()
         auth_data = make_auth_data(device)
-        transport = UdpTransportTarget(
+        transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
             timeout=settings.SNMP_TIMEOUT,
             retries=settings.SNMP_RETRIES,
         )
-        async for (error_indication, error_status, error_index, var_binds) in bulkCmd(
+        async for (error_indication, error_status, error_index, var_binds) in bulk_walk_cmd(
             engine, auth_data, transport, ContextData(),
             0, 20,
             ObjectType(ObjectIdentity(oid)),
-            lexicographicMode=False,
         ):
             if error_indication or error_status:
                 break
