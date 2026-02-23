@@ -278,8 +278,8 @@ export default function FlowsPage() {
     setSelectedPeer('')
   }
 
-  // Fetch devices that have flow data in this time window
-  const { data: flowDevices = [] } = useQuery<{ device_id: number; hostname: string; ip_address: string; flow_count: number }[]>({
+  // Fetch devices that have flow collection enabled
+  const { data: flowDevices = [] } = useQuery<any[]>({
     queryKey: ['flow-devices'],
     queryFn: () =>
       devicesApi.list().then((r) =>
