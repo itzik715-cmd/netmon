@@ -31,9 +31,23 @@ async def create_user(
     current_user: User = Depends(require_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    # Check username uniqueness
+    # Check username uniqueness — if a soft-deleted user with the same
+    # username exists, reactivate and update it instead of rejecting.
     existing = await db.execute(select(User).where(User.username == payload.username))
-    if existing.scalar_one_or_none():
+    existing_user = existing.scalar_one_or_none()
+    if existing_user:
+        if not existing_user.is_active:
+            # Reactivate the soft-deleted user with new details
+            existing_user.email = payload.email
+            existing_user.password_hash = hash_password(payload.password)
+            existing_user.role_id = payload.role_id
+            existing_user.is_active = True
+            existing_user.must_change_password = False
+            existing_user.failed_login_attempts = 0
+            existing_user.locked_until = None
+            await db.commit()
+            await db.refresh(existing_user)
+            return existing_user
         raise HTTPException(status_code=400, detail="Username already exists")
 
     # Validate role exists
