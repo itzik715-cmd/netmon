@@ -220,10 +220,33 @@ async def backup_device(device_id: int, db, backup_type: str = "manual"):
     except Exception as exc:
         backup.error = str(exc)
         logger.error("Config backup failed for device %s (id=%s): %s", device.hostname, device_id, exc)
+        from app.routers.system_events import log_system_event
+        await log_system_event(
+            level="error",
+            source="backup",
+            event_type="backup_failed",
+            resource_type="device",
+            resource_id=device.hostname,
+            message=f"Config backup failed for {device.hostname} ({device.ip_address})",
+            details=str(exc),
+        )
 
     db.add(backup)
     await db.commit()
     await db.refresh(backup)
+
+    if not backup.error:
+        from app.routers.system_events import log_system_event
+        await log_system_event(
+            level="info",
+            source="backup",
+            event_type="backup_success",
+            resource_type="device",
+            resource_id=device.hostname,
+            message=f"Config backup OK for {device.hostname} ({device.ip_address})"
+                    f" — {backup.size_bytes or 0} bytes",
+        )
+
     return backup
 
 
@@ -250,6 +273,13 @@ async def run_scheduled_backups():
                 fail += 1
 
         logger.info("Scheduled backup done: %d OK, %d failed", ok, fail)
+        from app.routers.system_events import log_system_event
+        await log_system_event(
+            level="info" if fail == 0 else "warning",
+            source="backup",
+            event_type="scheduled_backup_complete",
+            message=f"Scheduled backup run complete: {ok} succeeded, {fail} failed",
+        )
 
 
 async def cleanup_expired_backups():

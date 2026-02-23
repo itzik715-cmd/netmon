@@ -189,3 +189,8 @@ export const settingsApi = {
   getLdap: () => api.get('/settings/ldap/config'),
   saveLdap: (data: object) => api.put('/settings/ldap/config', data),
 }
+
+export const systemEventsApi = {
+  list: (params?: { limit?: number; offset?: number; level?: string; source?: string }) =>
+    api.get('/system-events/', { params }),
+}

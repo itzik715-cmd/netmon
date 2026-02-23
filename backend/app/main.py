@@ -14,7 +14,8 @@ from slowapi.errors import RateLimitExceeded
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router
+from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os
@@ -303,6 +304,7 @@ app.include_router(blocks.router)
 app.include_router(topology.router)
 app.include_router(reports.router)
 app.include_router(backups_router.router)
+app.include_router(system_events_router.router)
 
 
 @app.get("/api/health")
