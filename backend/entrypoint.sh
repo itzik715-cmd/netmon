@@ -1,15 +1,12 @@
 #!/bin/sh
 # Entrypoint for the NetMon backend.
-# Automatically selects worker count based on available CPUs (capped at 4).
-# Override by setting WEB_CONCURRENCY in the environment.
+# Uses a single worker because the application runs background tasks
+# (APScheduler, FlowCollector) in the lifespan context — multiple
+# workers would duplicate those tasks and exhaust file descriptors.
 set -e
 
-if [ -z "$WEB_CONCURRENCY" ]; then
-    WEB_CONCURRENCY=$(python3 -c "import os; print(min(os.cpu_count() or 1, 4))")
-fi
-
-echo "Starting uvicorn with $WEB_CONCURRENCY workers"
+echo "Starting uvicorn with 1 worker (background tasks require single-process mode)"
 exec uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8000 \
-    --workers "$WEB_CONCURRENCY"
+    --workers 1

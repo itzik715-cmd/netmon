@@ -50,27 +50,25 @@ async def _acquire_scheduler_lock(job_id: str, ttl_seconds: int) -> bool:
 async def scheduled_polling():
     """Run SNMP polling for all active devices.
 
-    Uses a Redis distributed lock so that only one of the N uvicorn worker
-    processes runs this job per interval — preventing N×devices SnmpEngines
-    from opening simultaneously, which was exhausting the file-descriptor
-    limit (ENFILE/EMFILE) on busy hosts.
+    Uses a single shared SnmpEngine for the entire polling cycle to keep
+    only one UDP socket open, preventing file-descriptor exhaustion
+    ([Errno 24] Too many open files).
 
-    Each device gets its own SnmpEngine (not shared) to avoid pysnmp's
-    MIB-builder race condition: when multiple in-flight requests share one
-    engine, concurrent MIB loading via import_symbols races and raises
-    MibNotFoundError.  Per-device engines are safe because with only one
-    worker (guaranteed by the Redis lock) and Semaphore(5) the total open
-    sockets is bounded to 5 at any moment.
+    A Semaphore caps concurrency at 5 to avoid overwhelming the engine
+    with too many in-flight SNMP requests.
     """
-    if not await _acquire_scheduler_lock("polling", settings.SNMP_POLL_INTERVAL_SECONDS):
-        return  # another worker is already handling this cycle
-
     from app.database import AsyncSessionLocal
     from app.models.device import Device
     from sqlalchemy import select
     from app.services.snmp_poller import poll_device
+    from pysnmp.hlapi.asyncio import SnmpEngine
 
-    # Use a short-lived session only to fetch the device list
+    def _close_engine(eng):
+        try:
+            eng.transportDispatcher.closeDispatcher()
+        except Exception:
+            pass
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Device).where(Device.is_active == True, Device.polling_enabled == True)
@@ -80,17 +78,17 @@ async def scheduled_polling():
     if not devices:
         return
 
-    # Each device uses its own SnmpEngine (created and closed inside poll_device).
-    # Semaphore caps concurrency at 5 so we never open more than 5 UDP sockets
-    # simultaneously — safe even with the per-device engine approach.
+    engine = SnmpEngine()
     sem = asyncio.Semaphore(5)
+    try:
+        async def _poll_one(device):
+            async with sem:
+                async with AsyncSessionLocal() as dev_db:
+                    return await poll_device(device, dev_db, engine=engine)
 
-    async def _poll_one(device: Device):
-        async with sem:
-            async with AsyncSessionLocal() as dev_db:
-                return await poll_device(device, dev_db)
-
-    await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
+        await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
+    finally:
+        _close_engine(engine)
 
 
 async def scheduled_alerts():
