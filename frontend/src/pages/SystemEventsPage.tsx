@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { systemEventsApi } from '../services/api'
@@ -104,9 +104,8 @@ export default function SystemEventsPage() {
               </thead>
               <tbody>
                 {events.map((ev) => (
-                  <>
+                  <Fragment key={ev.id}>
                     <tr
-                      key={ev.id}
                       style={{ cursor: ev.details ? 'pointer' : 'default' }}
                       onClick={() => ev.details && setExpanded(expanded === ev.id ? null : ev.id)}
                     >
@@ -128,7 +127,7 @@ export default function SystemEventsPage() {
                       </td>
                     </tr>
                     {expanded === ev.id && ev.details && (
-                      <tr key={`${ev.id}-detail`}>
+                      <tr>
                         <td colSpan={5} style={{ padding: '0 16px 12px' }}>
                           <pre style={{
                             background: 'var(--bg-secondary, #f8fafc)',
@@ -147,7 +146,7 @@ export default function SystemEventsPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
                 {events.length === 0 && (
                   <tr>

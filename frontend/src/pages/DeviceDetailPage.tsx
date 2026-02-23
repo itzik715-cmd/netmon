@@ -83,7 +83,13 @@ export default function DeviceDetailPage() {
 
   const discoverMutation = useMutation({
     mutationFn: () => devicesApi.discover(deviceId),
-    onSuccess: () => toast.success('Interface discovery started'),
+    onSuccess: () => {
+      toast.success('Interface discovery started — results will appear in a few seconds')
+      // Poll for discovered interfaces: 4 s, 8 s, 14 s, 20 s, 30 s
+      ;[4000, 8000, 14000, 20000, 30000].forEach((delay) =>
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['interfaces', deviceId] }), delay)
+      )
+    },
   })
 
   const discoverRoutesMutation = useMutation({

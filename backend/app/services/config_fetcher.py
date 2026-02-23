@@ -23,8 +23,12 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
     """
     Fetch running and startup configs via Arista eAPI (JSON-RPC over HTTP/HTTPS).
 
-    Tries the configured protocol/port first, then falls back to HTTP on port 80
-    in case HTTPS is not enabled on the device.
+    Tries multiple protocol/port combinations in order:
+      1. configured protocol:port  (default https:443)
+      2. https:8080
+      3. http:80
+      4. http:8080
+    Uses a short connect-timeout (5 s) so each attempt fails fast.
     """
     import httpx
 
@@ -39,11 +43,11 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
     configured_protocol = device.api_protocol or "https"
     configured_port = device.api_port or 443
 
-    # Build list of endpoints to attempt
-    endpoints = [(configured_protocol, configured_port)]
-    # If configured for HTTPS, also try plain HTTP/80 as fallback
-    if configured_protocol == "https" and configured_port != 80:
-        endpoints.append(("http", 80))
+    # Build deduplicated list of (protocol, port) to try in order
+    candidates = [(configured_protocol, configured_port)]
+    for proto, port in [("https", 8080), ("http", 80), ("http", 8080)]:
+        if (proto, port) not in candidates:
+            candidates.append((proto, port))
 
     payload = {
         "jsonrpc": "2.0",
@@ -56,11 +60,14 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
         "id": "netmon-backup",
     }
 
+    # Short connect timeout so we don't wait 15 s per endpoint
+    timeout = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
+
     last_exc: Optional[Exception] = None
-    for protocol, port in endpoints:
+    for protocol, port in candidates:
         url = f"{protocol}://{device.ip_address}:{port}/command-api"
         try:
-            async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
                 resp = await client.post(url, json=payload, auth=(username, password))
                 resp.raise_for_status()
                 data = resp.json()
@@ -74,6 +81,18 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
             logger.info("Config fetched via eAPI (%s:%s) for %s", protocol, port, device.hostname)
             return running, startup
 
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 403):
+                # Wrong credentials — no point trying other ports
+                raise RuntimeError(
+                    f"eAPI authentication failed for {device.hostname} (HTTP {status}). "
+                    "Check api_username / api_password in device settings."
+                ) from exc
+            # 404 means the endpoint path doesn't exist (eAPI not enabled on this port)
+            last_exc = exc
+            logger.debug("eAPI %s:%s for %s: HTTP %s", protocol, port, device.hostname, status)
+
         except Exception as exc:
             last_exc = exc
             logger.debug(
@@ -81,11 +100,32 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
                 protocol, port, device.hostname, type(exc).__name__, exc,
             )
 
+    # Build a human-readable final error based on what the last failure was
+    if isinstance(last_exc, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+        detail = (
+            "connection timed out on all attempted ports (443, 8080, 80). "
+            "Verify the device is reachable and that 'management api http-commands' "
+            "is enabled with 'no shutdown'."
+        )
+    elif isinstance(last_exc, httpx.ConnectError):
+        detail = (
+            "cannot connect to device. "
+            "Check network connectivity and that 'management api http-commands' is enabled."
+        )
+    elif isinstance(last_exc, httpx.HTTPStatusError) and last_exc.response.status_code == 404:
+        detail = (
+            "eAPI endpoint not found (HTTP 404) on all tried ports. "
+            "Run on the device:  management api http-commands → no shutdown"
+        )
+    else:
+        detail = (
+            f"{type(last_exc).__name__}: {last_exc}. "
+            "Ensure 'management api http-commands' is enabled and "
+            "api_username/api_password are set correctly."
+        )
+
     raise RuntimeError(
-        f"eAPI config fetch failed for {device.hostname}. "
-        f"Error: {type(last_exc).__name__}: {last_exc}. "
-        "Ensure 'management api http-commands' is enabled on the device and "
-        "api_username/api_password are set correctly."
+        f"eAPI config fetch failed for {device.hostname}: {detail}"
     ) from last_exc
 
 

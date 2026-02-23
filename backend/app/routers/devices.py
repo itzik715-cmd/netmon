@@ -355,11 +355,47 @@ async def discover_and_poll(device_id: int):
 async def run_discovery(device_id: int):
     from app.database import AsyncSessionLocal
     from app.services.snmp_poller import discover_interfaces
+    from app.routers.system_events import log_system_event
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
-        if device:
-            await discover_interfaces(device, db)
+        if not device:
+            return
+        try:
+            count = await discover_interfaces(device, db)
+            if count == 0:
+                await log_system_event(
+                    level="warning",
+                    source="snmp_poll",
+                    event_type="interface_discovery",
+                    resource_type="device",
+                    resource_id=device.hostname,
+                    message=f"Interface discovery returned 0 interfaces for {device.hostname} ({device.ip_address})",
+                    details=(
+                        "SNMP may be unreachable or the community string is wrong. "
+                        "Check: snmp_community, snmp_port (default 161), "
+                        "and that SNMP is enabled on the device."
+                    ),
+                )
+            else:
+                await log_system_event(
+                    level="info",
+                    source="snmp_poll",
+                    event_type="interface_discovery",
+                    resource_type="device",
+                    resource_id=device.hostname,
+                    message=f"Interface discovery complete for {device.hostname}: {count} interfaces found",
+                )
+        except Exception as exc:
+            await log_system_event(
+                level="error",
+                source="snmp_poll",
+                event_type="interface_discovery",
+                resource_type="device",
+                resource_id=device.hostname,
+                message=f"Interface discovery failed for {device.hostname} ({device.ip_address})",
+                details=str(exc),
+            )
 
 
 async def run_route_discovery(device_id: int):
