@@ -23,6 +23,7 @@ class Interface(Base):
     vlan_id = Column(Integer)
     is_uplink = Column(Boolean, default=False)
     is_monitored = Column(Boolean, default=True)
+    is_wan = Column(Boolean, default=False)
     last_change = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

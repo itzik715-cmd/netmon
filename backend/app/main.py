@@ -146,6 +146,10 @@ async def run_migrations():
         ("flow_enabled",   "BOOLEAN DEFAULT FALSE"),
     ]
 
+    interfaces_columns = [
+        ("is_wan",  "BOOLEAN DEFAULT FALSE"),
+    ]
+
     # device_locations new columns
     location_columns = [
         ("datacenter", "VARCHAR(50)"),
@@ -160,6 +164,14 @@ async def run_migrations():
                 )
             except Exception as e:
                 logger.warning("Migration ALTER devices.%s skipped: %s", col, e)
+
+        for col, col_type in interfaces_columns:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE interfaces ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER interfaces.%s skipped: %s", col, e)
 
         # Composite indexes to speed up per-interface and per-device metric lookups
         for idx_sql in [

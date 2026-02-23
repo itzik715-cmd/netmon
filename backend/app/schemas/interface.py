@@ -18,6 +18,7 @@ class InterfaceResponse(BaseModel):
     vlan_id: Optional[int] = None
     is_uplink: bool
     is_monitored: bool
+    is_wan: bool = False
     last_change: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

@@ -78,6 +78,7 @@ export interface Interface {
   vlan_id?: number
   is_uplink: boolean
   is_monitored: boolean
+  is_wan: boolean
   last_change?: string
 }
 

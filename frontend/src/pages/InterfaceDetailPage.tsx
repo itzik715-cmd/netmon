@@ -1,11 +1,12 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { interfacesApi } from '../services/api'
 import { ArrowLeft } from 'lucide-react'
 import { InterfaceMetric } from '../types'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format } from 'date-fns'
 import { useState } from 'react'
+import toast from 'react-hot-toast'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -27,6 +28,7 @@ export default function InterfaceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const ifId = parseInt(id!)
   const [hours, setHours] = useState(24)
+  const queryClient = useQueryClient()
 
   const { data: iface } = useQuery({
     queryKey: ['interface', ifId],
@@ -65,6 +67,21 @@ export default function InterfaceDetailPage() {
           <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: 'DM Mono, monospace' }}>{iface?.name || `Interface ${ifId}`}</h1>
           {iface?.alias && <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{iface.alias}</p>}
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox"
+            checked={iface?.is_wan || false}
+            onChange={async () => {
+              try {
+                await interfacesApi.toggleWan(ifId)
+                queryClient.invalidateQueries({ queryKey: ['interface', ifId] })
+                toast.success(iface?.is_wan ? 'Removed from WAN' : 'Marked as WAN')
+              } catch { /* toast from interceptor */ }
+            }}
+            style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+          />
+          WAN
+        </label>
         <div className="time-range-bar">
           {TIME_RANGES.map((r) => (
             <button key={r.hours} onClick={() => setHours(r.hours)} className={`time-btn${hours === r.hours ? ' active' : ''}`}>{r.label}</button>

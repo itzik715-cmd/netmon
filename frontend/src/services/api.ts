@@ -103,6 +103,9 @@ export const interfacesApi = {
     api.get(`/interfaces/${id}/metrics`, { params: { hours } }),
   latest: (id: number) => api.get(`/interfaces/${id}/latest`),
   toggleMonitor: (id: number) => api.patch(`/interfaces/${id}/toggle-monitor`),
+  toggleWan: (id: number) => api.patch(`/interfaces/${id}/toggle-wan`),
+  wanList: () => api.get('/interfaces/wan/list'),
+  wanMetrics: (hours?: number) => api.get('/interfaces/wan/metrics', { params: { hours } }),
 }
 
 // Alerts
