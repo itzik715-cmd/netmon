@@ -47,6 +47,7 @@ class DeviceCreate(BaseModel):
 
 class DeviceUpdate(BaseModel):
     hostname: Optional[str] = None
+    ip_address: Optional[str] = None
     device_type: Optional[str] = None
     layer: Optional[str] = None
     vendor: Optional[str] = None
@@ -55,6 +56,11 @@ class DeviceUpdate(BaseModel):
     snmp_community: Optional[str] = None
     snmp_version: Optional[str] = None
     snmp_port: Optional[int] = None
+    snmp_v3_username: Optional[str] = None
+    snmp_v3_auth_protocol: Optional[str] = None
+    snmp_v3_auth_key: Optional[str] = None
+    snmp_v3_priv_protocol: Optional[str] = None
+    snmp_v3_priv_key: Optional[str] = None
     poll_interval: Optional[int] = None
     polling_enabled: Optional[bool] = None
     is_active: Optional[bool] = None
@@ -87,6 +93,9 @@ class DeviceResponse(BaseModel):
     description: Optional[str] = None
     tags: Optional[str] = None
     interface_count: Optional[int] = 0
+    snmp_community: Optional[str] = None
+    snmp_version: Optional[str] = None
+    snmp_port: Optional[int] = None
     api_username: Optional[str] = None
     api_port: Optional[int] = None
     api_protocol: Optional[str] = None

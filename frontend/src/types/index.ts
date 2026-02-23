@@ -44,6 +44,9 @@ export interface Device {
   description?: string
   tags?: string
   interface_count?: number
+  snmp_community?: string
+  snmp_version?: string
+  snmp_port?: number
   api_username?: string
   api_port?: number
   api_protocol?: string

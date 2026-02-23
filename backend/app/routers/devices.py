@@ -195,6 +195,16 @@ async def update_device(
         raise HTTPException(status_code=404, detail="Device not found")
 
     update_data = payload.dict(exclude_unset=True)
+
+    # If ip_address is being changed, ensure it doesn't clash with another device
+    new_ip = update_data.get("ip_address")
+    if new_ip and new_ip != device.ip_address:
+        clash = await db.execute(
+            select(Device).where(Device.ip_address == new_ip, Device.id != device_id)
+        )
+        if clash.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Another device already uses this IP address")
+
     for key, value in update_data.items():
         setattr(device, key, value)
     await db.commit()

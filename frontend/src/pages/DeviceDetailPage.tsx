@@ -2,7 +2,8 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, interfacesApi, topologyApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { ArrowLeft, RefreshCw, Search, Map, BarChart2 } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Search, Map, BarChart2, Settings } from 'lucide-react'
+import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
@@ -47,6 +48,7 @@ export default function DeviceDetailPage() {
   const [search, setSearch] = useState('')
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
+  const [showEdit, setShowEdit] = useState(false)
 
   const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ['device', deviceId],
@@ -133,6 +135,9 @@ export default function DeviceDetailPage() {
               <Map size={13} /> {discoverRoutesMutation.isPending ? 'Discovering...' : 'Discover Routes'}
             </button>
           )}
+          <button onClick={() => setShowEdit(true)} className="btn btn-outline btn-sm">
+            <Settings size={13} /> Settings
+          </button>
           <button onClick={() => pollMutation.mutate()} className="btn btn-primary btn-sm">
             <RefreshCw size={13} /> Poll Now
           </button>
@@ -460,5 +465,9 @@ export default function DeviceDetailPage() {
         </div>
       )}
     </div>
+
+    {showEdit && device && (
+      <EditDeviceModal device={device} onClose={() => setShowEdit(false)} />
+    )}
   )
 }
