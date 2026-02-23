@@ -36,14 +36,24 @@ async def scheduled_polling():
     from sqlalchemy import select
     from app.services.snmp_poller import poll_device
 
+    # Use a short-lived session only to fetch the device list
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Device).where(Device.is_active == True, Device.polling_enabled == True)
         )
         devices = result.scalars().all()
-        tasks = [poll_device(device, db) for device in devices]
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+
+    if not devices:
+        return
+
+    # Each device gets its own session so concurrent polls don't share
+    # session state — a commit/rollback in one device's poll must not
+    # affect another device's in-flight writes.
+    async def _poll_one(device: Device):
+        async with AsyncSessionLocal() as dev_db:
+            return await poll_device(device, dev_db)
+
+    await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
 
 
 async def scheduled_alerts():
