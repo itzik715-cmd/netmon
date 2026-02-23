@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { flowsApi } from '../services/api'
 import {
@@ -270,25 +270,61 @@ export default function FlowsPage() {
   const [hours, setHours]           = useState(1)
   const [searchIp, setSearchIp]     = useState('')
   const [selectedPeer, setSelectedPeer] = useState('')
+  // null = "all selected" (no filter sent); otherwise a Set of selected device IDs
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number> | null>(null)
 
   function handleSearchChange(ip: string) {
     setSearchIp(ip)
     setSelectedPeer('')
   }
 
+  // Fetch devices that have flow data in this time window
+  const { data: flowDevices = [] } = useQuery<{ device_id: number; hostname: string; ip_address: string; flow_count: number }[]>({
+    queryKey: ['flow-devices', hours],
+    queryFn: () => flowsApi.devices(hours).then((r) => r.data),
+    refetchInterval: 60_000,
+  })
+
+  // When device list changes (or time range changes), reset to all selected
+  useEffect(() => {
+    setSelectedDeviceIds(null)
+  }, [hours, flowDevices.map((d) => d.device_id).join(',')])
+
+  function toggleDevice(id: number) {
+    const allIds = new Set(flowDevices.map((d) => d.device_id))
+    const current = selectedDeviceIds ?? allIds
+    const next = new Set(current)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+    // If all selected again, go back to null (= no filter)
+    setSelectedDeviceIds(next.size === allIds.size ? null : next)
+  }
+
+  // Build device_ids param: undefined when all selected, comma-list when filtered
+  const deviceIdsParam: string | undefined =
+    selectedDeviceIds === null
+      ? undefined
+      : selectedDeviceIds.size === 0
+      ? '-1'                        // nothing selected → return no results
+      : [...selectedDeviceIds].join(',')
+
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['flow-stats', hours],
-    queryFn: () => flowsApi.stats({ hours }).then((r) => r.data),
+    queryKey: ['flow-stats', hours, deviceIdsParam],
+    queryFn: () => flowsApi.stats({ hours, ...(deviceIdsParam ? { device_ids: deviceIdsParam } : {}) }).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
   const { data: conversations } = useQuery({
-    queryKey: ['flow-conversations', hours, searchIp],
+    queryKey: ['flow-conversations', hours, searchIp, deviceIdsParam],
     queryFn: () =>
       flowsApi.conversations({
         hours,
         limit: 100,
         ...(searchIp ? { ip: searchIp } : {}),
+        ...(deviceIdsParam ? { device_ids: deviceIdsParam } : {}),
       }).then((r) => r.data),
     refetchInterval: 60_000,
   })
@@ -324,6 +360,53 @@ export default function FlowsPage() {
           </div>
         </div>
       </div>
+
+      {/* Device filter — only shown when 2+ devices are sending flows */}
+      {flowDevices.length > 1 && (
+        <div className="card" style={{ padding: '10px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>
+              Devices
+            </span>
+            {flowDevices.map((d) => {
+              const isSelected = selectedDeviceIds === null || selectedDeviceIds.has(d.device_id)
+              return (
+                <button
+                  key={d.device_id}
+                  onClick={() => toggleDevice(d.device_id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 11px', borderRadius: 20, fontSize: 12,
+                    border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border)'}`,
+                    background: isSelected ? 'rgba(26,157,200,0.1)' : 'transparent',
+                    color: isSelected ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    fontWeight: isSelected ? 600 : 400,
+                  }}
+                >
+                  <span style={{
+                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                    background: isSelected ? 'var(--accent-blue)' : 'var(--border)',
+                  }} />
+                  {d.hostname}
+                  <span style={{ fontSize: 10, opacity: 0.65, fontFamily: 'DM Mono, monospace' }}>
+                    {d.flow_count >= 1000 ? `${(d.flow_count / 1000).toFixed(0)}k` : d.flow_count}
+                  </span>
+                </button>
+              )
+            })}
+            {selectedDeviceIds !== null && (
+              <button
+                className="btn btn-outline btn-sm"
+                style={{ marginLeft: 'auto', fontSize: 11 }}
+                onClick={() => setSelectedDeviceIds(null)}
+              >
+                ✕ Show all
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* IP Profile — only shown when searching */}
       {searchIp && (

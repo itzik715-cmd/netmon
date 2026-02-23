@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.models.flow import FlowRecord
+from app.models.device import Device
 from app.models.user import User
 from app.middleware.rbac import get_current_user
 
@@ -13,18 +14,62 @@ router = APIRouter(prefix="/api/flows", tags=["Flow Analysis"])
 PROTOCOL_MAP = {1: "ICMP", 6: "TCP", 17: "UDP", 47: "GRE", 89: "OSPF"}
 
 
+@router.get("/devices")
+async def get_flow_devices(
+    hours: int = 1,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return devices that have sent flow records in the given time window."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = (await db.execute(
+        select(FlowRecord.device_id, func.count(FlowRecord.id).label("flow_count"))
+        .where(FlowRecord.timestamp >= since)
+        .group_by(FlowRecord.device_id)
+        .order_by(desc("flow_count"))
+    )).all()
+
+    if not rows:
+        return []
+
+    id_to_count = {r.device_id: int(r.flow_count) for r in rows}
+    devices = (await db.execute(
+        select(Device).where(Device.id.in_(id_to_count.keys()))
+    )).scalars().all()
+
+    return [
+        {
+            "device_id": d.id,
+            "hostname": d.hostname,
+            "ip_address": d.ip_address,
+            "flow_count": id_to_count.get(d.id, 0),
+        }
+        for d in sorted(devices, key=lambda d: -id_to_count.get(d.id, 0))
+    ]
+
+
+def _device_filter(device_ids_str: Optional[str], device_id: Optional[int]) -> list:
+    """Build SQLAlchemy filter clauses for device(s). device_ids takes precedence."""
+    if device_ids_str:
+        ids = [int(x) for x in device_ids_str.split(",") if x.strip()]
+        if ids:
+            return [FlowRecord.device_id.in_(ids)]
+    if device_id:
+        return [FlowRecord.device_id == device_id]
+    return []
+
+
 @router.get("/stats")
 async def get_flow_stats(
     hours: int = 1,
     device_id: Optional[int] = None,
+    device_ids: Optional[str] = None,   # comma-separated device IDs
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    base_filter = [FlowRecord.timestamp >= since]
-    if device_id:
-        base_filter.append(FlowRecord.device_id == device_id)
+    base_filter = [FlowRecord.timestamp >= since] + _device_filter(device_ids, device_id)
 
     # Top talkers (src IP by bytes)
     talkers_q = await db.execute(
@@ -102,6 +147,7 @@ async def get_flow_stats(
 async def get_conversations(
     hours: int = 1,
     device_id: Optional[int] = None,
+    device_ids: Optional[str] = None,  # comma-separated device IDs
     ip: Optional[str] = None,          # match either src OR dst
     src_ip: Optional[str] = None,
     dst_ip: Optional[str] = None,
@@ -113,8 +159,8 @@ async def get_conversations(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     query = select(FlowRecord).where(FlowRecord.timestamp >= since)
 
-    if device_id:
-        query = query.where(FlowRecord.device_id == device_id)
+    for clause in _device_filter(device_ids, device_id):
+        query = query.where(clause)
     if ip:
         query = query.where(or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
     elif src_ip:
