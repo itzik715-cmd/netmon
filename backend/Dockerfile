@@ -23,9 +23,13 @@ RUN pip install --upgrade pip \
 COPY . .
 
 # Create non-root user
-RUN useradd -m -u 1000 netmon && chown -R netmon:netmon /app
+RUN useradd -m -u 1000 netmon && chown -R netmon:netmon /app && chmod +x /app/entrypoint.sh
 USER netmon
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# entrypoint.sh auto-detects CPU count and starts that many uvicorn workers.
+# Each worker binds the UDP flow-collector ports with SO_REUSEPORT so the
+# kernel distributes NetFlow/sFlow datagrams across all workers.
+# Override the worker count with WEB_CONCURRENCY env var if needed.
+CMD ["/app/entrypoint.sh"]

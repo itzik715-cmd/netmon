@@ -383,6 +383,19 @@ class _SFlowProtocol(_BaseUDPProtocol):
 
 # ─── FlowCollector ────────────────────────────────────────────────────────────
 
+def _make_udp_socket(port: int) -> socket.socket:
+    """
+    Create a UDP socket with SO_REUSEPORT so that every uvicorn worker
+    process can bind the same port.  The kernel load-balances incoming
+    datagrams across all sockets sharing the port, distributing flow
+    processing across all CPU cores.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    sock.bind(("0.0.0.0", port))
+    return sock
+
+
 class FlowCollector:
     def __init__(self, session_factory: async_sessionmaker):
         self.session_factory = session_factory
@@ -396,7 +409,7 @@ class FlowCollector:
         try:
             _nf_transport, nf_proto = await loop.create_datagram_endpoint(
                 lambda: _NetFlowProtocol(self.session_factory, "NetFlow"),
-                local_addr=("0.0.0.0", settings.NETFLOW_PORT),
+                sock=_make_udp_socket(settings.NETFLOW_PORT),
             )
             self._netflow_proto = nf_proto
         except OSError as e:
@@ -406,7 +419,7 @@ class FlowCollector:
         try:
             _sf_transport, sf_proto = await loop.create_datagram_endpoint(
                 lambda: _SFlowProtocol(self.session_factory, "sFlow"),
-                local_addr=("0.0.0.0", settings.SFLOW_PORT),
+                sock=_make_udp_socket(settings.SFLOW_PORT),
             )
             self._sflow_proto = sf_proto
         except OSError as e:
