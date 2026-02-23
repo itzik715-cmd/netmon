@@ -90,6 +90,7 @@ export const devicesApi = {
   routes: (id: number) => api.get(`/devices/${id}/routes`),
   discoverRoutes: (id: number) => api.post(`/devices/${id}/discover-routes`),
   scanSubnet: (data: object) => api.post('/devices/scan-subnet', data),
+  testSnmp: (data: object) => api.post('/devices/test-snmp', data),
   locations: () => api.get('/devices/locations/list'),
   createLocation: (data: object) => api.post('/devices/locations/', data),
 }
@@ -134,6 +135,15 @@ export const usersApi = {
   unlock: (id: number) => api.post(`/users/${id}/unlock`),
   roles: () => api.get('/users/roles/list'),
   auditLogs: (params?: object) => api.get('/users/audit/logs', { params }),
+}
+
+// Blocks
+export const blocksApi = {
+  list: (params?: object) => api.get('/blocks/', { params }),
+  summary: () => api.get('/blocks/summary'),
+  create: (deviceId: number, data: object) => api.post(`/blocks/device/${deviceId}`, data),
+  delete: (id: number) => api.delete(`/blocks/${id}`),
+  sync: (deviceId: number) => api.post(`/blocks/device/${deviceId}/sync`),
 }
 
 // Settings

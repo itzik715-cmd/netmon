@@ -44,6 +44,9 @@ export interface Device {
   description?: string
   tags?: string
   interface_count?: number
+  api_username?: string
+  api_port?: number
+  api_protocol?: string
 }
 
 export interface Location {
@@ -170,6 +173,31 @@ export interface DeviceRoute {
   protocol?: string
   metric?: number
   updated_at?: string
+}
+
+export interface DeviceBlock {
+  id: number
+  device_id: number
+  prefix: string
+  block_type: 'null_route' | 'flowspec'
+  description?: string
+  is_active: boolean
+  created_by?: string
+  created_at?: string
+  synced_at?: string
+}
+
+export interface BlocksSummary {
+  total: number
+  null_route: number
+  flowspec: number
+  recent: {
+    id: number
+    device_id: number
+    prefix: string
+    block_type: string
+    created_at?: string
+  }[]
 }
 
 export interface SubnetScanResult {

@@ -36,6 +36,7 @@ body, #root {
   color: var(--text-main);
   font-size: 14px;
   min-height: 100vh;
+  width: 100%;
   display: flex;
 }
 
@@ -134,10 +135,12 @@ body, #root {
 .main {
   margin-left: var(--sidebar-width);
   flex: 1;
+  width: calc(100% - var(--sidebar-width));
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-width: 0;
+  overflow-x: hidden;
 }
 
 /* ─── TOP BAR ──────────────────────────────────────────── */
@@ -421,7 +424,7 @@ tbody tr:hover td { background: #fafbff; }
 .pager-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
 /* ─── GRIDS ──────────────────────────────────────────────── */
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
 .grid-3-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 20px; }
 
@@ -539,6 +542,16 @@ tbody tr:hover td { background: #fafbff; }
 }
 .modal-header h3 { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0; }
 .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.modal-close {
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--text-muted);
+  transition: all 0.15s; padding: 0;
+}
+.modal-close:hover { border-color: var(--accent-red); color: var(--accent-red); }
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 14px 20px; border-top: 1px solid var(--border);
@@ -555,9 +568,14 @@ tbody tr:hover td { background: #fafbff; }
 
 /* ─── AUTH PAGES ─────────────────────────────────────────── */
 .auth-page {
-  min-height: 100vh; background: var(--bg);
-  display: flex; align-items: center; justify-content: center;
-  padding: 16px; flex: 1;
+  min-height: 100vh;
+  width: 100%;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  flex: 1;
 }
 .auth-card {
   background: white; border: 1px solid var(--border);

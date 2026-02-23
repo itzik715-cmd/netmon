@@ -50,10 +50,16 @@ class Device(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    api_username = Column(String(100), nullable=True)
+    api_password = Column(String(255), nullable=True)
+    api_port = Column(Integer, default=443)
+    api_protocol = Column(String(10), default="https")
+
     location = relationship("DeviceLocation", back_populates="devices")
     interfaces = relationship("Interface", back_populates="device", cascade="all, delete-orphan")
     alert_rules = relationship("AlertRule", back_populates="device")
     routes = relationship("DeviceRoute", back_populates="device", cascade="all, delete-orphan")
+    blocks = relationship("DeviceBlock", back_populates="device", cascade="all, delete-orphan")
 
 
 class DeviceRoute(Base):
@@ -70,3 +76,19 @@ class DeviceRoute(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     device = relationship("Device", back_populates="routes")
+
+
+class DeviceBlock(Base):
+    __tablename__ = "device_blocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    prefix = Column(String(100), nullable=False)
+    block_type = Column(String(20), nullable=False)  # null_route, flowspec
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    synced_at = Column(DateTime(timezone=True), nullable=True)
+
+    device = relationship("Device", back_populates="blocks")

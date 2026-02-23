@@ -39,6 +39,10 @@ class DeviceCreate(BaseModel):
     poll_interval: int = 60
     description: Optional[str] = None
     tags: Optional[str] = None
+    api_username: Optional[str] = None
+    api_password: Optional[str] = None
+    api_port: Optional[int] = 443
+    api_protocol: Optional[str] = "https"
 
 
 class DeviceUpdate(BaseModel):
@@ -56,6 +60,10 @@ class DeviceUpdate(BaseModel):
     is_active: Optional[bool] = None
     description: Optional[str] = None
     tags: Optional[str] = None
+    api_username: Optional[str] = None
+    api_password: Optional[str] = None
+    api_port: Optional[int] = None
+    api_protocol: Optional[str] = None
 
 
 class DeviceResponse(BaseModel):
@@ -79,6 +87,9 @@ class DeviceResponse(BaseModel):
     description: Optional[str] = None
     tags: Optional[str] = None
     interface_count: Optional[int] = 0
+    api_username: Optional[str] = None
+    api_port: Optional[int] = None
+    api_protocol: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

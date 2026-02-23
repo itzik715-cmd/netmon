@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { devicesApi, alertsApi } from '../services/api'
+import { devicesApi, alertsApi, blocksApi } from '../services/api'
 import { Link } from 'react-router-dom'
 import { formatDistanceToNow } from 'date-fns'
 import { AlertEvent, Device } from '../types'
@@ -55,6 +55,12 @@ export default function DashboardPage() {
     queryKey: ['alert-events-open'],
     queryFn: () => alertsApi.listEvents({ status: 'open', limit: 10 }).then((r) => r.data),
     refetchInterval: 30_000,
+  })
+
+  const { data: blocksSummary } = useQuery({
+    queryKey: ['blocks-summary'],
+    queryFn: () => blocksApi.summary().then((r) => r.data),
+    refetchInterval: 60_000,
   })
 
   const downDevices = (devices as Device[] | undefined)?.filter((d) => d.status === 'down') || []
@@ -131,6 +137,22 @@ export default function DashboardPage() {
               {alertSummary && (
                 <div className="stat-sub"><span className="stat-down">{alertSummary.critical} critical</span></div>
               )}
+            </div>
+          </div>
+        </Link>
+        <Link to="/blocks" style={{ textDecoration: 'none' }}>
+          <div className="stat-card">
+            <div className="stat-icon red">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+              </svg>
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Active Blocks</div>
+              <div className="stat-value" style={{ color: 'var(--accent-red)' }}>{blocksSummary?.total ?? '—'}</div>
+              <div className="stat-sub">
+                {blocksSummary ? `${blocksSummary.null_route} null-route, ${blocksSummary.flowspec} flowspec` : 'null-route + flowspec'}
+              </div>
             </div>
           </div>
         </Link>
@@ -230,6 +252,50 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Active Blocks */}
+      {blocksSummary && blocksSummary.total > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+            </svg>
+            <h3>Active Blocks</h3>
+            <span className="tag-red" style={{ marginLeft: 'auto' }}>{blocksSummary.total} Active</span>
+            <Link to="/blocks" style={{ marginLeft: 12, fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
+              Manage →
+            </Link>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Prefix</th>
+                  <th>Type</th>
+                  <th>Device</th>
+                  <th>Applied</th>
+                </tr>
+              </thead>
+              <tbody>
+                {blocksSummary.recent.map((b: any) => (
+                  <tr key={b.id}>
+                    <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{b.prefix}</td>
+                    <td>
+                      {b.block_type === 'null_route'
+                        ? <span className="tag-orange">Null Route</span>
+                        : <span className="tag-blue">FlowSpec</span>}
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>Device #{b.device_id}</td>
+                    <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
+                      {b.created_at ? formatDistanceToNow(new Date(b.created_at), { addSuffix: true }) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Device Table */}
       <div className="card">

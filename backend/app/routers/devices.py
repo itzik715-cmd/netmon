@@ -97,6 +97,46 @@ async def get_summary(db: AsyncSession = Depends(get_db), _: User = Depends(get_
     }
 
 
+@router.post("/test-snmp")
+async def test_snmp_connection(
+    payload: DeviceCreate,
+    _: User = Depends(require_operator_or_above()),
+):
+    """
+    Test SNMP connectivity for given credentials.
+    Returns sysName and sysDescr on success.
+    """
+    from app.services.snmp_poller import snmp_get, OID_SYS_NAME, OID_SYS_DESCR
+
+    # Build a temporary device-like object
+    class _TmpDevice:
+        ip_address = payload.ip_address
+        snmp_port = payload.snmp_port or 161
+        snmp_community = payload.snmp_community or "public"
+        snmp_version = payload.snmp_version or "2c"
+        snmp_v3_username = payload.snmp_v3_username
+        snmp_v3_auth_protocol = payload.snmp_v3_auth_protocol
+        snmp_v3_auth_key = payload.snmp_v3_auth_key
+        snmp_v3_priv_protocol = payload.snmp_v3_priv_protocol
+        snmp_v3_priv_key = payload.snmp_v3_priv_key
+
+    tmp = _TmpDevice()
+    sys_name  = await snmp_get(tmp, OID_SYS_NAME)
+    sys_descr = await snmp_get(tmp, OID_SYS_DESCR)
+
+    if sys_name is None and sys_descr is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"SNMP unreachable: no response from {payload.ip_address}:{payload.snmp_port or 161}"
+        )
+
+    return {
+        "success": True,
+        "sys_name": sys_name,
+        "sys_descr": sys_descr,
+    }
+
+
 @router.post("/scan-subnet", response_model=SubnetScanResponse)
 async def scan_subnet_endpoint(
     payload: SubnetScanRequest,
