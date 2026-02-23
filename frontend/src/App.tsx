@@ -15,6 +15,7 @@ import SettingsPage from './pages/SettingsPage'
 import BlocksPage from './pages/BlocksPage'
 import TopologyPage from './pages/TopologyPage'
 import ReportsPage from './pages/ReportsPage'
+import BackupsPage from './pages/BackupsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore()
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="blocks" element={<BlocksPage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="backups" element={<BackupsPage />} />
         <Route
           path="users"
           element={<AdminRoute><UsersPage /></AdminRoute>}

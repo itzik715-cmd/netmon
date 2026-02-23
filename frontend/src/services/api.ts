@@ -166,6 +166,21 @@ export const reportsApi = {
   flows: (hours?: number) => api.get('/reports/flows', { params: { hours }, responseType: 'blob' }),
 }
 
+// Config Backups
+export const backupsApi = {
+  list: (params?: object) => api.get('/backups/', { params }),
+  summary: () => api.get('/backups/summary'),
+  schedule: () => api.get('/backups/schedule'),
+  updateSchedule: (data: object) => api.put('/backups/schedule', data),
+  manualBackup: (deviceId: number) => api.post(`/backups/device/${deviceId}`),
+  get: (id: number) => api.get(`/backups/${id}`),
+  delete: (id: number) => api.delete(`/backups/${id}`),
+  downloadRaw: (id: number) => api.get(`/backups/${id}/raw`, { responseType: 'blob' }),
+  diffTwo: (aId: number, bId: number) => api.get('/backups/diff/compare', { params: { a_id: aId, b_id: bId } }),
+  diffLive: (id: number) => api.post(`/backups/${id}/diff-live`),
+  diffStartup: (id: number) => api.post(`/backups/${id}/diff-startup`),
+}
+
 // Settings
 export const settingsApi = {
   getAll: () => api.get('/settings/'),

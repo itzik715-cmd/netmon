@@ -200,6 +200,47 @@ export interface BlocksSummary {
   }[]
 }
 
+export interface ConfigBackup {
+  id: number
+  device_id: number
+  device_hostname?: string
+  backup_type: 'scheduled' | 'manual'
+  configs_match?: boolean | null
+  size_bytes?: number
+  config_hash?: string
+  error?: string
+  created_at?: string
+  expires_at?: string
+}
+
+export interface ConfigBackupDetail extends ConfigBackup {
+  config_text?: string
+  startup_config?: string
+}
+
+export interface BackupSchedule {
+  hour: number
+  minute: number
+  retention_days: number
+  is_active: boolean
+}
+
+export interface BackupSummary {
+  total: number
+  unsaved_changes: number
+  failed: number
+  devices_backed_up: number
+}
+
+export interface DiffResult {
+  diff_lines: string[]
+  additions: number
+  deletions: number
+  identical: boolean
+  label_a: string
+  label_b: string
+}
+
 export interface SubnetScanResult {
   subnet: string
   total_hosts: number

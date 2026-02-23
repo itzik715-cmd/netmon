@@ -60,6 +60,7 @@ class Device(Base):
     alert_rules = relationship("AlertRule", back_populates="device")
     routes = relationship("DeviceRoute", back_populates="device", cascade="all, delete-orphan")
     blocks = relationship("DeviceBlock", back_populates="device", cascade="all, delete-orphan")
+    backups = relationship("ConfigBackup", back_populates="device", cascade="all, delete-orphan")
 
 
 class DeviceRoute(Base):

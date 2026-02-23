@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os
@@ -135,6 +135,13 @@ async def create_default_data():
                 db.add(setting)
         await db.commit()
 
+        # Default backup schedule
+        from app.models.config_backup import BackupSchedule
+        existing_sched = await db.execute(select(BackupSchedule).limit(1))
+        if not existing_sched.scalar_one_or_none():
+            db.add(BackupSchedule(hour=2, minute=0, retention_days=90, is_active=True))
+            await db.commit()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -156,6 +163,31 @@ async def lifespan(app: FastAPI):
         seconds=60,
         id="alert_eval",
     )
+
+    # Config backup scheduler — load saved schedule from DB (defaults: 02:00 UTC)
+    async def _start_backup_scheduler():
+        from app.database import AsyncSessionLocal
+        from app.models.config_backup import BackupSchedule
+        from app.services.config_fetcher import run_scheduled_backups, cleanup_expired_backups
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
+            sched_result = await db.execute(select(BackupSchedule).limit(1))
+            sched = sched_result.scalar_one_or_none()
+
+        hour = sched.hour if sched else 2
+        minute = sched.minute if sched else 0
+        is_active = sched.is_active if sched else True
+
+        if is_active:
+            scheduler.add_job(run_scheduled_backups, "cron", hour=hour, minute=minute, id="config_backup")
+            logger.info("Config backup scheduled at %02d:%02d UTC", hour, minute)
+
+        # Cleanup expired backups daily at 03:00 UTC
+        scheduler.add_job(cleanup_expired_backups, "cron", hour=3, minute=0, id="backup_cleanup")
+
+    import asyncio as _asyncio
+    _asyncio.create_task(_start_backup_scheduler())
+
     scheduler.start()
     logger.info("Scheduled tasks started")
 
@@ -225,6 +257,7 @@ app.include_router(settings_router.router)
 app.include_router(blocks.router)
 app.include_router(topology.router)
 app.include_router(reports.router)
+app.include_router(backups_router.router)
 
 
 @app.get("/api/health")

@@ -4,6 +4,7 @@ from app.models.interface import Interface, InterfaceMetric
 from app.models.alert import AlertRule, AlertEvent
 from app.models.flow import FlowRecord
 from app.models.settings import SystemSetting
+from app.models.config_backup import ConfigBackup, BackupSchedule
 
 __all__ = [
     "User", "Role", "AuditLog",
@@ -12,4 +13,6 @@ __all__ = [
     "AlertRule", "AlertEvent",
     "FlowRecord",
     "SystemSetting",
+    "ConfigBackup", "BackupSchedule",
 ]
+
