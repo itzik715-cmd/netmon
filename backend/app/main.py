@@ -53,6 +53,39 @@ async def scheduled_alerts():
         await evaluate_rules(db)
 
 
+async def run_migrations():
+    """
+    Idempotent schema migrations for columns added after initial deployment.
+    SQLAlchemy create_all only creates missing *tables* — it never ALTERs
+    existing ones — so new columns must be added here via raw SQL.
+    All statements use 'ADD COLUMN IF NOT EXISTS' so they are safe to run
+    on every startup.
+    """
+    from sqlalchemy import text
+    from app.database import engine
+
+    # (column_name, sql_type_with_default)
+    devices_columns = [
+        ("api_username",   "VARCHAR(100)"),
+        ("api_password",   "VARCHAR(255)"),
+        ("api_port",       "INTEGER DEFAULT 443"),
+        ("api_protocol",   "VARCHAR(10) DEFAULT 'https'"),
+        ("cpu_usage",      "FLOAT"),
+        ("memory_usage",   "FLOAT"),
+    ]
+
+    async with engine.begin() as conn:
+        for col, col_type in devices_columns:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE devices ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER devices.%s skipped: %s", col, e)
+
+    logger.info("Database migrations applied")
+
+
 async def create_default_data():
     """Initialize default roles and admin user."""
     from app.database import AsyncSessionLocal
@@ -147,7 +180,8 @@ async def create_default_data():
 async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    await init_db()
+    await init_db()          # creates any missing tables
+    await run_migrations()   # adds missing columns to existing tables
     await create_default_data()
 
     # Start schedulers

@@ -23,7 +23,10 @@ cryptography==42.0.7
 ldap3==2.9.1
 
 # SNMP (pure Python — lextudio-maintained fork, Python 3.11+ compatible)
+# pysnmp 7.x requires pyasn1 >= 0.5.0; pin it explicitly to avoid old containers
+# pulling the incompatible pyasn1 < 0.5.0 that still has pyasn1.compat.octets
 pysnmp>=7.0.0
+pyasn1>=0.5.0
 
 # Redis with asyncio support (redis 5.x includes aioredis — no separate package needed)
 redis[asyncio]==5.0.4
