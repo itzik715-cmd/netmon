@@ -45,6 +45,8 @@ export default function DeviceDetailPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('interfaces')
   const [search, setSearch] = useState('')
+  const [pageSize, setPageSize] = useState(25)
+  const [page, setPage] = useState(1)
 
   const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ['device', deviceId],
@@ -99,6 +101,9 @@ export default function DeviceDetailPage() {
       (i.description || '').toLowerCase().includes(search.toLowerCase()) ||
       (i.alias || '').toLowerCase().includes(search.toLowerCase())
   )
+  const totalPages = Math.max(1, Math.ceil(filteredIfs.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pagedIfs = filteredIfs.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const isL3 = device.layer === 'L3' || device.layer === 'L2/L3' ||
     device.device_type === 'router' || device.device_type === 'spine' || device.device_type === 'leaf'
@@ -181,7 +186,7 @@ export default function DeviceDetailPage() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
-              <input placeholder="Search interfaces..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 160 }} />
+              <input placeholder="Search interfaces..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} style={{ width: 160 }} />
             </div>
           </div>
           {ifLoading ? (
@@ -193,7 +198,7 @@ export default function DeviceDetailPage() {
                   <tr><th>Interface</th><th>Alias / Description</th><th>Speed</th><th>Admin</th><th>Oper</th><th>IP Address</th><th>VLAN</th><th></th></tr>
                 </thead>
                 <tbody>
-                  {filteredIfs.map((iface) => (
+                  {pagedIfs.map((iface) => (
                     <tr key={iface.id}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -214,13 +219,59 @@ export default function DeviceDetailPage() {
                       </td>
                     </tr>
                   ))}
-                  {filteredIfs.length === 0 && (
+                  {pagedIfs.length === 0 && (
                     <tr><td colSpan={8} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
                       {interfaces?.length === 0 ? 'No interfaces discovered. Click "Discover Interfaces" to scan.' : 'No interfaces match your search'}
                     </td></tr>
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+          {/* Pagination footer */}
+          {!ifLoading && filteredIfs.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
+              {/* Count + page-size selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Showing {Math.min((safePage - 1) * pageSize + 1, filteredIfs.length)}–{Math.min(safePage * pageSize, filteredIfs.length)} of {filteredIfs.length}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {[25, 50, 100, 200].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => { setPageSize(n); setPage(1) }}
+                      className={`btn btn-sm ${pageSize === n ? 'btn-primary' : 'btn-outline'}`}
+                      style={{ minWidth: 38, padding: '2px 8px', fontSize: 12 }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  <span style={{ fontSize: 11, color: 'var(--text-light)', marginLeft: 2 }}>per page</span>
+                </div>
+              </div>
+              {/* Prev / page / Next */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className="btn btn-outline btn-sm"
+                  style={{ padding: '2px 10px' }}
+                >
+                  ‹ Prev
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 70, textAlign: 'center' }}>
+                  Page {safePage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className="btn btn-outline btn-sm"
+                  style={{ padding: '2px 10px' }}
+                >
+                  Next ›
+                </button>
+              </div>
             </div>
           )}
         </div>
