@@ -40,12 +40,6 @@ export default function WanDashboardPage() {
     refetchInterval: 60_000,
   })
 
-  const { data: wanP95Data } = useQuery({
-    queryKey: ['wan-metrics-p95'],
-    queryFn: () => interfacesApi.wanMetrics(168).then((r) => r.data),
-    refetchInterval: 300_000,
-  })
-
   const chartData = (wanData?.timeseries || []).map((m: any) => ({
     time: format(new Date(m.timestamp), hours <= 24 ? 'HH:mm' : 'MM/dd HH:mm'),
     'In (Mbps)': +(m.in_bps / 1_000_000).toFixed(3),
@@ -54,14 +48,10 @@ export default function WanDashboardPage() {
     'Out %': +m.utilization_out.toFixed(2),
   }))
 
-  const p95ChartData = (wanP95Data?.timeseries || []).map((m: any) => ({
-    time: format(new Date(m.timestamp), 'MM/dd HH:mm'),
-    'In (Mbps)': +(m.in_bps / 1_000_000).toFixed(3),
-    'Out (Mbps)': +(m.out_bps / 1_000_000).toFixed(3),
-  }))
+  const p95In = wanData?.p95_in_bps || 0
+  const p95Out = wanData?.p95_out_bps || 0
 
-  const p95In = wanP95Data?.p95_in_bps || 0
-  const p95Out = wanP95Data?.p95_out_bps || 0
+  const timeLabel = hours <= 24 ? `${hours}h` : `${hours / 24}d`
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -91,13 +81,13 @@ export default function WanDashboardPage() {
           </div>
         </div>
         <div className="info-card">
-          <div className="stat-label">95th %ile In (7d)</div>
+          <div className="stat-label">95th %ile In ({timeLabel})</div>
           <div style={{ fontWeight: 700, fontSize: 18, color: '#1a9dc8', marginTop: 4 }}>
             {formatBps(p95In)}
           </div>
         </div>
         <div className="info-card">
-          <div className="stat-label">95th %ile Out (7d)</div>
+          <div className="stat-label">95th %ile Out ({timeLabel})</div>
           <div style={{ fontWeight: 700, fontSize: 18, color: '#a78bfa', marginTop: 4 }}>
             {formatBps(p95Out)}
           </div>
@@ -174,18 +164,18 @@ export default function WanDashboardPage() {
         </div>
       </div>
 
-      {/* 7-day 95th percentile graph */}
+      {/* Throughput with 95th percentile */}
       <div className="card">
         <div className="card-header">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-          <h3>7-Day Throughput with 95th Percentile</h3>
+          <h3>Throughput with 95th Percentile — Last {timeLabel}</h3>
         </div>
         <div className="card-body">
-          {p95ChartData.length === 0 ? (
-            <div className="empty-state" style={{ height: 200 }}><p>No 7-day data available</p></div>
+          {chartData.length === 0 ? (
+            <div className="empty-state" style={{ height: 200 }}><p>No data available</p></div>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={p95ChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
                 <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit=" Mbps" width={70} />
