@@ -124,12 +124,29 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <div className="logo-icon">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/>
-          </svg>
+        {/* Cloud Web Manage logo */}
+        <svg viewBox="0 0 160 50" style={{ width: 110, height: 34, flexShrink: 0 }}>
+          {/* Cloud icon */}
+          <path d="M38 18c0-6-4.5-10.5-10.2-10.5c-4.2 0-7.8 2.5-9.3 6.2C17 12.5 15 11.5 12.8 11.5
+            C9 11.5 6 14.5 6 18.3c0 .3 0 .5.05.8C3 19.8 1 22.3 1 25.2C1 29 4 32 7.8 32h26.4
+            c4.5 0 8-3.5 8-8c0-3.5-2.2-6.5-5.5-7.5" fill="none" stroke="#29ABE2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          {/* Swoosh arc */}
+          <path d="M10 28c8-2 18-12 30-8" fill="none" stroke="#29ABE2" strokeWidth="1.8" strokeLinecap="round" opacity="0.6"/>
+          {/* "Cloud" text */}
+          <text x="44" y="20" fontFamily="DM Sans, sans-serif" fontWeight="700" fontSize="16" fill="#29ABE2">Cloud</text>
+          {/* "Web Manage" text */}
+          <text x="44" y="32" fontFamily="DM Sans, sans-serif" fontWeight="400" fontSize="9" fill="#666" letterSpacing="0.5">Web Manage</text>
+        </svg>
+        <div style={{ width: 1, height: 24, background: 'var(--border)', flexShrink: 0 }}></div>
+        {/* NMP logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="logo-icon">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/>
+            </svg>
+          </div>
+          <div className="logo-text">N<span>MP</span></div>
         </div>
-        <div className="logo-text">N<span>MP</span></div>
       </div>
 
       <nav className="sidebar-nav">
