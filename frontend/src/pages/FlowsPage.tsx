@@ -361,8 +361,8 @@ export default function FlowsPage() {
         </div>
       </div>
 
-      {/* Device filter — only shown when 2+ devices are sending flows */}
-      {flowDevices.length > 1 && (
+      {/* Device filter — shown when at least one device is sending flows */}
+      {flowDevices.length > 0 && (
         <div className="card" style={{ padding: '10px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>

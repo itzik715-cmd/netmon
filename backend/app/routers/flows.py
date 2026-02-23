@@ -25,6 +25,7 @@ async def get_flow_devices(
     rows = (await db.execute(
         select(FlowRecord.device_id, func.count(FlowRecord.id).label("flow_count"))
         .where(FlowRecord.timestamp >= since)
+        .where(FlowRecord.device_id.isnot(None))
         .group_by(FlowRecord.device_id)
         .order_by(desc("flow_count"))
     )).all()
