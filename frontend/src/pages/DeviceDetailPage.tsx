@@ -111,6 +111,7 @@ export default function DeviceDetailPage() {
     device.device_type === 'router' || device.device_type === 'spine' || device.device_type === 'leaf'
 
   return (
+    <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -469,5 +470,6 @@ export default function DeviceDetailPage() {
     {showEdit && device && (
       <EditDeviceModal device={device} onClose={() => setShowEdit(false)} />
     )}
+    </>
   )
 }
