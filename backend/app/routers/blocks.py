@@ -41,7 +41,21 @@ async def list_blocks(
     query = query.order_by(DeviceBlock.created_at.desc())
 
     result = await db.execute(query)
-    return result.scalars().all()
+    blocks = result.scalars().all()
+
+    # Enrich with device hostname
+    device_ids = {b.device_id for b in blocks}
+    device_map: dict[int, str] = {}
+    if device_ids:
+        dev_result = await db.execute(select(Device).where(Device.id.in_(device_ids)))
+        device_map = {d.id: d.hostname for d in dev_result.scalars().all()}
+
+    response = []
+    for b in blocks:
+        br = BlockResponse.model_validate(b)
+        br.device_hostname = device_map.get(b.device_id)
+        response.append(br)
+    return response
 
 
 # ── Apply a block ─────────────────────────────────────────────────────────────

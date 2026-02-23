@@ -58,11 +58,12 @@ async def arista_eapi(device: Device, commands: list[str], format: str = "json")
 async def fetch_null_routes(device: Device) -> list[str]:
     """
     Retrieve all null-route prefixes from the device.
-    Runs 'show ip route null0' and extracts prefixes whose nexthop is Null0.
+    Runs 'show ip route static' (JSON) and filters for routes whose via
+    interface is Null0.  Works on Arista EOS 4.32+.
     Returns list of CIDR prefix strings.
     """
     try:
-        results = await arista_eapi(device, ["show ip route null0"])
+        results = await arista_eapi(device, ["show ip route static"])
     except Exception as exc:
         logger.warning("fetch_null_routes failed for %s: %s", device.hostname, exc)
         return []
@@ -71,10 +72,11 @@ async def fetch_null_routes(device: Device) -> list[str]:
     try:
         routes_dict = results[0].get("vrfs", {}).get("default", {}).get("routes", {})
         for prefix, route_info in routes_dict.items():
-            # Verify at least one via entry is Null0
             via_list = route_info.get("vias", [])
             for via in via_list:
-                if via.get("nexthopAddr", "") == "0.0.0.0" or "Null" in via.get("interface", ""):
+                iface = via.get("interface", "")
+                nexthop = via.get("nexthopAddr", "")
+                if "Null" in iface or (nexthop == "0.0.0.0" and iface == ""):
                     prefixes.append(prefix)
                     break
     except (KeyError, AttributeError, TypeError) as exc:
@@ -86,11 +88,12 @@ async def fetch_null_routes(device: Device) -> list[str]:
 async def fetch_flowspec_blocks(device: Device) -> list[str]:
     """
     Retrieve BGP flowspec rules from the device.
-    Runs 'show ip bgp flow-spec' and extracts destination prefixes.
+    Runs 'show bgp flow-spec ipv4' (text) and extracts destination prefixes.
+    Works on Arista EOS 4.32+.
     Returns list of CIDR prefix strings.
     """
     try:
-        results = await arista_eapi(device, ["show ip bgp flow-spec"], format="text")
+        results = await arista_eapi(device, ["show bgp flow-spec ipv4"], format="text")
     except Exception as exc:
         logger.warning("fetch_flowspec_blocks failed for %s: %s", device.hostname, exc)
         return []

@@ -12,6 +12,7 @@ class BlockCreate(BaseModel):
 class BlockResponse(BaseModel):
     id: int
     device_id: int
+    device_hostname: Optional[str] = None
     prefix: str
     block_type: str
     description: Optional[str] = None

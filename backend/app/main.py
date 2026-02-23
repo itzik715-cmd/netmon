@@ -91,6 +91,39 @@ async def scheduled_cleanup():
         await cleanup_old_metrics(db)
 
 
+async def scheduled_block_sync():
+    """Sync null-route and flowspec blocks from all spine devices with eAPI credentials."""
+    from app.database import AsyncSessionLocal
+    from app.models.device import Device
+    from sqlalchemy import select
+    from app.services.arista_api import sync_device_blocks
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Device).where(
+                Device.is_active == True,
+                Device.device_type == "spine",
+                Device.api_username.isnot(None),
+            )
+        )
+        spines = result.scalars().all()
+
+    if not spines:
+        return
+
+    for spine in spines:
+        try:
+            async with AsyncSessionLocal() as db:
+                counts = await sync_device_blocks(spine, db)
+                total = counts.get("total_active", 0)
+                if total > 0:
+                    logger.info("Block sync %s: %d null routes, %d flowspec",
+                                spine.hostname, counts.get("null_routes_synced", 0),
+                                counts.get("flowspec_synced", 0))
+        except Exception as e:
+            logger.warning("Block sync failed for %s: %s", spine.hostname, e)
+
+
 async def run_migrations():
     """
     Idempotent schema migrations for columns added after initial deployment.
@@ -295,6 +328,13 @@ async def lifespan(app: FastAPI):
         "interval",
         hours=6,
         id="metrics_cleanup",
+        max_instances=1,
+    )
+    scheduler.add_job(
+        scheduled_block_sync,
+        "interval",
+        seconds=60,
+        id="block_sync",
         max_instances=1,
     )
 
