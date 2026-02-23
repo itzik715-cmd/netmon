@@ -379,6 +379,7 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime):
     in_octets   = await snmp_bulk_walk(device, OID_IF_HC_IN_OCTETS)
     out_octets  = await snmp_bulk_walk(device, OID_IF_HC_OUT_OCTETS)
     oper_status = await snmp_bulk_walk(device, OID_IF_OPER)
+    admin_status = await snmp_bulk_walk(device, OID_IF_ADMIN)
     speeds      = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED)
 
     if not in_octets:
@@ -390,8 +391,12 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime):
         try:
             if_index = int(oid_str.split(".")[-1])
             out_val  = out_octets.get(oid_str.replace(OID_IF_HC_IN_OCTETS, OID_IF_HC_OUT_OCTETS), 0)
-            oper     = oper_status.get(oid_str.replace(OID_IF_HC_IN_OCTETS, OID_IF_OPER), "1")
-            speed_mbps = int(speeds.get(oid_str.replace(OID_IF_HC_IN_OCTETS, OID_IF_HIGH_SPEED), 0) or 0)
+            oper_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_OPER)
+            admin_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_ADMIN)
+            speed_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HIGH_SPEED)
+            oper      = oper_status.get(oper_key, "1")
+            admin     = admin_status.get(admin_key, "1")
+            speed_mbps = int(speeds.get(speed_key, 0) or 0)
             speed_bps  = speed_mbps * 1_000_000
 
             if if_index not in if_by_index:
@@ -425,7 +430,8 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime):
                         utilization_in  = min(100.0, (in_bps / speed_bps) * 100)
                         utilization_out = min(100.0, (out_bps / speed_bps) * 100)
 
-            oper_str = "up" if str(oper) == "1" else "down"
+            oper_str  = "up" if str(oper) == "1" else "down"
+            admin_str = "up" if str(admin) == "1" else "down"
             db.add(InterfaceMetric(
                 interface_id=iface.id, timestamp=now,
                 in_octets=in_octets_val, out_octets=out_octets_val,
@@ -433,8 +439,12 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime):
                 utilization_in=utilization_in, utilization_out=utilization_out,
                 oper_status=oper_str,
             ))
+            # Keep speed and admin/oper status in sync with live SNMP data
+            iface_updates: dict = {"oper_status": oper_str, "admin_status": admin_str}
+            if speed_bps:
+                iface_updates["speed"] = speed_bps
             await db.execute(
-                update(Interface).where(Interface.id == iface.id).values(oper_status=oper_str)
+                update(Interface).where(Interface.id == iface.id).values(**iface_updates)
             )
         except Exception as e:
             logger.debug(f"Interface metric error for index {if_index}: {e}")
@@ -448,37 +458,67 @@ async def discover_interfaces(device: Device, db: AsyncSession) -> int:
     oper_walk  = await snmp_bulk_walk(device, OID_IF_OPER)
     alias_walk = await snmp_bulk_walk(device, OID_IF_ALIAS)
 
-    created = 0
+    created = updated = 0
     for oid_str, descr in descr_walk.items():
         try:
-            if_index   = int(oid_str.split(".")[-1])
-            speed_mbps = int(speed_walk.get(oid_str.replace(OID_IF_DESCR, OID_IF_HIGH_SPEED), 0) or 0)
-            admin      = admin_walk.get(oid_str.replace(OID_IF_DESCR, OID_IF_ADMIN), "2")
-            oper       = oper_walk.get(oid_str.replace(OID_IF_DESCR, OID_IF_OPER), "2")
-            alias      = alias_walk.get(oid_str.replace(OID_IF_DESCR, OID_IF_ALIAS), "")
+            if_index = int(oid_str.split(".")[-1])
+
+            # Resolve cross-table OID keys (handles both numeric and symbolic OID forms)
+            speed_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_HIGH_SPEED)
+            admin_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ADMIN)
+            oper_key  = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_OPER)
+            alias_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ALIAS)
+
+            speed_mbps = int(speed_walk.get(speed_key, 0) or 0)
+            admin      = admin_walk.get(admin_key, "2")
+            oper       = oper_walk.get(oper_key, "2")
+            alias      = alias_walk.get(alias_key, "")
+
+            speed_bps  = speed_mbps * 1_000_000 if speed_mbps else None
+            admin_str  = "up" if str(admin) == "1" else "down"
+            oper_str   = "up" if str(oper) == "1" else "down"
+            alias_val  = str(alias).strip() if alias else None
+            name_val   = str(descr).strip()
 
             existing = await db.execute(
                 select(Interface).where(Interface.device_id == device.id, Interface.if_index == if_index)
             )
-            if existing.scalar_one_or_none():
-                continue
+            iface = existing.scalar_one_or_none()
 
-            db.add(Interface(
-                device_id=device.id,
-                if_index=if_index,
-                name=str(descr),
-                alias=str(alias) if alias else None,
-                speed=speed_mbps * 1_000_000 if speed_mbps else None,
-                admin_status="up" if str(admin) == "1" else "down",
-                oper_status="up" if str(oper) == "1" else "down",
-                is_monitored=True,
-            ))
-            created += 1
+            if iface:
+                # Always refresh SNMP-derived fields — fixes stale/empty data
+                await db.execute(
+                    update(Interface)
+                    .where(Interface.id == iface.id)
+                    .values(
+                        name=name_val,
+                        alias=alias_val,
+                        speed=speed_bps,
+                        admin_status=admin_str,
+                        oper_status=oper_str,
+                    )
+                )
+                updated += 1
+            else:
+                db.add(Interface(
+                    device_id=device.id,
+                    if_index=if_index,
+                    name=name_val,
+                    alias=alias_val,
+                    speed=speed_bps,
+                    admin_status=admin_str,
+                    oper_status=oper_str,
+                    is_monitored=True,
+                ))
+                created += 1
         except Exception as e:
             logger.debug(f"Interface discovery error: {e}")
 
     await db.commit()
-    logger.info(f"Interface discovery for {device.hostname} ({device.ip_address}): {created} new interfaces from {len(descr_walk)} found in walk")
+    logger.info(
+        f"Interface discovery for {device.hostname} ({device.ip_address}): "
+        f"{created} new, {updated} updated (of {len(descr_walk)} found in walk)"
+    )
     return created
 
 
