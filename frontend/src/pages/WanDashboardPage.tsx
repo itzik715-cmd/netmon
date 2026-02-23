@@ -59,8 +59,8 @@ export default function WanDashboardPage() {
     'Out %': +m.utilization_out.toFixed(2),
   }))
 
-  const p95InChart = +(p95In / divisor).toFixed(3)
-  const p95OutChart = +(p95Out / divisor).toFixed(3)
+  const p95 = Math.max(p95In, p95Out)
+  const p95Chart = +(p95 / divisor).toFixed(3)
 
   const timeLabel = hours <= 24 ? `${hours}h` : `${hours / 24}d`
 
@@ -78,7 +78,7 @@ export default function WanDashboardPage() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <div className="info-card">
           <div className="stat-label">WAN Interfaces</div>
           <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--primary)', marginTop: 4 }}>
@@ -92,15 +92,9 @@ export default function WanDashboardPage() {
           </div>
         </div>
         <div className="info-card">
-          <div className="stat-label">95th %ile In ({timeLabel})</div>
-          <div style={{ fontWeight: 700, fontSize: 18, color: '#1a9dc8', marginTop: 4 }}>
-            {formatBps(p95In)}
-          </div>
-        </div>
-        <div className="info-card">
-          <div className="stat-label">95th %ile Out ({timeLabel})</div>
-          <div style={{ fontWeight: 700, fontSize: 18, color: '#a78bfa', marginTop: 4 }}>
-            {formatBps(p95Out)}
+          <div className="stat-label">95th Percentile ({timeLabel})</div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: '#e74c3c', marginTop: 4 }}>
+            {formatBps(p95)}
           </div>
         </div>
       </div>
@@ -170,18 +164,11 @@ export default function WanDashboardPage() {
                 <Line type="monotone" dataKey={`In (${unit})`} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 <Line type="monotone" dataKey={`Out (${unit})`} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 <ReferenceLine
-                  y={p95InChart}
-                  stroke="#1a9dc8"
+                  y={p95Chart}
+                  stroke="#e74c3c"
                   strokeDasharray="6 4"
                   strokeWidth={2}
-                  label={{ value: `P95 In: ${formatBps(p95In)}`, position: 'insideTopRight', fill: '#1a9dc8', fontSize: 12, fontWeight: 600 }}
-                />
-                <ReferenceLine
-                  y={p95OutChart}
-                  stroke="#a78bfa"
-                  strokeDasharray="6 4"
-                  strokeWidth={2}
-                  label={{ value: `P95 Out: ${formatBps(p95Out)}`, position: 'insideBottomRight', fill: '#a78bfa', fontSize: 12, fontWeight: 600 }}
+                  label={{ value: `95th: ${formatBps(p95)}`, position: 'insideTopRight', fill: '#e74c3c', fontSize: 12, fontWeight: 600 }}
                 />
               </LineChart>
             </ResponsiveContainer>
