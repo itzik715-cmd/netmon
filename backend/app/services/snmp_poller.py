@@ -22,6 +22,9 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# Single reusable engine — avoids leaking a UDP socket per call
+_SNMP_ENGINE = SnmpEngine()
+
 # Standard SNMP OIDs — system
 OID_SYS_DESCR    = "1.3.6.1.2.1.1.1.0"
 OID_SYS_UPTIME   = "1.3.6.1.2.1.1.3.0"
@@ -128,7 +131,7 @@ def make_auth_data(device: Device):
 async def snmp_get(device: Device, oid: str) -> Optional[Any]:
     """Perform SNMP GET for a single OID."""
     try:
-        engine = SnmpEngine()
+        engine = _SNMP_ENGINE
         auth_data = make_auth_data(device)
         transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
@@ -151,7 +154,7 @@ async def snmp_bulk_walk(device: Device, oid: str) -> Dict[str, Any]:
     """SNMP BULK walk of an OID table."""
     results = {}
     try:
-        engine = SnmpEngine()
+        engine = _SNMP_ENGINE
         auth_data = make_auth_data(device)
         transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
