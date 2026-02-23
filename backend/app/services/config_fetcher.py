@@ -1,9 +1,8 @@
 """
 Configuration backup and diff service.
 
-Fetch running/startup configs from devices via:
-  - Arista eAPI (preferred for Arista EOS devices)
-  - SSH (asyncssh) for Cisco and other vendors
+Fetch running/startup configs from devices via Arista eAPI (JSON-RPC).
+Tries HTTPS first, then falls back to HTTP on port 80.
 
 Provides diff utilities using stdlib difflib.
 """
@@ -21,88 +20,89 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
-    """Fetch running and startup configs via Arista eAPI."""
-    from app.services.arista_api import arista_eapi
-    results = await arista_eapi(
-        device,
-        ["show running-config", "show startup-config"],
-        format="text",
-    )
-    running = results[0].get("output", "") if len(results) > 0 else None
-    startup = results[1].get("output", "") if len(results) > 1 else None
-    return running, startup
+    """
+    Fetch running and startup configs via Arista eAPI (JSON-RPC over HTTP/HTTPS).
 
-
-async def _fetch_via_ssh(device, commands: list[str]) -> list[str]:
-    """Fetch command outputs via SSH using asyncssh."""
-    try:
-        import asyncssh
-    except ImportError:
-        raise RuntimeError("asyncssh not installed — cannot use SSH backup method")
+    Tries the configured protocol/port first, then falls back to HTTP on port 80
+    in case HTTPS is not enabled on the device.
+    """
+    import httpx
 
     username = device.api_username
     password = device.api_password
     if not username or not password:
-        raise ValueError(f"Device {device.hostname} has no SSH credentials (api_username/api_password)")
+        raise ValueError(
+            f"No API credentials for {device.hostname}. "
+            "Set api_username and api_password in device settings."
+        )
 
-    outputs = []
-    async with asyncssh.connect(
-        device.ip_address,
-        port=22,
-        username=username,
-        password=password,
-        known_hosts=None,
-        connect_timeout=15,
-    ) as conn:
-        for cmd in commands:
-            result = await conn.run(cmd, timeout=30)
-            outputs.append(result.stdout or "")
-    return outputs
+    configured_protocol = device.api_protocol or "https"
+    configured_port = device.api_port or 443
+
+    # Build list of endpoints to attempt
+    endpoints = [(configured_protocol, configured_port)]
+    # If configured for HTTPS, also try plain HTTP/80 as fallback
+    if configured_protocol == "https" and configured_port != 80:
+        endpoints.append(("http", 80))
+
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "runCmds",
+        "params": {
+            "version": 1,
+            "cmds": ["show running-config", "show startup-config"],
+            "format": "text",
+        },
+        "id": "netmon-backup",
+    }
+
+    last_exc: Optional[Exception] = None
+    for protocol, port in endpoints:
+        url = f"{protocol}://{device.ip_address}:{port}/command-api"
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                resp = await client.post(url, json=payload, auth=(username, password))
+                resp.raise_for_status()
+                data = resp.json()
+
+            if "error" in data:
+                raise ValueError(f"eAPI error from {device.hostname}: {data['error']}")
+
+            results = data.get("result", [])
+            running = results[0].get("output", "") if len(results) > 0 else None
+            startup = results[1].get("output", "") if len(results) > 1 else None
+            logger.info("Config fetched via eAPI (%s:%s) for %s", protocol, port, device.hostname)
+            return running, startup
+
+        except Exception as exc:
+            last_exc = exc
+            logger.debug(
+                "eAPI fetch attempt %s:%s for %s failed (%s): %s",
+                protocol, port, device.hostname, type(exc).__name__, exc,
+            )
+
+    raise RuntimeError(
+        f"eAPI config fetch failed for {device.hostname}. "
+        f"Error: {type(last_exc).__name__}: {last_exc}. "
+        "Ensure 'management api http-commands' is enabled on the device and "
+        "api_username/api_password are set correctly."
+    ) from last_exc
 
 
 async def fetch_device_configs(device) -> tuple[Optional[str], Optional[str]]:
     """
-    Fetch running-config and startup-config from a device.
+    Fetch running-config and startup-config from a device via eAPI.
 
-    Strategy:
-    1. Try eAPI if device has api_username set (works for Arista and any device
-       with a JSON-RPC endpoint).
-    2. Fall back to SSH.
-    3. If both fail, raise the last exception.
-
+    Requires api_username and api_password to be set on the device.
     Returns (running_config, startup_config).  Either may be None on partial failure.
     """
-    vendor = (device.vendor or "").lower()
-    has_api_creds = bool(device.api_username and device.api_password)
+    if not device.api_username or not device.api_password:
+        raise ValueError(
+            f"Device {device.hostname} has no API credentials. "
+            "Set api_username and api_password in device settings to enable config backup."
+        )
 
-    # --- Try eAPI ---
-    if has_api_creds:
-        try:
-            running, startup = await _fetch_via_eapi(device)
-            logger.info("Config fetched via eAPI for %s", device.hostname)
-            return running, startup
-        except Exception as eapi_exc:
-            logger.warning("eAPI config fetch failed for %s: %s — trying SSH", device.hostname, eapi_exc)
-
-    # --- Try SSH ---
-    if has_api_creds:
-        try:
-            # Most network OSes support 'show running-config' and 'show startup-config'
-            ssh_cmds = ["show running-config", "show startup-config"]
-            outputs = await _fetch_via_ssh(device, ssh_cmds)
-            logger.info("Config fetched via SSH for %s", device.hostname)
-            return outputs[0], outputs[1]
-        except Exception as ssh_exc:
-            logger.error("SSH config fetch failed for %s: %s", device.hostname, ssh_exc)
-            raise RuntimeError(
-                f"Config fetch failed for {device.hostname}. "
-                f"Ensure eAPI or SSH credentials (api_username/api_password) are configured."
-            ) from ssh_exc
-
-    raise ValueError(
-        f"Device {device.hostname} has no credentials configured. "
-        "Set api_username and api_password in device settings."
-    )
+    return await _fetch_via_eapi(device)
 
 
 # ---------------------------------------------------------------------------

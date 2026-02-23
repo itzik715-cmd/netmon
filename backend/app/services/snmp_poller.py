@@ -162,12 +162,15 @@ async def snmp_bulk_walk(device: Device, oid: str) -> Dict[str, Any]:
             engine, auth_data, transport, ContextData(),
             0, 20,
             ObjectType(ObjectIdentity(oid)),
+            lexicographicMode=False,
         ):
             if error_indication or error_status:
                 break
             for var_bind in var_binds:
-                key = str(var_bind[0])
+                # Use prettyPrint() on OID to ensure numeric dotted notation
+                key = var_bind[0].prettyPrint()
                 results[key] = var_bind[1].prettyPrint()
+        logger.debug(f"SNMP WALK {device.ip_address}/{oid}: {len(results)} results")
     except Exception as e:
         logger.debug(f"SNMP WALK error for {device.ip_address}/{oid}: {e}")
     return results
@@ -475,6 +478,7 @@ async def discover_interfaces(device: Device, db: AsyncSession) -> int:
             logger.debug(f"Interface discovery error: {e}")
 
     await db.commit()
+    logger.info(f"Interface discovery for {device.hostname} ({device.ip_address}): {created} new interfaces from {len(descr_walk)} found in walk")
     return created
 
 
