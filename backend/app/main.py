@@ -82,6 +82,7 @@ async def run_migrations():
         ("api_protocol",   "VARCHAR(10) DEFAULT 'https'"),
         ("cpu_usage",      "FLOAT"),
         ("memory_usage",   "FLOAT"),
+        ("flow_enabled",   "BOOLEAN DEFAULT FALSE"),
     ]
 
     async with engine.begin() as conn:

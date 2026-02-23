@@ -37,6 +37,7 @@ class DeviceCreate(BaseModel):
     snmp_v3_priv_protocol: Optional[str] = None
     snmp_v3_priv_key: Optional[str] = None
     poll_interval: int = 60
+    flow_enabled: bool = False
     description: Optional[str] = None
     tags: Optional[str] = None
     api_username: Optional[str] = None
@@ -63,6 +64,7 @@ class DeviceUpdate(BaseModel):
     snmp_v3_priv_key: Optional[str] = None
     poll_interval: Optional[int] = None
     polling_enabled: Optional[bool] = None
+    flow_enabled: Optional[bool] = None
     is_active: Optional[bool] = None
     description: Optional[str] = None
     tags: Optional[str] = None
@@ -89,6 +91,7 @@ class DeviceResponse(BaseModel):
     memory_usage: Optional[float] = None
     poll_interval: int
     polling_enabled: bool
+    flow_enabled: bool
     is_active: bool
     description: Optional[str] = None
     tags: Optional[str] = None

@@ -394,15 +394,28 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
         try:
             async with self.session_factory() as db:
                 exporter_ips = {item[1] for item in batch}
+                # Map exporter IP → device id, but only for devices with flow_enabled=True.
+                # Flows from unknown IPs or devices that have not opted-in are silently dropped.
                 device_id_map: dict[str, Optional[int]] = {}
                 for ip in exporter_ips:
-                    result = await db.execute(select(Device).where(Device.ip_address == ip))
+                    result = await db.execute(
+                        select(Device).where(
+                            Device.ip_address == ip,
+                            Device.flow_enabled == True,  # noqa: E712
+                        )
+                    )
                     device = result.scalar_one_or_none()
                     device_id_map[ip] = device.id if device else None
+
+                stored = 0
                 for rec, exporter_ip, ts in batch:
-                    db.add(FlowRecord(device_id=device_id_map[exporter_ip], timestamp=ts, **rec))
+                    device_id = device_id_map.get(exporter_ip)
+                    if device_id is None:
+                        continue   # device not found or flow collection not enabled
+                    db.add(FlowRecord(device_id=device_id, timestamp=ts, **rec))
+                    stored += 1
                 await db.commit()
-            logger.debug(f"{self.flow_type}: flushed {len(batch)} records to DB")
+            logger.debug(f"{self.flow_type}: flushed {stored}/{len(batch)} records to DB")
         except Exception as exc:
             logger.error(f"{self.flow_type}: error flushing {len(batch)} records to DB: {exc}")
 

@@ -22,6 +22,7 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
     snmp_port: String(device.snmp_port ?? 161),
     poll_interval: String(device.poll_interval ?? 60),
     polling_enabled: device.polling_enabled,
+    flow_enabled: device.flow_enabled ?? false,
     is_active: device.is_active,
     description: device.description ?? '',
     api_username: device.api_username ?? '',
@@ -86,6 +87,7 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
       snmp_port: parseInt(form.snmp_port) || 161,
       poll_interval: parseInt(form.poll_interval) || 60,
       polling_enabled: form.polling_enabled,
+      flow_enabled: form.flow_enabled,
       is_active: form.is_active,
       description: form.description || undefined,
       api_protocol: form.api_protocol,
@@ -186,6 +188,11 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
                     <input type="checkbox" checked={form.polling_enabled}
                       onChange={(e) => setForm((p) => ({ ...p, polling_enabled: e.target.checked }))} />
                     Polling enabled
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                    <input type="checkbox" checked={form.flow_enabled}
+                      onChange={(e) => setForm((p) => ({ ...p, flow_enabled: e.target.checked }))} />
+                    Flow collection (sFlow / NetFlow)
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
                     <input type="checkbox" checked={form.is_active}

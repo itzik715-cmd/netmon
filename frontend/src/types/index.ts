@@ -40,6 +40,7 @@ export interface Device {
   memory_usage?: number
   poll_interval: number
   polling_enabled: boolean
+  flow_enabled: boolean
   is_active: boolean
   description?: string
   tags?: string

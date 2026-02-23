@@ -39,6 +39,7 @@ class Device(Base):
     snmp_v3_priv_key = Column(String(255))
     is_active = Column(Boolean, default=True)
     polling_enabled = Column(Boolean, default=True)
+    flow_enabled = Column(Boolean, default=False)
     poll_interval = Column(Integer, default=60)
     status = Column(String(20), default="unknown")  # up, down, unknown, degraded
     last_seen = Column(DateTime(timezone=True), nullable=True)
