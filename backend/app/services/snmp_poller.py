@@ -432,6 +432,7 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
         oper_status  = await snmp_bulk_walk(device, OID_IF_OPER, engine)
         admin_status = await snmp_bulk_walk(device, OID_IF_ADMIN, engine)
         speeds       = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED, engine)
+        aliases      = await snmp_bulk_walk(device, OID_IF_ALIAS, engine)
 
         if not in_octets:
             in_octets = await snmp_bulk_walk(device, OID_IF_IN_OCTETS, engine)
@@ -490,10 +491,14 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
                     utilization_in=utilization_in, utilization_out=utilization_out,
                     oper_status=oper_str,
                 ))
-                # Keep speed and admin/oper status in sync with live SNMP data
+                # Keep speed, alias, and admin/oper status in sync with live SNMP data
+                alias_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_ALIAS)
+                alias_val = str(aliases.get(alias_key, "")).strip() or None
                 iface_updates: dict = {"oper_status": oper_str, "admin_status": admin_str}
                 if speed_bps:
                     iface_updates["speed"] = speed_bps
+                if alias_val:
+                    iface_updates["alias"] = alias_val
                 await db.execute(
                     update(Interface).where(Interface.id == iface.id).values(**iface_updates)
                 )

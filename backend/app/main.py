@@ -50,24 +50,14 @@ async def _acquire_scheduler_lock(job_id: str, ttl_seconds: int) -> bool:
 async def scheduled_polling():
     """Run SNMP polling for all active devices.
 
-    Uses a single shared SnmpEngine for the entire polling cycle to keep
-    only one UDP socket open, preventing file-descriptor exhaustion
-    ([Errno 24] Too many open files).
-
-    A Semaphore caps concurrency at 5 to avoid overwhelming the engine
-    with too many in-flight SNMP requests.
+    Polls devices sequentially, each with its own short-lived SnmpEngine.
+    This avoids pysnmp's internal concurrency issues while keeping file
+    descriptor usage bounded (only 1 engine/socket open at a time).
     """
     from app.database import AsyncSessionLocal
     from app.models.device import Device
     from sqlalchemy import select
     from app.services.snmp_poller import poll_device
-    from pysnmp.hlapi.asyncio import SnmpEngine
-
-    def _close_engine(eng):
-        try:
-            eng.transportDispatcher.closeDispatcher()
-        except Exception:
-            pass
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -78,17 +68,12 @@ async def scheduled_polling():
     if not devices:
         return
 
-    engine = SnmpEngine()
-    sem = asyncio.Semaphore(5)
-    try:
-        async def _poll_one(device):
-            async with sem:
-                async with AsyncSessionLocal() as dev_db:
-                    return await poll_device(device, dev_db, engine=engine)
-
-        await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
-    finally:
-        _close_engine(engine)
+    for device in devices:
+        try:
+            async with AsyncSessionLocal() as dev_db:
+                await poll_device(device, dev_db)
+        except Exception as e:
+            logger.warning("Error polling %s: %s", device.hostname, e)
 
 
 async def scheduled_alerts():
