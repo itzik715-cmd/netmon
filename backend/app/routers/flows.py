@@ -209,6 +209,9 @@ async def get_ip_profile(
         for r in proto_rows
     ]
 
+    top_out = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_src]
+    top_in  = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_dst]
+
     return {
         "ip": ip,
         "bytes_sent": int(sent_row[0] or 0),
@@ -216,5 +219,7 @@ async def get_ip_profile(
         "bytes_received": int(recv_row[0] or 0),
         "flows_as_dst": int(recv_row[1] or 0),
         "top_peers": top_peers,
+        "top_out": top_out,
+        "top_in": top_in,
         "protocol_distribution": protocols,
     }

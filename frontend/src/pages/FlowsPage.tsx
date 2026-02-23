@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { flowsApi } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend, Label,
 } from 'recharts'
 
-const COLORS = ['#1a9dc8', '#27ae60', '#f39c12', '#e74c3c', '#a78bfa', '#06b6d4', '#84cc16', '#f97316']
+const COLORS     = ['#1a9dc8', '#a78bfa', '#06b6d4', '#f97316', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']
+const COLORS_IN  = ['#27ae60', '#2ecc71', '#1abc9c', '#16a085', '#0d9488', '#059669', '#10b981', '#34d399']
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`
@@ -17,10 +18,10 @@ function formatBytes(bytes: number): string {
 }
 
 const TIME_RANGES = [
-  { label: '1h', hours: 1 },
-  { label: '6h', hours: 6 },
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 168 },
+  { label: '1h',  hours: 1   },
+  { label: '6h',  hours: 6   },
+  { label: '24h', hours: 24  },
+  { label: '7d',  hours: 168 },
 ]
 
 const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
@@ -68,10 +69,102 @@ function IpSearchBar({
   )
 }
 
+// ── Donut + ranked list column ─────────────────────────────────────────────────
+function TrafficColumn({
+  title, accentColor, colors, totalBytes, peers, selectedPeer, onSelectPeer,
+}: {
+  title: string
+  accentColor: string
+  colors: string[]
+  totalBytes: number
+  peers: { ip: string; bytes: number }[]
+  selectedPeer: string
+  onSelectPeer: (ip: string) => void
+}) {
+  const maxBytes = peers[0]?.bytes || 1
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{
+        fontSize: 11, fontWeight: 700, color: accentColor,
+        textTransform: 'uppercase', letterSpacing: 1,
+      }}>
+        {title}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 10, alignItems: 'start' }}>
+        {/* Donut chart */}
+        <ResponsiveContainer width="100%" height={130}>
+          <PieChart>
+            <Pie
+              data={peers.length ? peers : [{ ip: 'none', bytes: 1 }]}
+              dataKey="bytes"
+              nameKey="ip"
+              cx="50%" cy="50%"
+              innerRadius={38}
+              outerRadius={58}
+              strokeWidth={1}
+            >
+              {(peers.length ? peers : [{ ip: 'none', bytes: 1 }]).map((_: any, i: number) => (
+                <Cell
+                  key={i}
+                  fill={peers.length ? colors[i % colors.length] : 'var(--border)'}
+                />
+              ))}
+              <Label
+                value={formatBytes(totalBytes)}
+                position="center"
+                style={{ fontSize: 11, fontWeight: 700, fill: 'var(--text-main)' }}
+              />
+            </Pie>
+            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+          </PieChart>
+        </ResponsiveContainer>
+
+        {/* Ranked list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 4 }}>
+          {peers.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingTop: 8 }}>No data</div>
+          )}
+          {peers.slice(0, 8).map((peer, i) => {
+            const pct = Math.round((peer.bytes / maxBytes) * 100)
+            const isSelected = selectedPeer === peer.ip
+            return (
+              <div
+                key={peer.ip}
+                onClick={() => onSelectPeer(isSelected ? '' : peer.ip)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  cursor: 'pointer', borderRadius: 5, padding: '3px 5px',
+                  background: isSelected ? `${accentColor}18` : 'transparent',
+                  border: isSelected ? `1px solid ${accentColor}40` : '1px solid transparent',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <span style={{ width: 13, fontSize: 9, color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                <span style={{ width: 9, height: 9, borderRadius: 2, flexShrink: 0, background: colors[i % colors.length] }} />
+                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: accentColor, minWidth: 88, flexShrink: 0 }}>{peer.ip}</span>
+                <div style={{ flex: 1, background: 'var(--bg-page)', borderRadius: 3, height: 4, minWidth: 20 }}>
+                  <div style={{ width: `${pct}%`, background: colors[i % colors.length], height: '100%', borderRadius: 3 }} />
+                </div>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 52, textAlign: 'right', flexShrink: 0 }}>{formatBytes(peer.bytes)}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── IP Profile card ───────────────────────────────────────────────────────────
 function IpProfile({
-  ip, hours, onPeerClick,
-}: { ip: string; hours: number; onPeerClick: (peer: string) => void }) {
+  ip, hours, selectedPeer, onSelectPeer,
+}: {
+  ip: string
+  hours: number
+  selectedPeer: string
+  onSelectPeer: (peer: string) => void
+}) {
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ip-profile', ip, hours],
     queryFn: () => flowsApi.ipProfile(ip, hours).then((r) => r.data),
@@ -79,9 +172,10 @@ function IpProfile({
   })
 
   if (isLoading) return <div className="card" style={{ padding: 20 }}>Loading profile for {ip}…</div>
-  if (!profile) return null
+  if (!profile)  return null
 
-  const totalFlows = profile.flows_as_src + profile.flows_as_dst
+  const topOut: { ip: string; bytes: number }[] = profile.top_out || []
+  const topIn:  { ip: string; bytes: number }[] = profile.top_in  || []
 
   return (
     <div className="card">
@@ -89,17 +183,20 @@ function IpProfile({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
         </svg>
-        <h3>IP Profile — <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{ip}</span></h3>
+        <h3>
+          IP Profile —{' '}
+          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{ip}</span>
+        </h3>
       </div>
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* stat row */}
+        {/* Stat row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           {[
-            { label: 'Sent', value: formatBytes(profile.bytes_sent), icon: '↑', color: 'var(--accent-blue)' },
-            { label: 'Received', value: formatBytes(profile.bytes_received), icon: '↓', color: 'var(--accent-green)' },
-            { label: 'As Source', value: profile.flows_as_src.toLocaleString() + ' flows', icon: '→', color: 'var(--accent-blue)' },
-            { label: 'As Destination', value: profile.flows_as_dst.toLocaleString() + ' flows', icon: '←', color: 'var(--accent-green)' },
+            { label: 'Sent',           value: formatBytes(profile.bytes_sent),     icon: '↑', color: 'var(--accent-blue)'  },
+            { label: 'Received',       value: formatBytes(profile.bytes_received), icon: '↓', color: 'var(--accent-green)' },
+            { label: 'Flows as Source', value: profile.flows_as_src.toLocaleString() + ' flows', icon: '→', color: 'var(--accent-blue)'  },
+            { label: 'Flows as Dest',  value: profile.flows_as_dst.toLocaleString() + ' flows', icon: '←', color: 'var(--accent-green)' },
           ].map(({ label, value, icon, color }) => (
             <div key={label} style={{ background: 'var(--bg-page)', borderRadius: 8, padding: '12px 14px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
@@ -110,67 +207,55 @@ function IpProfile({
           ))}
         </div>
 
-        {/* top peers + protocol distribution */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-          {/* top peers */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Top Peers</div>
-            {profile.top_peers.length === 0 ? (
-              <div style={{ color: 'var(--text-light)', fontSize: 12 }}>No peers found</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {profile.top_peers.map((peer: { ip: string; bytes: number }) => {
-                  const maxBytes = profile.top_peers[0]?.bytes || 1
-                  const pct = Math.round((peer.bytes / maxBytes) * 100)
-                  return (
-                    <div key={peer.ip} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <button
-                        className="btn-link"
-                        style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, minWidth: 110, textAlign: 'left', cursor: 'pointer', color: 'var(--accent-blue)' }}
-                        onClick={() => onPeerClick(peer.ip)}
-                      >
-                        {peer.ip}
-                      </button>
-                      <div style={{ flex: 1, background: 'var(--bg-secondary, #f1f5f9)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, background: 'var(--accent-blue)', height: '100%', borderRadius: 4 }} />
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 60, textAlign: 'right' }}>{formatBytes(peer.bytes)}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* protocol pie */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Protocols</div>
-            {profile.protocol_distribution.length === 0 ? (
-              <div style={{ color: 'var(--text-light)', fontSize: 12 }}>No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie
-                    data={profile.protocol_distribution}
-                    dataKey="bytes"
-                    nameKey="protocol"
-                    cx="50%" cy="50%"
-                    outerRadius={60}
-                  >
-                    {profile.protocol_distribution.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                  <Legend formatter={(v) => <span style={{ color: '#64748b', fontSize: 11 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+        {/* TOP OUT | TOP IN */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <TrafficColumn
+            title="↑ Top Out (destinations)"
+            accentColor="var(--accent-blue)"
+            colors={COLORS}
+            totalBytes={profile.bytes_sent}
+            peers={topOut}
+            selectedPeer={selectedPeer}
+            onSelectPeer={onSelectPeer}
+          />
+          <TrafficColumn
+            title="↓ Top In (sources)"
+            accentColor="var(--accent-green)"
+            colors={COLORS_IN}
+            totalBytes={profile.bytes_received}
+            peers={topIn}
+            selectedPeer={selectedPeer}
+            onSelectPeer={onSelectPeer}
+          />
         </div>
 
-        {totalFlows === 0 && (
+        {/* Protocol distribution */}
+        {profile.protocol_distribution.length > 0 && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              Protocols
+            </div>
+            <ResponsiveContainer width="100%" height={130}>
+              <PieChart>
+                <Pie
+                  data={profile.protocol_distribution}
+                  dataKey="bytes"
+                  nameKey="protocol"
+                  cx="50%" cy="50%"
+                  outerRadius={50}
+                >
+                  {profile.protocol_distribution.map((_: any, i: number) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                <Legend formatter={(v) => <span style={{ color: '#64748b', fontSize: 11 }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {profile.flows_as_src + profile.flows_as_dst === 0 && (
           <div style={{ color: 'var(--text-light)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>
             No flows found for {ip} in the selected time window
           </div>
@@ -182,8 +267,14 @@ function IpProfile({
 
 // ── main page ─────────────────────────────────────────────────────────────────
 export default function FlowsPage() {
-  const [hours, setHours] = useState(1)
-  const [searchIp, setSearchIp] = useState('')   // active IP filter
+  const [hours, setHours]           = useState(1)
+  const [searchIp, setSearchIp]     = useState('')
+  const [selectedPeer, setSelectedPeer] = useState('')
+
+  function handleSearchChange(ip: string) {
+    setSearchIp(ip)
+    setSelectedPeer('')
+  }
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['flow-stats', hours],
@@ -202,6 +293,14 @@ export default function FlowsPage() {
     refetchInterval: 60_000,
   })
 
+  // When a peer is selected, filter conversations client-side
+  const displayedConversations = selectedPeer
+    ? (conversations || []).filter((f: any) =>
+        (f.src_ip === searchIp && f.dst_ip === selectedPeer) ||
+        (f.src_ip === selectedPeer && f.dst_ip === searchIp)
+      )
+    : (conversations || [])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
@@ -211,7 +310,7 @@ export default function FlowsPage() {
           <p>NetFlow &amp; sFlow traffic analysis</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <IpSearchBar value={searchIp} onChange={setSearchIp} onClear={() => setSearchIp('')} />
+          <IpSearchBar value={searchIp} onChange={handleSearchChange} onClear={() => { setSearchIp(''); setSelectedPeer('') }} />
           <div className="time-range-bar">
             {TIME_RANGES.map((r) => (
               <button
@@ -228,7 +327,12 @@ export default function FlowsPage() {
 
       {/* IP Profile — only shown when searching */}
       {searchIp && (
-        <IpProfile ip={searchIp} hours={hours} onPeerClick={setSearchIp} />
+        <IpProfile
+          ip={searchIp}
+          hours={hours}
+          selectedPeer={selectedPeer}
+          onSelectPeer={setSelectedPeer}
+        />
       )}
 
       {/* Global stats cards */}
@@ -291,7 +395,7 @@ export default function FlowsPage() {
                           return (
                             <text x={x} y={y} dy={4} textAnchor="end" fill="#1a9dc8" fontSize={11}
                               style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                              onClick={() => setSearchIp(payload.value)}
+                              onClick={() => handleSearchChange(payload.value)}
                             >
                               {payload.value}
                             </text>
@@ -323,7 +427,7 @@ export default function FlowsPage() {
                           return (
                             <text x={x} y={y} dy={4} textAnchor="end" fill="#27ae60" fontSize={11}
                               style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                              onClick={() => setSearchIp(payload.value)}
+                              onClick={() => handleSearchChange(payload.value)}
                             >
                               {payload.value}
                             </text>
@@ -381,10 +485,28 @@ export default function FlowsPage() {
             <div className="card-header">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
               <h3>
-                {searchIp
-                  ? <>Flows involving <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{searchIp}</span></>
-                  : 'Top Conversations'}
+                {searchIp && selectedPeer ? (
+                  <>
+                    Flows:{' '}
+                    <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{searchIp}</span>
+                    {' ↔ '}
+                    <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-green)' }}>{selectedPeer}</span>
+                  </>
+                ) : searchIp ? (
+                  <>Flows involving <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{searchIp}</span></>
+                ) : (
+                  'Top Conversations'
+                )}
               </h3>
+              {selectedPeer && (
+                <button
+                  className="btn btn-outline btn-sm"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => setSelectedPeer('')}
+                >
+                  ✕ Show all flows
+                </button>
+              )}
             </div>
             <div className="table-wrap">
               <table>
@@ -402,9 +524,8 @@ export default function FlowsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(conversations || []).map((flow: any) => {
+                  {displayedConversations.map((flow: any) => {
                     const isOutgoing = flow.src_ip === searchIp
-                    const peer = isOutgoing ? flow.dst_ip : flow.src_ip
                     return (
                       <tr key={flow.id}>
                         {searchIp && (
@@ -419,7 +540,7 @@ export default function FlowsPage() {
                             ? <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{flow.src_ip}</span>
                             : (
                               <button className="btn-link" style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--accent-blue)', cursor: 'pointer' }}
-                                onClick={() => setSearchIp(flow.src_ip)}>
+                                onClick={() => handleSearchChange(flow.src_ip)}>
                                 {flow.src_ip}
                               </button>
                             )
@@ -430,7 +551,7 @@ export default function FlowsPage() {
                             ? <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>{flow.dst_ip}</span>
                             : (
                               <button className="btn-link" style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--accent-blue)', cursor: 'pointer' }}
-                                onClick={() => setSearchIp(flow.dst_ip)}>
+                                onClick={() => handleSearchChange(flow.dst_ip)}>
                                 {flow.dst_ip}
                               </button>
                             )
@@ -447,10 +568,14 @@ export default function FlowsPage() {
                       </tr>
                     )
                   })}
-                  {(conversations || []).length === 0 && (
+                  {displayedConversations.length === 0 && (
                     <tr>
                       <td colSpan={searchIp ? 9 : 8} style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-light)' }}>
-                        {searchIp ? `No flows found for ${searchIp}` : 'No conversations'}
+                        {selectedPeer
+                          ? `No flows between ${searchIp} and ${selectedPeer}`
+                          : searchIp
+                          ? `No flows found for ${searchIp}`
+                          : 'No conversations'}
                       </td>
                     </tr>
                   )}
