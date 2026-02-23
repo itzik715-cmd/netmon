@@ -22,9 +22,6 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Single reusable engine — avoids leaking a UDP socket per call
-_SNMP_ENGINE = SnmpEngine()
-
 # Standard SNMP OIDs — system
 OID_SYS_DESCR    = "1.3.6.1.2.1.1.1.0"
 OID_SYS_UPTIME   = "1.3.6.1.2.1.1.3.0"
@@ -114,6 +111,14 @@ VENDOR_PATTERNS = [
 ]
 
 
+def _close_engine(engine: SnmpEngine) -> None:
+    """Close an SnmpEngine and release its UDP socket."""
+    try:
+        engine.transportDispatcher.closeDispatcher()
+    except Exception:
+        pass
+
+
 def make_auth_data(device: Device):
     if device.snmp_version == "3":
         auth_proto = usmHMACSHAAuthProtocol if device.snmp_v3_auth_protocol == "SHA" else usmHMACMD5AuthProtocol
@@ -128,10 +133,15 @@ def make_auth_data(device: Device):
     return CommunityData(device.snmp_community or "public", mpModel=1 if device.snmp_version == "2c" else 0)
 
 
-async def snmp_get(device: Device, oid: str) -> Optional[Any]:
-    """Perform SNMP GET for a single OID."""
+async def snmp_get(device: Device, oid: str, engine: Optional[SnmpEngine] = None) -> Optional[Any]:
+    """Perform SNMP GET for a single OID.
+    If *engine* is provided the caller owns its lifecycle; otherwise a
+    temporary engine is created and closed inside this function.
+    """
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
     try:
-        engine = _SNMP_ENGINE
         auth_data = make_auth_data(device)
         transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
@@ -148,13 +158,21 @@ async def snmp_get(device: Device, oid: str) -> Optional[Any]:
     except Exception as e:
         logger.debug(f"SNMP GET error for {device.ip_address}/{oid}: {e}")
         return None
+    finally:
+        if _own_engine:
+            _close_engine(engine)
 
 
-async def snmp_bulk_walk(device: Device, oid: str) -> Dict[str, Any]:
-    """SNMP BULK walk of an OID table."""
+async def snmp_bulk_walk(device: Device, oid: str, engine: Optional[SnmpEngine] = None) -> Dict[str, Any]:
+    """SNMP BULK walk of an OID table.
+    If *engine* is provided the caller owns its lifecycle; otherwise a
+    temporary engine is created and closed inside this function.
+    """
     results = {}
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
     try:
-        engine = _SNMP_ENGINE
         auth_data = make_auth_data(device)
         transport = await UdpTransportTarget.create(
             (device.ip_address, device.snmp_port or 161),
@@ -170,12 +188,15 @@ async def snmp_bulk_walk(device: Device, oid: str) -> Dict[str, Any]:
             if error_indication or error_status:
                 break
             for var_bind in var_binds:
-                # Use prettyPrint() on OID to ensure numeric dotted notation
-                key = var_bind[0].prettyPrint()
+                # Always store as numeric dotted OID so _oid_rebase lookups work
+                key = '.'.join(str(x) for x in var_bind[0])
                 results[key] = var_bind[1].prettyPrint()
         logger.debug(f"SNMP WALK {device.ip_address}/{oid}: {len(results)} results")
     except Exception as e:
         logger.debug(f"SNMP WALK error for {device.ip_address}/{oid}: {e}")
+    finally:
+        if _own_engine:
+            _close_engine(engine)
     return results
 
 
@@ -199,8 +220,12 @@ async def enrich_device_info(device: Device, db: AsyncSession) -> None:
     Query SNMP for sysDescr and sysName, then update device with
     vendor, OS version, and hostname (if hostname is just an IP).
     """
-    sys_name = await snmp_get(device, OID_SYS_NAME)
-    sys_descr = await snmp_get(device, OID_SYS_DESCR)
+    engine = SnmpEngine()
+    try:
+        sys_name = await snmp_get(device, OID_SYS_NAME, engine)
+        sys_descr = await snmp_get(device, OID_SYS_DESCR, engine)
+    finally:
+        _close_engine(engine)
 
     updates: Dict[str, Any] = {}
 
@@ -238,53 +263,22 @@ async def discover_routes(device: Device, db: AsyncSession) -> int:
     """
     routes: List[Dict[str, Any]] = []
 
-    # --- Try ipCidrRouteTable first ---
-    dest_walk = await snmp_bulk_walk(device, OID_IP_CIDR_DEST)
-    if dest_walk:
-        mask_walk  = await snmp_bulk_walk(device, OID_IP_CIDR_MASK)
-        nhop_walk  = await snmp_bulk_walk(device, OID_IP_CIDR_NHOP)
-        proto_walk = await snmp_bulk_walk(device, OID_IP_CIDR_PROTO)
-        metric_walk = await snmp_bulk_walk(device, OID_IP_CIDR_METRIC)
-
-        for oid_str, dest in dest_walk.items():
-            try:
-                mask_key   = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_MASK)
-                nhop_key   = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_NHOP)
-                proto_key  = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_PROTO)
-                metric_key = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_METRIC)
-
-                mask     = mask_walk.get(mask_key, "")
-                next_hop = nhop_walk.get(nhop_key, "")
-                proto_v  = str(proto_walk.get(proto_key, "1")).strip()
-                metric   = int(metric_walk.get(metric_key, 0) or 0)
-                prefix_len = _mask_to_prefix_len(mask) if mask else None
-
-                routes.append({
-                    "destination": dest.strip(),
-                    "mask": mask.strip(),
-                    "prefix_len": prefix_len,
-                    "next_hop": next_hop.strip(),
-                    "protocol": ROUTE_PROTO_MAP.get(proto_v, "other"),
-                    "metric": metric,
-                })
-            except Exception as e:
-                logger.debug(f"ipCidrRoute parse error: {e}")
-
-    # --- Fallback: classic ipRouteTable ---
-    if not routes:
-        dest_walk = await snmp_bulk_walk(device, OID_IP_ROUTE_DEST)
+    engine = SnmpEngine()
+    try:
+        # --- Try ipCidrRouteTable first ---
+        dest_walk = await snmp_bulk_walk(device, OID_IP_CIDR_DEST, engine)
         if dest_walk:
-            mask_walk  = await snmp_bulk_walk(device, OID_IP_ROUTE_MASK)
-            nhop_walk  = await snmp_bulk_walk(device, OID_IP_ROUTE_NHOP)
-            proto_walk = await snmp_bulk_walk(device, OID_IP_ROUTE_PROTO)
-            metric_walk = await snmp_bulk_walk(device, OID_IP_ROUTE_METRIC)
+            mask_walk   = await snmp_bulk_walk(device, OID_IP_CIDR_MASK, engine)
+            nhop_walk   = await snmp_bulk_walk(device, OID_IP_CIDR_NHOP, engine)
+            proto_walk  = await snmp_bulk_walk(device, OID_IP_CIDR_PROTO, engine)
+            metric_walk = await snmp_bulk_walk(device, OID_IP_CIDR_METRIC, engine)
 
             for oid_str, dest in dest_walk.items():
                 try:
-                    mask_key   = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_MASK)
-                    nhop_key   = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_NHOP)
-                    proto_key  = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_PROTO)
-                    metric_key = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_METRIC)
+                    mask_key   = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_MASK)
+                    nhop_key   = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_NHOP)
+                    proto_key  = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_PROTO)
+                    metric_key = _oid_rebase(oid_str, OID_IP_CIDR_DEST, OID_IP_CIDR_METRIC)
 
                     mask     = mask_walk.get(mask_key, "")
                     next_hop = nhop_walk.get(nhop_key, "")
@@ -301,7 +295,42 @@ async def discover_routes(device: Device, db: AsyncSession) -> int:
                         "metric": metric,
                     })
                 except Exception as e:
-                    logger.debug(f"ipRoute parse error: {e}")
+                    logger.debug(f"ipCidrRoute parse error: {e}")
+
+        # --- Fallback: classic ipRouteTable ---
+        if not routes:
+            dest_walk = await snmp_bulk_walk(device, OID_IP_ROUTE_DEST, engine)
+            if dest_walk:
+                mask_walk   = await snmp_bulk_walk(device, OID_IP_ROUTE_MASK, engine)
+                nhop_walk   = await snmp_bulk_walk(device, OID_IP_ROUTE_NHOP, engine)
+                proto_walk  = await snmp_bulk_walk(device, OID_IP_ROUTE_PROTO, engine)
+                metric_walk = await snmp_bulk_walk(device, OID_IP_ROUTE_METRIC, engine)
+
+                for oid_str, dest in dest_walk.items():
+                    try:
+                        mask_key   = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_MASK)
+                        nhop_key   = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_NHOP)
+                        proto_key  = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_PROTO)
+                        metric_key = _oid_rebase(oid_str, OID_IP_ROUTE_DEST, OID_IP_ROUTE_METRIC)
+
+                        mask     = mask_walk.get(mask_key, "")
+                        next_hop = nhop_walk.get(nhop_key, "")
+                        proto_v  = str(proto_walk.get(proto_key, "1")).strip()
+                        metric   = int(metric_walk.get(metric_key, 0) or 0)
+                        prefix_len = _mask_to_prefix_len(mask) if mask else None
+
+                        routes.append({
+                            "destination": dest.strip(),
+                            "mask": mask.strip(),
+                            "prefix_len": prefix_len,
+                            "next_hop": next_hop.strip(),
+                            "protocol": ROUTE_PROTO_MAP.get(proto_v, "other"),
+                            "metric": metric,
+                        })
+                    except Exception as e:
+                        logger.debug(f"ipRoute parse error: {e}")
+    finally:
+        _close_engine(engine)
 
     if not routes:
         logger.info(f"No routes found for {device.hostname} ({device.ip_address})")
@@ -317,11 +346,14 @@ async def discover_routes(device: Device, db: AsyncSession) -> int:
 
 
 async def poll_device(device: Device, db: AsyncSession) -> bool:
-    """Poll a single device and update metrics."""
+    """Poll a single device and update metrics.
+    Uses one SnmpEngine for the entire device poll to avoid socket leaks.
+    """
+    engine = SnmpEngine()
     try:
         logger.info(f"Polling device: {device.hostname} ({device.ip_address})")
 
-        uptime_raw = await snmp_get(device, OID_SYS_UPTIME)
+        uptime_raw = await snmp_get(device, OID_SYS_UPTIME, engine)
         now = datetime.now(timezone.utc)
 
         if uptime_raw is not None:
@@ -347,7 +379,7 @@ async def poll_device(device: Device, db: AsyncSession) -> bool:
             return False
 
         # Poll CPU / memory
-        cpu, mem = await _poll_cpu_mem(device)
+        cpu, mem = await _poll_cpu_mem(device, engine)
         if cpu is not None or mem is not None:
             await db.execute(
                 update(Device)
@@ -362,126 +394,149 @@ async def poll_device(device: Device, db: AsyncSession) -> bool:
                 uptime=uptime_seconds,
             ))
 
-        await poll_interfaces(device, db, now)
+        await poll_interfaces(device, db, now, engine)
         await db.commit()
         return True
 
     except Exception as e:
         logger.error(f"Error polling device {device.hostname}: {e}")
         return False
+    finally:
+        _close_engine(engine)
 
 
-async def poll_interfaces(device: Device, db: AsyncSession, now: datetime):
+async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
+                          engine: Optional[SnmpEngine] = None):
     """Poll interface counters and store metrics."""
-    result = await db.execute(
-        select(Interface).where(Interface.device_id == device.id, Interface.is_monitored == True)
-    )
-    interfaces = result.scalars().all()
-    if_by_index = {iface.if_index: iface for iface in interfaces if iface.if_index}
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
+    try:
+        result = await db.execute(
+            select(Interface).where(Interface.device_id == device.id, Interface.is_monitored == True)
+        )
+        interfaces = result.scalars().all()
+        if_by_index = {iface.if_index: iface for iface in interfaces if iface.if_index}
 
-    in_octets   = await snmp_bulk_walk(device, OID_IF_HC_IN_OCTETS)
-    out_octets  = await snmp_bulk_walk(device, OID_IF_HC_OUT_OCTETS)
-    oper_status = await snmp_bulk_walk(device, OID_IF_OPER)
-    admin_status = await snmp_bulk_walk(device, OID_IF_ADMIN)
-    speeds      = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED)
+        in_octets    = await snmp_bulk_walk(device, OID_IF_HC_IN_OCTETS, engine)
+        out_octets   = await snmp_bulk_walk(device, OID_IF_HC_OUT_OCTETS, engine)
+        oper_status  = await snmp_bulk_walk(device, OID_IF_OPER, engine)
+        admin_status = await snmp_bulk_walk(device, OID_IF_ADMIN, engine)
+        speeds       = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED, engine)
 
-    if not in_octets:
-        in_octets = await snmp_bulk_walk(device, OID_IF_IN_OCTETS)
-    if not out_octets:
-        out_octets = await snmp_bulk_walk(device, OID_IF_OUT_OCTETS)
+        if not in_octets:
+            in_octets = await snmp_bulk_walk(device, OID_IF_IN_OCTETS, engine)
+        if not out_octets:
+            out_octets = await snmp_bulk_walk(device, OID_IF_OUT_OCTETS, engine)
 
-    for oid_str, in_val in in_octets.items():
-        try:
-            if_index = int(oid_str.split(".")[-1])
-            out_val  = out_octets.get(oid_str.replace(OID_IF_HC_IN_OCTETS, OID_IF_HC_OUT_OCTETS), 0)
-            oper_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_OPER)
-            admin_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_ADMIN)
-            speed_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HIGH_SPEED)
-            oper      = oper_status.get(oper_key, "1")
-            admin     = admin_status.get(admin_key, "1")
-            speed_mbps = int(speeds.get(speed_key, 0) or 0)
-            speed_bps  = speed_mbps * 1_000_000
+        for oid_str, in_val in in_octets.items():
+            try:
+                if_index = int(oid_str.split(".")[-1])
+                out_val  = out_octets.get(oid_str.replace(OID_IF_HC_IN_OCTETS, OID_IF_HC_OUT_OCTETS), 0)
+                oper_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_OPER)
+                admin_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_ADMIN)
+                speed_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HIGH_SPEED)
+                oper      = oper_status.get(oper_key, "1")
+                admin     = admin_status.get(admin_key, "1")
+                speed_mbps = int(speeds.get(speed_key, 0) or 0)
+                speed_bps  = speed_mbps * 1_000_000
 
-            if if_index not in if_by_index:
-                continue
+                if if_index not in if_by_index:
+                    continue
 
-            iface = if_by_index[if_index]
-            prev_result = await db.execute(
-                select(InterfaceMetric)
-                .where(InterfaceMetric.interface_id == iface.id)
-                .order_by(InterfaceMetric.timestamp.desc())
-                .limit(1)
-            )
-            prev = prev_result.scalar_one_or_none()
+                iface = if_by_index[if_index]
+                prev_result = await db.execute(
+                    select(InterfaceMetric)
+                    .where(InterfaceMetric.interface_id == iface.id)
+                    .order_by(InterfaceMetric.timestamp.desc())
+                    .limit(1)
+                )
+                prev = prev_result.scalar_one_or_none()
 
-            in_octets_val  = int(in_val) if in_val else 0
-            out_octets_val = int(out_val) if out_val else 0
-            in_bps = out_bps = utilization_in = utilization_out = 0.0
+                in_octets_val  = int(in_val) if in_val else 0
+                out_octets_val = int(out_val) if out_val else 0
+                in_bps = out_bps = utilization_in = utilization_out = 0.0
 
-            if prev and prev.in_octets and prev.timestamp:
-                delta_secs = (now - prev.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
-                if delta_secs > 0:
-                    in_delta  = in_octets_val - prev.in_octets
-                    out_delta = out_octets_val - prev.out_octets
-                    if in_delta < 0:
-                        in_delta += 2**64
-                    if out_delta < 0:
-                        out_delta += 2**64
-                    in_bps  = (in_delta * 8) / delta_secs
-                    out_bps = (out_delta * 8) / delta_secs
-                    if speed_bps > 0:
-                        utilization_in  = min(100.0, (in_bps / speed_bps) * 100)
-                        utilization_out = min(100.0, (out_bps / speed_bps) * 100)
+                if prev and prev.in_octets and prev.timestamp:
+                    delta_secs = (now - prev.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+                    if delta_secs > 0:
+                        in_delta  = in_octets_val - prev.in_octets
+                        out_delta = out_octets_val - prev.out_octets
+                        if in_delta < 0:
+                            in_delta += 2**64
+                        if out_delta < 0:
+                            out_delta += 2**64
+                        in_bps  = (in_delta * 8) / delta_secs
+                        out_bps = (out_delta * 8) / delta_secs
+                        if speed_bps > 0:
+                            utilization_in  = min(100.0, (in_bps / speed_bps) * 100)
+                            utilization_out = min(100.0, (out_bps / speed_bps) * 100)
 
-            oper_str  = "up" if str(oper) == "1" else "down"
-            admin_str = "up" if str(admin) == "1" else "down"
-            db.add(InterfaceMetric(
-                interface_id=iface.id, timestamp=now,
-                in_octets=in_octets_val, out_octets=out_octets_val,
-                in_bps=in_bps, out_bps=out_bps,
-                utilization_in=utilization_in, utilization_out=utilization_out,
-                oper_status=oper_str,
-            ))
-            # Keep speed and admin/oper status in sync with live SNMP data
-            iface_updates: dict = {"oper_status": oper_str, "admin_status": admin_str}
-            if speed_bps:
-                iface_updates["speed"] = speed_bps
-            await db.execute(
-                update(Interface).where(Interface.id == iface.id).values(**iface_updates)
-            )
-        except Exception as e:
-            logger.debug(f"Interface metric error for index {if_index}: {e}")
+                oper_str  = "up" if str(oper) == "1" else "down"
+                admin_str = "up" if str(admin) == "1" else "down"
+                db.add(InterfaceMetric(
+                    interface_id=iface.id, timestamp=now,
+                    in_octets=in_octets_val, out_octets=out_octets_val,
+                    in_bps=in_bps, out_bps=out_bps,
+                    utilization_in=utilization_in, utilization_out=utilization_out,
+                    oper_status=oper_str,
+                ))
+                # Keep speed and admin/oper status in sync with live SNMP data
+                iface_updates: dict = {"oper_status": oper_str, "admin_status": admin_str}
+                if speed_bps:
+                    iface_updates["speed"] = speed_bps
+                await db.execute(
+                    update(Interface).where(Interface.id == iface.id).values(**iface_updates)
+                )
+            except Exception as e:
+                logger.debug(f"Interface metric error for index {if_index}: {e}")
+    finally:
+        if _own_engine:
+            _close_engine(engine)
 
 
 async def discover_interfaces(device: Device, db: AsyncSession) -> int:
     """Discover and create interface records for a device."""
-    descr_walk = await snmp_bulk_walk(device, OID_IF_DESCR)
-    speed_walk = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED)
-    admin_walk = await snmp_bulk_walk(device, OID_IF_ADMIN)
-    oper_walk  = await snmp_bulk_walk(device, OID_IF_OPER)
-    alias_walk = await snmp_bulk_walk(device, OID_IF_ALIAS)
+    engine = SnmpEngine()
+    try:
+        descr_walk  = await snmp_bulk_walk(device, OID_IF_DESCR, engine)
+        speed_walk  = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED, engine)
+        # Fallback: basic 32-bit ifSpeed (bps) when ifHighSpeed unavailable
+        speed32_walk = await snmp_bulk_walk(device, OID_IF_SPEED, engine)
+        admin_walk  = await snmp_bulk_walk(device, OID_IF_ADMIN, engine)
+        oper_walk   = await snmp_bulk_walk(device, OID_IF_OPER, engine)
+        alias_walk  = await snmp_bulk_walk(device, OID_IF_ALIAS, engine)
+    finally:
+        _close_engine(engine)
 
     created = updated = 0
     for oid_str, descr in descr_walk.items():
         try:
             if_index = int(oid_str.split(".")[-1])
 
-            # Resolve cross-table OID keys (handles both numeric and symbolic OID forms)
-            speed_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_HIGH_SPEED)
-            admin_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ADMIN)
-            oper_key  = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_OPER)
-            alias_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ALIAS)
+            # Resolve cross-table OID keys
+            speed_key  = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_HIGH_SPEED)
+            speed32_key = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_SPEED)
+            admin_key  = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ADMIN)
+            oper_key   = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_OPER)
+            alias_key  = _oid_rebase(oid_str, OID_IF_DESCR, OID_IF_ALIAS)
 
+            # Speed: prefer ifHighSpeed (Mbps), fall back to ifSpeed (bps)
             speed_mbps = int(speed_walk.get(speed_key, 0) or 0)
-            admin      = admin_walk.get(admin_key, "2")
-            oper       = oper_walk.get(oper_key, "2")
-            alias      = alias_walk.get(alias_key, "")
+            if speed_mbps > 0:
+                speed_bps = speed_mbps * 1_000_000
+            else:
+                speed32_raw = int(speed32_walk.get(speed32_key, 0) or 0)
+                speed_bps = speed32_raw if speed32_raw > 0 else None
 
-            speed_bps  = speed_mbps * 1_000_000 if speed_mbps else None
-            admin_str  = "up" if str(admin) == "1" else "down"
-            oper_str   = "up" if str(oper) == "1" else "down"
-            alias_val  = str(alias).strip() if alias else None
-            name_val   = str(descr).strip()
+            admin     = admin_walk.get(admin_key, "1")   # default up when unknown
+            oper      = oper_walk.get(oper_key, "2")
+            alias     = alias_walk.get(alias_key, "")
+
+            admin_str = "up" if str(admin) == "1" else "down"
+            oper_str  = "up" if str(oper) == "1" else "down"
+            alias_val = str(alias).strip() if alias else None
+            name_val  = str(descr).strip()
 
             existing = await db.execute(
                 select(Interface).where(Interface.device_id == device.id, Interface.if_index == if_index)
@@ -489,7 +544,6 @@ async def discover_interfaces(device: Device, db: AsyncSession) -> int:
             iface = existing.scalar_one_or_none()
 
             if iface:
-                # Always refresh SNMP-derived fields — fixes stale/empty data
                 await db.execute(
                     update(Interface)
                     .where(Interface.id == iface.id)
@@ -525,65 +579,71 @@ async def discover_interfaces(device: Device, db: AsyncSession) -> int:
     return created
 
 
-async def _poll_cpu_mem(device: Device) -> tuple[Optional[float], Optional[float]]:
+async def _poll_cpu_mem(device: Device, engine: Optional[SnmpEngine] = None) -> tuple[Optional[float], Optional[float]]:
     """
     Query CPU and memory utilization.
     Tries HOST-RESOURCES-MIB (universal) first, then Cisco-specific OIDs.
     Returns (cpu_pct, mem_pct) — either may be None.
     """
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
     cpu: Optional[float] = None
     mem: Optional[float] = None
-
-    # HOST-RESOURCES-MIB hrProcessorLoad (works on Arista, many others)
-    cpu_val = await snmp_get(device, OID_CPU_ARISTA)
-    if cpu_val is not None:
-        try:
-            cpu = float(cpu_val)
-        except ValueError:
-            pass
-
-    # Cisco CPU
-    if cpu is None:
-        cisco_cpu = await snmp_get(device, OID_CPU_5MIN_CISCO)
-        if cisco_cpu is not None:
+    try:
+        # HOST-RESOURCES-MIB hrProcessorLoad (works on Arista, many others)
+        cpu_val = await snmp_get(device, OID_CPU_ARISTA, engine)
+        if cpu_val is not None:
             try:
-                cpu = float(cisco_cpu)
+                cpu = float(cpu_val)
             except ValueError:
                 pass
 
-    # Memory via Cisco OIDs
-    mem_used_raw = await snmp_get(device, OID_MEM_USED_CISCO)
-    mem_free_raw = await snmp_get(device, OID_MEM_FREE_CISCO)
-    if mem_used_raw is not None and mem_free_raw is not None:
-        try:
-            used = float(mem_used_raw)
-            free = float(mem_free_raw)
-            total = used + free
-            if total > 0:
-                mem = round((used / total) * 100.0, 1)
-        except ValueError:
-            pass
+        # Cisco CPU
+        if cpu is None:
+            cisco_cpu = await snmp_get(device, OID_CPU_5MIN_CISCO, engine)
+            if cisco_cpu is not None:
+                try:
+                    cpu = float(cisco_cpu)
+                except ValueError:
+                    pass
 
-    # HOST-RESOURCES hrMemorySize fallback
-    if mem is None:
-        mem_total_raw = await snmp_get(device, OID_MEM_TOTAL_HRM)
-        if mem_total_raw is not None:
+        # Memory via Cisco OIDs
+        mem_used_raw = await snmp_get(device, OID_MEM_USED_CISCO, engine)
+        mem_free_raw = await snmp_get(device, OID_MEM_FREE_CISCO, engine)
+        if mem_used_raw is not None and mem_free_raw is not None:
             try:
-                total_kb = float(mem_total_raw)
-                # Walk hrStorageTable to find RAM
-                storage_used = await snmp_bulk_walk(device, OID_MEM_STORAGE_USED)
-                storage_size = await snmp_bulk_walk(device, OID_MEM_STORAGE_SIZE)
-                for oid_key, size_val in storage_size.items():
-                    used_key = oid_key.replace(OID_MEM_STORAGE_SIZE, OID_MEM_STORAGE_USED)
-                    used_val = storage_used.get(used_key)
-                    if used_val and size_val:
-                        sz = float(size_val)
-                        us = float(used_val)
-                        if sz > 0:
-                            mem = round((us / sz) * 100.0, 1)
-                            break
-            except Exception:
+                used = float(mem_used_raw)
+                free = float(mem_free_raw)
+                total = used + free
+                if total > 0:
+                    mem = round((used / total) * 100.0, 1)
+            except ValueError:
                 pass
+
+        # HOST-RESOURCES hrMemorySize fallback
+        if mem is None:
+            mem_total_raw = await snmp_get(device, OID_MEM_TOTAL_HRM, engine)
+            if mem_total_raw is not None:
+                try:
+                    total_kb = float(mem_total_raw)
+                    # Walk hrStorageTable to find RAM
+                    storage_used = await snmp_bulk_walk(device, OID_MEM_STORAGE_USED, engine)
+                    storage_size = await snmp_bulk_walk(device, OID_MEM_STORAGE_SIZE, engine)
+                    for oid_key, size_val in storage_size.items():
+                        used_key = oid_key.replace(OID_MEM_STORAGE_SIZE, OID_MEM_STORAGE_USED)
+                        used_val = storage_used.get(used_key)
+                        if used_val and size_val:
+                            sz = float(size_val)
+                            us = float(used_val)
+                            if sz > 0:
+                                mem = round((us / sz) * 100.0, 1)
+                                break
+                except Exception:
+                    pass
+    finally:
+        if _own_engine:
+            _close_engine(engine)
 
     return cpu, mem
 
@@ -593,9 +653,13 @@ async def discover_lldp_neighbors(device: Device, db: AsyncSession) -> int:
     Walk LLDP-MIB on the device, discover neighbors, and store/update DeviceLink records.
     Returns number of links discovered.
     """
-    sys_names   = await snmp_bulk_walk(device, OID_LLDP_REM_SYS_NAME)
-    rem_port_ids = await snmp_bulk_walk(device, OID_LLDP_REM_PORT_ID)
-    loc_port_ids = await snmp_bulk_walk(device, OID_LLDP_LOC_PORT_ID)
+    engine = SnmpEngine()
+    try:
+        sys_names    = await snmp_bulk_walk(device, OID_LLDP_REM_SYS_NAME, engine)
+        rem_port_ids = await snmp_bulk_walk(device, OID_LLDP_REM_PORT_ID, engine)
+        loc_port_ids = await snmp_bulk_walk(device, OID_LLDP_LOC_PORT_ID, engine)
+    finally:
+        _close_engine(engine)
 
     if not sys_names:
         return 0
@@ -631,12 +695,6 @@ async def discover_lldp_neighbors(device: Device, db: AsyncSession) -> int:
         rem_name = str(rem_sys_name).strip().lower()
         # Match to known device
         neighbor: Optional[Device] = all_devices.get(rem_name)
-
-        # Try to match by management IP from lldpRemManAddr if hostname didn't match
-        if neighbor is None:
-            man_key_prefix = OID_LLDP_REM_MAN_ADDR + "." + ".".join(parts[-3:])
-            # We don't walk ManAddr here — skip for now
-            pass
 
         if neighbor is None or neighbor.id == device.id:
             continue

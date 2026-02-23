@@ -47,12 +47,14 @@ async def scheduled_polling():
     if not devices:
         return
 
-    # Each device gets its own session so concurrent polls don't share
-    # session state — a commit/rollback in one device's poll must not
-    # affect another device's in-flight writes.
+    # Limit concurrent SNMP polls to avoid exhausting file descriptors and
+    # triggering pysnmp MIB-loader races when too many engines run at once.
+    sem = asyncio.Semaphore(5)
+
     async def _poll_one(device: Device):
-        async with AsyncSessionLocal() as dev_db:
-            return await poll_device(device, dev_db)
+        async with sem:
+            async with AsyncSessionLocal() as dev_db:
+                return await poll_device(device, dev_db)
 
     await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
 
