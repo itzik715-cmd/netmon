@@ -72,6 +72,13 @@ async def fetch_null_routes(device: Device) -> list[str]:
     try:
         routes_dict = results[0].get("vrfs", {}).get("default", {}).get("routes", {})
         for prefix, route_info in routes_dict.items():
+            # EOS represents Null0 routes as routeAction=drop / routeType=dropRoute
+            # with an empty vias list, OR with a via pointing to Null0 interface
+            route_action = route_info.get("routeAction", "")
+            route_type = route_info.get("routeType", "")
+            if route_action == "drop" or route_type == "dropRoute":
+                prefixes.append(prefix)
+                continue
             via_list = route_info.get("vias", [])
             for via in via_list:
                 iface = via.get("interface", "")
