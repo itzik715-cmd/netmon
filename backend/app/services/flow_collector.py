@@ -79,11 +79,12 @@ class SFlowV5Parser:
     @classmethod
     def parse(cls, data: bytes, exporter_ip: str) -> list:
         if len(data) < 28:
+            logger.warning(f"sFlow: datagram from {exporter_ip} too short ({len(data)} bytes)")
             return []
         try:
             return cls._parse_datagram(data)
         except Exception as e:
-            logger.debug(f"sFlow parse error from {exporter_ip}: {e}")
+            logger.warning(f"sFlow parse error from {exporter_ip} ({len(data)} bytes): {type(e).__name__}: {e}")
             return []
 
     @classmethod
@@ -91,6 +92,7 @@ class SFlowV5Parser:
         offset = 0
         version = struct.unpack("!I", data[offset:offset+4])[0]; offset += 4
         if version != 5:
+            logger.warning(f"sFlow: unsupported version {version} (expected 5)")
             return []
         ip_version = struct.unpack("!I", data[offset:offset+4])[0]; offset += 4
         if ip_version == 1:
@@ -98,10 +100,14 @@ class SFlowV5Parser:
         elif ip_version == 2:
             offset += 16
         else:
+            logger.warning(f"sFlow: unsupported agent address type {ip_version}")
             return []
         offset += 12  # sub_agent_id + sequence_number + uptime
         num_samples = struct.unpack("!I", data[offset:offset+4])[0]; offset += 4
+        logger.debug(f"sFlow datagram: {num_samples} samples")
         records = []
+        flow_samples = 0
+        counter_samples = 0
         for _ in range(num_samples):
             if offset + 8 > len(data):
                 break
@@ -112,8 +118,18 @@ class SFlowV5Parser:
                 break
             enterprise, fmt = sample_type >> 12, sample_type & 0xFFF
             if enterprise == 0 and fmt in (1, 3):
+                flow_samples += 1
                 records.extend(cls._parse_flow_sample(data, offset, sample_end, expanded=(fmt == 3)))
+            elif enterprise == 0 and fmt in (2, 4):
+                counter_samples += 1  # counter sample — expected, skip silently
+            else:
+                logger.debug(f"sFlow: unknown sample enterprise={enterprise} fmt={fmt}")
             offset = sample_end
+        if num_samples > 0:
+            logger.debug(
+                f"sFlow datagram: {flow_samples} flow samples → {len(records)} records, "
+                f"{counter_samples} counter samples (skipped)"
+            )
         return records
 
     @classmethod
@@ -280,19 +296,38 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
 
 
 class _NetFlowProtocol(_BaseUDPProtocol):
+    _recv_counts: dict = {}
+
     async def _handle(self, data: bytes, exporter_ip: str):
+        n = self._recv_counts.get(exporter_ip, 0) + 1
+        self._recv_counts[exporter_ip] = n
+        if n <= 3 or n % 500 == 0:
+            logger.info(f"NetFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes)")
         records = NetFlowV5Parser.parse(data)
         if records:
-            logger.debug(f"NetFlow: {len(records)} records from {exporter_ip}")
+            logger.info(f"NetFlow: {len(records)} records from {exporter_ip}")
             await self._store_records(records, exporter_ip)
+        elif n <= 3:
+            logger.warning(f"NetFlow: datagram from {exporter_ip} parsed to 0 records (version mismatch?)")
 
 
 class _SFlowProtocol(_BaseUDPProtocol):
+    _recv_counts: dict = {}
+
     async def _handle(self, data: bytes, exporter_ip: str):
+        n = self._recv_counts.get(exporter_ip, 0) + 1
+        self._recv_counts[exporter_ip] = n
+        if n <= 5 or n % 500 == 0:
+            logger.info(f"sFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes)")
         records = SFlowV5Parser.parse(data, exporter_ip)
         if records:
-            logger.debug(f"sFlow: {len(records)} records from {exporter_ip}")
+            logger.info(f"sFlow: stored {len(records)} flow records from {exporter_ip}")
             await self._store_records(records, exporter_ip)
+        elif n <= 5:
+            logger.info(
+                f"sFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes) "
+                f"contained 0 flow records (may be counter-only sample — this is normal)"
+            )
 
 
 # ─── FlowCollector ────────────────────────────────────────────────────────────
