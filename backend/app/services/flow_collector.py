@@ -7,6 +7,7 @@ import concurrent.futures
 import logging
 import os
 import struct
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -256,10 +257,11 @@ class SFlowV5Parser:
 
 # ─── asyncio.DatagramProtocol implementations ────────────────────────────────
 
-_FLUSH_INTERVAL  = 5.0   # seconds between DB writes
-_BUFFER_MAX      = 5000  # drop oldest records if DB-write buffer overflows
-_RAW_QUEUE_MAX   = 8192  # max datagrams queued for parsing (back-pressure)
-_PARSE_WORKERS   = 4     # asyncio coroutines draining the raw queue per protocol
+_FLUSH_INTERVAL      = 5.0    # seconds between DB writes
+_BUFFER_MAX          = 20000  # drop oldest records if DB-write buffer overflows
+_RAW_QUEUE_MAX       = 8192   # max datagrams queued for parsing (back-pressure)
+_PARSE_WORKERS       = 4      # asyncio coroutines draining the raw queue per protocol
+_OVERFLOW_WARN_EVERY = 60.0   # log overflow warning at most once per this many seconds
 
 
 class _BaseUDPProtocol(asyncio.DatagramProtocol):
@@ -285,15 +287,21 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
       creating an unbounded number of asyncio tasks or running out of memory.
     """
 
-    def __init__(self, session_factory: async_sessionmaker, flow_type: str):
+    def __init__(self, session_factory: async_sessionmaker, flow_type: str,
+                 flow_enabled_ips: Optional[set] = None):
         self.session_factory = session_factory
         self.flow_type = flow_type
+        # Shared reference to the set of flow-enabled IPs maintained by FlowCollector.
+        # When not None, datagrams from IPs not in this set are dropped immediately
+        # (before parsing / buffering) to prevent buffer overflow from unknown exporters.
+        self._flow_enabled_ips: Optional[set] = flow_enabled_ips
         self.transport: Optional[asyncio.DatagramTransport] = None
         self._buffer: list[tuple[dict, str, datetime]] = []
         self._flush_task: Optional[asyncio.Task] = None
         self._worker_tasks: list[asyncio.Task] = []
         self._recv_counts: dict[str, int] = {}
         self._drop_counts: dict[str, int] = {}
+        self._last_overflow_warn: float = 0.0
         # Queue created here; asyncio.Queue() is safe to instantiate before the
         # event loop starts in Python 3.10+
         self._raw_queue: asyncio.Queue = asyncio.Queue(maxsize=_RAW_QUEUE_MAX)
@@ -329,6 +337,10 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple):
         exporter_ip = addr[0]
+        # Early rejection: if we have a known-IPs cache and this IP is not in it,
+        # drop the datagram immediately without parsing or buffering.
+        if self._flow_enabled_ips is not None and exporter_ip not in self._flow_enabled_ips:
+            return
         n = self._recv_counts.get(exporter_ip, 0) + 1
         self._recv_counts[exporter_ip] = n
         if n <= 5 or n % 1000 == 0:
@@ -376,7 +388,14 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
         if len(self._buffer) > _BUFFER_MAX:
             excess = len(self._buffer) - _BUFFER_MAX
             del self._buffer[:excess]
-            logger.warning(f"{self.flow_type}: DB buffer overflow — dropped {excess} oldest records")
+            # Rate-limit: log at most once per _OVERFLOW_WARN_EVERY seconds
+            mono = time.monotonic()
+            if mono - self._last_overflow_warn >= _OVERFLOW_WARN_EVERY:
+                self._last_overflow_warn = mono
+                logger.warning(
+                    f"{self.flow_type}: buffer overflow — flow rate exceeds DB write speed "
+                    f"(buffer={_BUFFER_MAX}, dropping oldest records)"
+                )
 
     async def _flush_loop(self) -> None:
         try:
@@ -445,19 +464,52 @@ def _make_udp_socket(port: int) -> socket.socket:
     return sock
 
 
+_IP_CACHE_REFRESH = 30.0   # seconds between flow-enabled IP cache refreshes
+
+
 class FlowCollector:
     def __init__(self, session_factory: async_sessionmaker):
         self.session_factory = session_factory
         self._netflow_proto: Optional[_NetFlowProtocol] = None
         self._sflow_proto: Optional[_SFlowProtocol] = None
+        # Mutable set shared with protocol instances — updated by _refresh_ip_cache
+        self._flow_enabled_ips: set[str] = set()
+        self._ip_cache_task: Optional[asyncio.Task] = None
+
+    async def _refresh_ip_cache(self) -> None:
+        """Periodically refresh the set of IPs that have flow collection enabled.
+        Protocols use this set to drop datagrams from unknown/disabled exporters
+        immediately (before parsing or buffering) to prevent buffer overflow.
+        """
+        while True:
+            try:
+                async with self.session_factory() as db:
+                    result = await db.execute(
+                        select(Device.ip_address).where(
+                            Device.flow_enabled == True,   # noqa: E712
+                            Device.is_active == True,      # noqa: E712
+                        )
+                    )
+                    ips = {row[0] for row in result}
+                    self._flow_enabled_ips.clear()
+                    self._flow_enabled_ips.update(ips)
+                    logger.debug(f"FlowCollector: IP cache refreshed — {len(ips)} flow-enabled devices")
+            except Exception as e:
+                logger.warning(f"FlowCollector: IP cache refresh failed: {e}")
+            await asyncio.sleep(_IP_CACHE_REFRESH)
 
     async def start(self):
         loop = asyncio.get_event_loop()
 
+        # Start IP cache refresh task before binding sockets
+        self._ip_cache_task = asyncio.create_task(self._refresh_ip_cache())
+        # Give it one iteration so the cache is populated before we start accepting flows
+        await asyncio.sleep(0)
+
         # NetFlow UDP listener
         try:
             _nf_transport, nf_proto = await loop.create_datagram_endpoint(
-                lambda: _NetFlowProtocol(self.session_factory, "NetFlow"),
+                lambda: _NetFlowProtocol(self.session_factory, "NetFlow", self._flow_enabled_ips),
                 sock=_make_udp_socket(settings.NETFLOW_PORT),
             )
             self._netflow_proto = nf_proto
@@ -467,7 +519,7 @@ class FlowCollector:
         # sFlow UDP listener
         try:
             _sf_transport, sf_proto = await loop.create_datagram_endpoint(
-                lambda: _SFlowProtocol(self.session_factory, "sFlow"),
+                lambda: _SFlowProtocol(self.session_factory, "sFlow", self._flow_enabled_ips),
                 sock=_make_udp_socket(settings.SFLOW_PORT),
             )
             self._sflow_proto = sf_proto
@@ -481,6 +533,8 @@ class FlowCollector:
             pass
 
     def stop(self):
+        if self._ip_cache_task and not self._ip_cache_task.done():
+            self._ip_cache_task.cancel()
         if self._netflow_proto:
             self._netflow_proto.close()
         if self._sflow_proto:
