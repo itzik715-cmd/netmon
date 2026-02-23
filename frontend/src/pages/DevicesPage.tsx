@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Search, Trash2, Wifi } from 'lucide-react'
+import { RefreshCw, Search, Settings, Trash2, Wifi } from 'lucide-react'
 import { devicesApi } from '../services/api'
 import { Device } from '../types'
 import { formatDistanceToNow } from 'date-fns'
@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import AddDeviceModal from '../components/forms/AddDeviceModal'
 import ScanSubnetModal from '../components/forms/ScanSubnetModal'
+import EditDeviceModal from '../components/forms/EditDeviceModal'
 
 function statusTag(status: string) {
   const map: Record<string, string> = {
@@ -31,6 +32,7 @@ export default function DevicesPage() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showScan, setShowScan] = useState(false)
+  const [editDevice, setEditDevice] = useState<Device | null>(null)
   const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   const { data: devices, isLoading, refetch } = useQuery({
@@ -180,6 +182,17 @@ export default function DevicesPage() {
                               >
                                 <RefreshCw size={12} />
                               </button>
+                                  <button
+                                onClick={() => setEditDevice(device)}
+                                style={{
+                                  padding: '4px 6px', background: 'none', border: '1px solid var(--border)',
+                                  borderRadius: 6, cursor: 'pointer', color: 'var(--text-muted)',
+                                  display: 'flex', alignItems: 'center',
+                                }}
+                                title="Edit settings"
+                              >
+                                <Settings size={12} />
+                              </button>
                               {user?.role === 'admin' && (
                                 <button
                                   onClick={() => {
@@ -222,6 +235,7 @@ export default function DevicesPage() {
 
       {showAdd && <AddDeviceModal onClose={() => setShowAdd(false)} />}
       {showScan && <ScanSubnetModal onClose={() => setShowScan(false)} onDone={() => { qc.invalidateQueries({ queryKey: ['devices'] }); setShowScan(false) }} />}
+      {editDevice && <EditDeviceModal device={editDevice} onClose={() => setEditDevice(null)} />}
     </div>
   )
 }
