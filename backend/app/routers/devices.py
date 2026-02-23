@@ -57,7 +57,9 @@ async def create_device(
     current_user: User = Depends(require_operator_or_above()),
     db: AsyncSession = Depends(get_db),
 ):
-    existing = await db.execute(select(Device).where(Device.ip_address == payload.ip_address))
+    existing = await db.execute(
+        select(Device).where(Device.ip_address == payload.ip_address, Device.is_active == True)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Device with this IP already exists")
 
@@ -237,14 +239,15 @@ async def delete_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    device.is_active = False
+    hostname = device.hostname          # capture before delete
+    await db.delete(device)
     await db.commit()
 
     await log_audit(
         db, "device_deleted",
         user_id=current_user.id, username=current_user.username,
         resource_type="device", resource_id=str(device_id),
-        details=f"Deleted: {device.hostname}",
+        details=f"Deleted: {hostname}",
         source_ip=request.client.host if request.client else None,
     )
     return {"message": "Device deleted"}
