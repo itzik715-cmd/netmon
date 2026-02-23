@@ -5,13 +5,14 @@ import { Interface, DeviceRoute } from '../types'
 import { ArrowLeft, RefreshCw, Search, Map, BarChart2, Settings } from 'lucide-react'
 import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
 type Tab = 'interfaces' | 'routes' | 'metrics'
+type StatusVal = '' | 'up' | 'down'
 
 function formatUptime(seconds: number): string {
   const dur = intervalToDuration({ start: 0, end: seconds * 1000 })
@@ -40,16 +41,151 @@ function protoBadge(proto?: string) {
   return <span className={map[p] || 'tag-gray'}>{p}</span>
 }
 
+// Funnel icon for column filter
+function FunnelIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  )
+}
+
+// Column header with an Excel-style filter dropdown
+function FilterTh({
+  label, filterKey, openFilter, setOpenFilter, active, children,
+  style,
+}: {
+  label: string
+  filterKey: string
+  openFilter: string | null
+  setOpenFilter: (k: string | null) => void
+  active: boolean
+  children: React.ReactNode
+  style?: React.CSSProperties
+}) {
+  const isOpen = openFilter === filterKey
+  const thRef = useRef<HTMLTableCellElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: MouseEvent) => {
+      if (thRef.current && !thRef.current.contains(e.target as Node)) {
+        setOpenFilter(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isOpen, setOpenFilter])
+
+  return (
+    <th ref={thRef} style={{ position: 'relative', whiteSpace: 'nowrap', ...style }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        <button
+          onClick={() => setOpenFilter(isOpen ? null : filterKey)}
+          title={`Filter ${label}`}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px',
+            color: active ? 'var(--primary)' : 'var(--text-light)',
+            display: 'flex', alignItems: 'center', borderRadius: 3,
+            lineHeight: 1,
+          }}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </div>
+      {isOpen && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 200,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: 10, minWidth: 140,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          marginTop: 4,
+        }}>
+          {children}
+        </div>
+      )}
+    </th>
+  )
+}
+
+// Status filter panel (All / Up / Down)
+function StatusFilterPanel({
+  value, onChange, onClose,
+}: { value: StatusVal; onChange: (v: StatusVal) => void; onClose: () => void }) {
+  const opts: { val: StatusVal; label: string; cls: string }[] = [
+    { val: '', label: 'All', cls: 'tag-gray' },
+    { val: 'up', label: 'Up', cls: 'tag-green' },
+    { val: 'down', label: 'Down', cls: 'tag-red' },
+  ]
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {opts.map((o) => (
+        <button
+          key={o.val}
+          onClick={() => { onChange(o.val); onClose() }}
+          style={{
+            background: value === o.val ? 'var(--primary-dim, rgba(59,130,246,0.12))' : 'none',
+            border: value === o.val ? '1px solid var(--primary)' : '1px solid transparent',
+            borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+            padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          <span className={o.cls} style={{ fontSize: 11, padding: '1px 6px' }}>{o.label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Text filter panel
+function TextFilterPanel({
+  value, onChange, placeholder,
+}: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || 'Filter…'}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '5px 8px', fontSize: 12,
+          border: '1px solid var(--border)', borderRadius: 6,
+          background: 'var(--bg)', color: 'var(--text-main)',
+          outline: 'none',
+        }}
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          ✕ Clear
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const deviceId = parseInt(id!)
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('interfaces')
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'' | 'up' | 'down'>('')
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [showEdit, setShowEdit] = useState(false)
+
+  // Per-column filters
+  const [openFilter, setOpenFilter] = useState<string | null>(null)
+  const [filterAdmin, setFilterAdmin] = useState<StatusVal>('')
+  const [filterOper, setFilterOper] = useState<StatusVal>('')
+  const [filterAlias, setFilterAlias] = useState('')
+  const [filterSpeed, setFilterSpeed] = useState<'' | 'with' | 'without'>('')
 
   const { data: device, isLoading: deviceLoading } = useQuery({
     queryKey: ['device', deviceId],
@@ -86,7 +222,6 @@ export default function DeviceDetailPage() {
     mutationFn: () => devicesApi.discover(deviceId),
     onSuccess: () => {
       toast.success('Interface discovery started — results will appear in a few seconds')
-      // Poll for discovered interfaces: 4 s, 8 s, 14 s, 20 s, 30 s
       ;[4000, 8000, 14000, 20000, 30000].forEach((delay) =>
         setTimeout(() => qc.invalidateQueries({ queryKey: ['interfaces', deviceId] }), delay)
       )
@@ -104,14 +239,28 @@ export default function DeviceDetailPage() {
   if (deviceLoading) return <div className="empty-state"><p>Loading device...</p></div>
   if (!device) return <div className="empty-state"><p>Device not found</p></div>
 
+  // Apply all filters
   const filteredIfs = (interfaces || []).filter((i) => {
-    const matchesText =
-      i.name.toLowerCase().includes(search.toLowerCase()) ||
-      (i.description || '').toLowerCase().includes(search.toLowerCase()) ||
-      (i.alias || '').toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = statusFilter === '' || i.oper_status === statusFilter
-    return matchesText && matchesStatus
+    if (search) {
+      const q = search.toLowerCase()
+      const hit = i.name.toLowerCase().includes(q) ||
+        (i.description || '').toLowerCase().includes(q) ||
+        (i.alias || '').toLowerCase().includes(q)
+      if (!hit) return false
+    }
+    if (filterAlias) {
+      const q = filterAlias.toLowerCase()
+      if (!(i.alias || i.description || '').toLowerCase().includes(q)) return false
+    }
+    if (filterAdmin && i.admin_status !== filterAdmin) return false
+    if (filterOper && i.oper_status !== filterOper) return false
+    if (filterSpeed === 'with' && !i.speed) return false
+    if (filterSpeed === 'without' && i.speed) return false
+    return true
   })
+
+  const activeFilterCount = [filterAdmin, filterOper, filterAlias, filterSpeed].filter(Boolean).length
+
   const totalPages = Math.max(1, Math.ceil(filteredIfs.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const pagedIfs = filteredIfs.slice((safePage - 1) * pageSize, safePage * pageSize)
@@ -197,27 +346,28 @@ export default function DeviceDetailPage() {
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
             <h3>Interfaces</h3>
+            {activeFilterCount > 0 && (
+              <span className="tag-blue" style={{ fontSize: 11, marginLeft: 4 }}>
+                {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
+              </span>
+            )}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Oper-status filter */}
-              <div style={{ display: 'flex', gap: 3 }}>
-                {(['', 'up', 'down'] as const).map((s) => (
-                  <button
-                    key={s || 'all'}
-                    onClick={() => { setStatusFilter(s); setPage(1) }}
-                    className={`btn btn-sm ${statusFilter === s ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ padding: '2px 9px', fontSize: 11, minWidth: 36 }}
-                  >
-                    {s === '' ? 'All' : s === 'up' ? '▲ Up' : '▼ Down'}
-                  </button>
-                ))}
-              </div>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={() => { setFilterAdmin(''); setFilterOper(''); setFilterAlias(''); setFilterSpeed('') }}
+                  className="btn btn-outline btn-sm"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                >
+                  ✕ Clear filters
+                </button>
+              )}
               {/* Text search */}
               <div className="search-bar" style={{ height: 30 }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
                 <input
-                  placeholder="Search name / description…"
+                  placeholder="Search name / alias…"
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                   style={{ width: 190 }}
@@ -231,7 +381,88 @@ export default function DeviceDetailPage() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Interface</th><th>Alias / Description</th><th>Speed</th><th>Admin</th><th>Oper</th><th>IP Address</th><th>VLAN</th><th></th></tr>
+                  <tr>
+                    <th>Interface</th>
+
+                    {/* Alias / Description — with text filter */}
+                    <FilterTh
+                      label="Alias / Description"
+                      filterKey="alias"
+                      openFilter={openFilter}
+                      setOpenFilter={(k) => { setOpenFilter(k); setPage(1) }}
+                      active={!!filterAlias}
+                    >
+                      <TextFilterPanel
+                        value={filterAlias}
+                        onChange={(v) => { setFilterAlias(v); setPage(1) }}
+                        placeholder="Search description…"
+                      />
+                    </FilterTh>
+
+                    {/* Speed — with has/hasn't filter */}
+                    <FilterTh
+                      label="Speed"
+                      filterKey="speed"
+                      openFilter={openFilter}
+                      setOpenFilter={(k) => { setOpenFilter(k); setPage(1) }}
+                      active={!!filterSpeed}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {([
+                          { val: '', label: 'All' },
+                          { val: 'with', label: 'Has speed' },
+                          { val: 'without', label: 'No speed' },
+                        ] as const).map((o) => (
+                          <button
+                            key={o.val}
+                            onClick={() => { setFilterSpeed(o.val); setOpenFilter(null); setPage(1) }}
+                            style={{
+                              background: filterSpeed === o.val ? 'var(--primary-dim, rgba(59,130,246,0.12))' : 'none',
+                              border: filterSpeed === o.val ? '1px solid var(--primary)' : '1px solid transparent',
+                              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+                              padding: '4px 8px', fontSize: 12, color: 'var(--text-main)',
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    </FilterTh>
+
+                    {/* Admin — status filter */}
+                    <FilterTh
+                      label="Admin"
+                      filterKey="admin"
+                      openFilter={openFilter}
+                      setOpenFilter={(k) => { setOpenFilter(k); setPage(1) }}
+                      active={!!filterAdmin}
+                    >
+                      <StatusFilterPanel
+                        value={filterAdmin}
+                        onChange={(v) => { setFilterAdmin(v); setPage(1) }}
+                        onClose={() => setOpenFilter(null)}
+                      />
+                    </FilterTh>
+
+                    {/* Oper — status filter */}
+                    <FilterTh
+                      label="Oper"
+                      filterKey="oper"
+                      openFilter={openFilter}
+                      setOpenFilter={(k) => { setOpenFilter(k); setPage(1) }}
+                      active={!!filterOper}
+                    >
+                      <StatusFilterPanel
+                        value={filterOper}
+                        onChange={(v) => { setFilterOper(v); setPage(1) }}
+                        onClose={() => setOpenFilter(null)}
+                      />
+                    </FilterTh>
+
+                    <th>IP Address</th>
+                    <th>VLAN</th>
+                    <th></th>
+                  </tr>
                 </thead>
                 <tbody>
                   {pagedIfs.map((iface) => (
@@ -246,8 +477,16 @@ export default function DeviceDetailPage() {
                       </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.alias || iface.description || '—'}</td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.speed ? formatBps(iface.speed) : '—'}</td>
-                      <td><span className={iface.admin_status === 'up' ? 'tag-green' : 'tag-gray'}>{iface.admin_status || '—'}</span></td>
-                      <td><span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status || '—'}</span></td>
+                      <td>
+                        {iface.admin_status
+                          ? <span className={iface.admin_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.admin_status}</span>
+                          : <span className="tag-gray">—</span>}
+                      </td>
+                      <td>
+                        {iface.oper_status
+                          ? <span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status}</span>
+                          : <span className="tag-gray">—</span>}
+                      </td>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{iface.ip_address || '—'}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{iface.vlan_id || '—'}</td>
                       <td>
@@ -257,7 +496,9 @@ export default function DeviceDetailPage() {
                   ))}
                   {pagedIfs.length === 0 && (
                     <tr><td colSpan={8} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
-                      {interfaces?.length === 0 ? 'No interfaces discovered. Click "Discover Interfaces" to scan.' : 'No interfaces match your search'}
+                      {interfaces?.length === 0
+                        ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
+                        : 'No interfaces match the active filters'}
                     </td></tr>
                   )}
                 </tbody>
@@ -267,7 +508,6 @@ export default function DeviceDetailPage() {
           {/* Pagination footer */}
           {!ifLoading && filteredIfs.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-              {/* Count + page-size selector */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                   Showing {Math.min((safePage - 1) * pageSize + 1, filteredIfs.length)}–{Math.min(safePage * pageSize, filteredIfs.length)} of {filteredIfs.length}
@@ -286,7 +526,6 @@ export default function DeviceDetailPage() {
                   <span style={{ fontSize: 11, color: 'var(--text-light)', marginLeft: 2 }}>per page</span>
                 </div>
               </div>
-              {/* Prev / page / Next */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -367,7 +606,6 @@ export default function DeviceDetailPage() {
       {/* Metrics / Performance tab */}
       {tab === 'metrics' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* time range selector */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Time range:</span>
             {[
@@ -456,7 +694,6 @@ export default function DeviceDetailPage() {
                     </div>
                   </div>
                 )}
-                {/* Stats table */}
                 <div className="card">
                   <div className="card-header"><h3>Recent Samples</h3></div>
                   <div className="table-wrap">
