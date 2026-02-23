@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, BigInteger, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, BigInteger, Text, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -55,3 +55,7 @@ class InterfaceMetric(Base):
     oper_status = Column(String(20))
 
     interface = relationship("Interface", back_populates="metrics")
+
+    __table_args__ = (
+        Index("ix_interface_metrics_iface_ts", "interface_id", "timestamp"),
+    )

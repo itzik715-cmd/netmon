@@ -66,6 +66,14 @@ async def scheduled_alerts():
         await evaluate_rules(db)
 
 
+async def scheduled_cleanup():
+    """Prune old interface_metrics, device_metric_history, and flow_records."""
+    from app.database import AsyncSessionLocal
+    from app.services.snmp_poller import cleanup_old_metrics
+    async with AsyncSessionLocal() as db:
+        await cleanup_old_metrics(db)
+
+
 async def run_migrations():
     """
     Idempotent schema migrations for columns added after initial deployment.
@@ -96,6 +104,16 @@ async def run_migrations():
                 )
             except Exception as e:
                 logger.warning("Migration ALTER devices.%s skipped: %s", col, e)
+
+        # Composite indexes to speed up per-interface and per-device metric lookups
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_interface_metrics_iface_ts ON interface_metrics (interface_id, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_device_metric_history_dev_ts ON device_metric_history (device_id, timestamp DESC)",
+        ]:
+            try:
+                await conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.warning("Migration index skipped: %s", e)
 
     logger.info("Database migrations applied")
 
@@ -210,6 +228,12 @@ async def lifespan(app: FastAPI):
         "interval",
         seconds=60,
         id="alert_eval",
+    )
+    scheduler.add_job(
+        scheduled_cleanup,
+        "interval",
+        hours=6,
+        id="metrics_cleanup",
     )
 
     # Config backup scheduler — load saved schedule from DB (defaults: 02:00 UTC)

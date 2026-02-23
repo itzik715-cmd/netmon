@@ -5,7 +5,7 @@ Polls devices via SNMP for interface metrics and device health.
 import asyncio
 import ipaddress
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pysnmp.hlapi.asyncio import (
     get_cmd, bulk_walk_cmd, SnmpEngine, CommunityData, UsmUserData,
@@ -723,3 +723,67 @@ async def discover_lldp_neighbors(device: Device, db: AsyncSession) -> int:
 
     await db.commit()
     return links_found
+
+
+async def cleanup_old_metrics(db: AsyncSession) -> None:
+    """
+    Delete interface_metrics and device_metric_history rows older than
+    the configured max_metric_age_days setting (default 90 days).
+    Also prune flow_records older than max_flow_age_days (default 30 days).
+    This runs periodically to prevent unbounded table growth that causes
+    slow queries and eventual backend crashes.
+    """
+    from sqlalchemy import text
+    from app.models.settings import SystemSetting
+
+    # Read retention settings from DB (fall back to safe defaults)
+    try:
+        metric_age_row = await db.execute(
+            select(SystemSetting).where(SystemSetting.key == "max_metric_age_days")
+        )
+        metric_age_setting = metric_age_row.scalar_one_or_none()
+        metric_days = int(metric_age_setting.value) if metric_age_setting else 90
+
+        flow_age_row = await db.execute(
+            select(SystemSetting).where(SystemSetting.key == "max_flow_age_days")
+        )
+        flow_age_setting = flow_age_row.scalar_one_or_none()
+        flow_days = int(flow_age_setting.value) if flow_age_setting else 30
+    except Exception:
+        metric_days, flow_days = 90, 30
+
+    now = datetime.now(timezone.utc)
+    metric_cutoff = now - timedelta(days=metric_days)
+    flow_cutoff   = now - timedelta(days=flow_days)
+
+    try:
+        # interface_metrics — largest table, most important to prune
+        result = await db.execute(
+            text("DELETE FROM interface_metrics WHERE timestamp < :cutoff"),
+            {"cutoff": metric_cutoff},
+        )
+        im_deleted = result.rowcount
+
+        # device_metric_history
+        result = await db.execute(
+            text("DELETE FROM device_metric_history WHERE timestamp < :cutoff"),
+            {"cutoff": metric_cutoff},
+        )
+        dmh_deleted = result.rowcount
+
+        # flow_records (if table exists)
+        result = await db.execute(
+            text("DELETE FROM flow_records WHERE timestamp < :cutoff"),
+            {"cutoff": flow_cutoff},
+        )
+        flow_deleted = result.rowcount
+
+        await db.commit()
+        logger.info(
+            "Metrics cleanup: removed %d interface metrics, %d device metrics, "
+            "%d flow records (cutoff: %dd / %dd)",
+            im_deleted, dmh_deleted, flow_deleted, metric_days, flow_days,
+        )
+    except Exception as e:
+        logger.warning("Metrics cleanup error: %s", e)
+        await db.rollback()

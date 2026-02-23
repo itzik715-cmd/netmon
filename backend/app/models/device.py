@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Text, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -119,3 +119,7 @@ class DeviceMetricHistory(Base):
     cpu_usage = Column(Float, nullable=True)
     memory_usage = Column(Float, nullable=True)
     uptime = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_device_metric_history_dev_ts", "device_id", "timestamp"),
+    )
