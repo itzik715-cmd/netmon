@@ -3,7 +3,9 @@ NetFlow/sFlow Collector
 Listens on UDP ports using asyncio.DatagramProtocol and parses flow records.
 """
 import asyncio
+import concurrent.futures
 import logging
+import os
 import struct
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,6 +15,14 @@ from app.config import settings
 from app.models.flow import FlowRecord
 from app.models.device import Device
 import socket
+
+# Thread pool shared across all protocol instances for CPU-bound packet parsing.
+# struct.unpack (used heavily in the parsers) releases the GIL, so multiple
+# threads genuinely run in parallel on separate CPU cores.
+_parse_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=min(16, (os.cpu_count() or 1) * 2),
+    thread_name_prefix="flow-parse",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,68 +256,129 @@ class SFlowV5Parser:
 
 # ─── asyncio.DatagramProtocol implementations ────────────────────────────────
 
-_FLUSH_INTERVAL = 5.0   # seconds between DB writes
-_BUFFER_MAX     = 5000  # drop oldest records if buffer exceeds this
+_FLUSH_INTERVAL  = 5.0   # seconds between DB writes
+_BUFFER_MAX      = 5000  # drop oldest records if DB-write buffer overflows
+_RAW_QUEUE_MAX   = 8192  # max datagrams queued for parsing (back-pressure)
+_PARSE_WORKERS   = 4     # asyncio coroutines draining the raw queue per protocol
 
 
 class _BaseUDPProtocol(asyncio.DatagramProtocol):
     """
-    Base UDP flow protocol handler with a write-behind buffer.
+    Base UDP flow protocol handler.
 
-    Parsed flow records are accumulated in memory and written to the database
-    every _FLUSH_INTERVAL seconds in a single transaction.  This avoids
-    opening a DB connection for every incoming datagram (which would exhaust
-    the connection pool at high sFlow/NetFlow rates).
+    Architecture:
+      datagram_received()  →  bounded asyncio.Queue  →  _parse_worker() coroutines
+        (synchronous, fast)       (back-pressure)       (run parser in thread pool)
+                                                              ↓
+                                                        _enqueue()  →  _flush_loop()
+                                                       (in-memory buffer)   (DB write every 5 s)
+
+    Why a thread pool?
+      The sFlow/NetFlow parsers call struct.unpack hundreds of times per datagram.
+      struct.unpack is a C extension — it releases the GIL — so multiple parser
+      threads run on separate CPU cores simultaneously, spreading load across all
+      available cores instead of saturating one.
+
+    Why a bounded queue?
+      If datagrams arrive faster than they can be parsed, the queue fills up and
+      new arrivals are dropped (logged as warnings).  This is far better than
+      creating an unbounded number of asyncio tasks or running out of memory.
     """
 
     def __init__(self, session_factory: async_sessionmaker, flow_type: str):
         self.session_factory = session_factory
         self.flow_type = flow_type
         self.transport: Optional[asyncio.DatagramTransport] = None
-        # buffer items: (record_dict, exporter_ip, timestamp)
         self._buffer: list[tuple[dict, str, datetime]] = []
         self._flush_task: Optional[asyncio.Task] = None
+        self._worker_tasks: list[asyncio.Task] = []
+        self._recv_counts: dict[str, int] = {}
+        self._drop_counts: dict[str, int] = {}
+        # Queue created here; asyncio.Queue() is safe to instantiate before the
+        # event loop starts in Python 3.10+
+        self._raw_queue: asyncio.Queue = asyncio.Queue(maxsize=_RAW_QUEUE_MAX)
 
     def connection_made(self, transport: asyncio.DatagramTransport):
         self.transport = transport
         addr = transport.get_extra_info("sockname")
         logger.info(f"{self.flow_type} collector listening on UDP:{addr[1]}")
         self._flush_task = asyncio.create_task(self._flush_loop())
+        for _ in range(_PARSE_WORKERS):
+            self._worker_tasks.append(asyncio.create_task(self._parse_worker()))
 
     def error_received(self, exc: Exception):
         logger.warning(f"{self.flow_type} UDP error: {exc}")
 
     def connection_lost(self, exc: Optional[Exception]):
         logger.info(f"{self.flow_type} UDP socket closed")
-        if self._flush_task and not self._flush_task.done():
-            self._flush_task.cancel()
+        self._cancel_tasks()
 
     def close(self):
         if self.transport and not self.transport.is_closing():
             self.transport.close()
+        self._cancel_tasks()
+
+    def _cancel_tasks(self):
+        for t in self._worker_tasks:
+            if not t.done():
+                t.cancel()
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
 
+    # ── hot path: called by the event loop for every UDP packet ──────────────
+
     def datagram_received(self, data: bytes, addr: tuple):
         exporter_ip = addr[0]
-        asyncio.create_task(self._handle(data, exporter_ip))
+        n = self._recv_counts.get(exporter_ip, 0) + 1
+        self._recv_counts[exporter_ip] = n
+        if n <= 5 or n % 1000 == 0:
+            logger.info(f"{self.flow_type}: datagram #{n} from {exporter_ip} ({len(data)} B, "
+                        f"queue {self._raw_queue.qsize()}/{_RAW_QUEUE_MAX})")
+        try:
+            self._raw_queue.put_nowait((data, exporter_ip))
+        except asyncio.QueueFull:
+            d = self._drop_counts.get(exporter_ip, 0) + 1
+            self._drop_counts[exporter_ip] = d
+            if d == 1 or d % 500 == 0:
+                logger.warning(f"{self.flow_type}: parse queue full — dropped datagram #{d} "
+                               f"from {exporter_ip} (consider more _PARSE_WORKERS or faster DB)")
 
-    async def _handle(self, data: bytes, exporter_ip: str):
+    # ── worker: drains the raw queue, parses in thread pool ──────────────────
+
+    async def _parse_worker(self) -> None:
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                data, exporter_ip = await self._raw_queue.get()
+                try:
+                    records = await loop.run_in_executor(
+                        _parse_executor, self._do_parse, data, exporter_ip
+                    )
+                    if records:
+                        self._enqueue(records, exporter_ip)
+                except Exception as exc:
+                    logger.debug(f"{self.flow_type}: parse error from {exporter_ip}: {exc}")
+                finally:
+                    self._raw_queue.task_done()
+            except asyncio.CancelledError:
+                break
+
+    def _do_parse(self, data: bytes, exporter_ip: str) -> list:
+        """CPU-bound parse — runs in a thread pool worker, not the event loop."""
         raise NotImplementedError
 
+    # ── write-behind buffer ───────────────────────────────────────────────────
+
     def _enqueue(self, records: list, exporter_ip: str) -> None:
-        """Add parsed records to the write buffer."""
         now = datetime.now(timezone.utc)
         for rec in records:
             self._buffer.append((rec, exporter_ip, now))
-        # Shed oldest records if the buffer grows unbounded (e.g. DB is down)
         if len(self._buffer) > _BUFFER_MAX:
             excess = len(self._buffer) - _BUFFER_MAX
             del self._buffer[:excess]
-            logger.warning(f"{self.flow_type}: buffer overflow — dropped {excess} oldest records")
+            logger.warning(f"{self.flow_type}: DB buffer overflow — dropped {excess} oldest records")
 
     async def _flush_loop(self) -> None:
-        """Periodically flush the write buffer to the database."""
         try:
             while True:
                 await asyncio.sleep(_FLUSH_INTERVAL)
@@ -316,26 +387,20 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
             pass
 
     async def _flush(self) -> None:
-        """Write all buffered records to the DB in one transaction."""
         if not self._buffer:
             return
-        # Snapshot + clear atomically (no await between these two lines)
         batch = self._buffer[:]
         self._buffer.clear()
-
         try:
             async with self.session_factory() as db:
-                # Look up device IDs for all exporter IPs in this batch
                 exporter_ips = {item[1] for item in batch}
                 device_id_map: dict[str, Optional[int]] = {}
                 for ip in exporter_ips:
                     result = await db.execute(select(Device).where(Device.ip_address == ip))
                     device = result.scalar_one_or_none()
                     device_id_map[ip] = device.id if device else None
-
                 for rec, exporter_ip, ts in batch:
                     db.add(FlowRecord(device_id=device_id_map[exporter_ip], timestamp=ts, **rec))
-
                 await db.commit()
             logger.debug(f"{self.flow_type}: flushed {len(batch)} records to DB")
         except Exception as exc:
@@ -343,42 +408,13 @@ class _BaseUDPProtocol(asyncio.DatagramProtocol):
 
 
 class _NetFlowProtocol(_BaseUDPProtocol):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._recv_counts: dict[str, int] = {}
-
-    async def _handle(self, data: bytes, exporter_ip: str):
-        n = self._recv_counts.get(exporter_ip, 0) + 1
-        self._recv_counts[exporter_ip] = n
-        if n <= 3 or n % 500 == 0:
-            logger.info(f"NetFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes)")
-        records = NetFlowV5Parser.parse(data)
-        if records:
-            logger.debug(f"NetFlow: queued {len(records)} records from {exporter_ip}")
-            self._enqueue(records, exporter_ip)
-        elif n <= 3:
-            logger.warning(f"NetFlow: datagram from {exporter_ip} parsed to 0 records (version mismatch?)")
+    def _do_parse(self, data: bytes, exporter_ip: str) -> list:
+        return NetFlowV5Parser.parse(data)
 
 
 class _SFlowProtocol(_BaseUDPProtocol):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._recv_counts: dict[str, int] = {}
-
-    async def _handle(self, data: bytes, exporter_ip: str):
-        n = self._recv_counts.get(exporter_ip, 0) + 1
-        self._recv_counts[exporter_ip] = n
-        if n <= 5 or n % 500 == 0:
-            logger.info(f"sFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes)")
-        records = SFlowV5Parser.parse(data, exporter_ip)
-        if records:
-            logger.debug(f"sFlow: queued {len(records)} records from {exporter_ip}")
-            self._enqueue(records, exporter_ip)
-        elif n <= 5:
-            logger.info(
-                f"sFlow: datagram #{n} from {exporter_ip} ({len(data)} bytes) "
-                f"contained 0 flow records (may be counter-only sample — this is normal)"
-            )
+    def _do_parse(self, data: bytes, exporter_ip: str) -> list:
+        return SFlowV5Parser.parse(data, exporter_ip)
 
 
 # ─── FlowCollector ────────────────────────────────────────────────────────────
