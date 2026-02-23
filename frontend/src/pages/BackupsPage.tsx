@@ -132,101 +132,171 @@ function DiffViewer({ diff, onClose }: { diff: DiffResult; onClose: () => void }
 
 function SchedulePanel() {
   const qc = useQueryClient()
-  const { data: schedule } = useQuery<BackupSchedule>({
+  const { data: schedules } = useQuery<BackupSchedule[]>({
     queryKey: ['backup-schedule'],
-    queryFn: () => backupsApi.schedule().then((r) => r.data),
+    queryFn: () => backupsApi.schedules().then((r) => r.data),
   })
-  const [hour, setHour] = useState<number | null>(null)
-  const [minute, setMinute] = useState<number | null>(null)
-  const [retention, setRetention] = useState<number | null>(null)
-  const [active, setActive] = useState<boolean | null>(null)
+  const { data: devices } = useQuery({
+    queryKey: ['devices'],
+    queryFn: () => devicesApi.list().then((r) => r.data),
+  })
 
-  const effectiveHour = hour ?? schedule?.hour ?? 2
-  const effectiveMinute = minute ?? schedule?.minute ?? 0
-  const effectiveRetention = retention ?? schedule?.retention_days ?? 90
-  const effectiveActive = active ?? schedule?.is_active ?? true
+  // New schedule form state
+  const [newDeviceId, setNewDeviceId] = useState<string>('')
+  const [newHour, setNewHour] = useState(2)
+  const [newMinute, setNewMinute] = useState(0)
+  const [newRetention, setNewRetention] = useState(90)
+
+  const apiDevices = (devices || []).filter((d: any) => d.api_username)
 
   const saveMutation = useMutation({
-    mutationFn: () => backupsApi.updateSchedule({
-      hour: effectiveHour,
-      minute: effectiveMinute,
-      retention_days: effectiveRetention,
-      is_active: effectiveActive,
-    }),
+    mutationFn: (data: object) => backupsApi.updateSchedule(data),
     onSuccess: () => {
-      toast.success('Backup schedule saved')
+      toast.success('Schedule saved')
       qc.invalidateQueries({ queryKey: ['backup-schedule'] })
+      setNewDeviceId('')
+      setNewHour(2)
+      setNewMinute(0)
+      setNewRetention(90)
     },
     onError: () => toast.error('Failed to save schedule'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => backupsApi.deleteSchedule(id),
+    onSuccess: () => {
+      toast.success('Schedule deleted')
+      qc.invalidateQueries({ queryKey: ['backup-schedule'] })
+    },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: (sched: BackupSchedule) => backupsApi.updateSchedule({
+      device_id: sched.device_id,
+      hour: sched.hour,
+      minute: sched.minute,
+      retention_days: sched.retention_days,
+      is_active: !sched.is_active,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['backup-schedule'] })
+    },
   })
 
   return (
     <div className="card">
       <div className="card-header">
         <Clock size={15} />
-        <h3>Backup Schedule</h3>
+        <h3>Backup Schedules</h3>
       </div>
-      <div className="card-body">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 16 }}>
-          <div>
-            <label className="label">Daily Backup Time (UTC)</label>
-            <div style={{ display: 'flex', gap: 8 }}>
+      <div className="card-body" style={{ padding: 0 }}>
+        {/* Existing schedules table */}
+        {(schedules || []).length > 0 && (
+          <table className="data-table" style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Time (UTC)</th>
+                <th>Retention</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(schedules || []).map((s) => (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600, fontSize: 13 }}>
+                    {s.device_id ? (s.device_hostname || `Device #${s.device_id}`) : 'All API Devices'}
+                  </td>
+                  <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                    {String(s.hour).padStart(2, '0')}:{String(s.minute).padStart(2, '0')}
+                  </td>
+                  <td style={{ fontSize: 13 }}>{s.retention_days} days</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={s.is_active}
+                      onChange={() => toggleMutation.mutate(s)}
+                      style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => { if (s.id && confirm('Delete this schedule?')) deleteMutation.mutate(s.id) }}
+                      className="btn btn-outline btn-sm"
+                      style={{ color: 'var(--accent-red)' }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* Add schedule form */}
+        <div style={{ padding: 16, borderTop: (schedules || []).length > 0 ? '1px solid var(--border)' : 'none' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-main)' }}>Add Schedule</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <label className="label" style={{ fontSize: 11 }}>Device</label>
               <select
                 className="select"
-                value={effectiveHour}
-                onChange={(e) => setHour(parseInt(e.target.value))}
-                style={{ flex: 1 }}
+                value={newDeviceId}
+                onChange={(e) => setNewDeviceId(e.target.value)}
+                style={{ minWidth: 180, height: 32, fontSize: 12 }}
               >
-                {Array.from({ length: 24 }, (_, h) => (
-                  <option key={h} value={h}>{h.toString().padStart(2, '0')}h</option>
-                ))}
-              </select>
-              <select
-                className="select"
-                value={effectiveMinute}
-                onChange={(e) => setMinute(parseInt(e.target.value))}
-                style={{ flex: 1 }}
-              >
-                {[0, 15, 30, 45].map((m) => (
-                  <option key={m} value={m}>{m.toString().padStart(2, '0')}m</option>
+                <option value="">All API Devices</option>
+                {apiDevices.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.hostname}</option>
                 ))}
               </select>
             </div>
-          </div>
-          <div>
-            <label className="label">Retention Period (days)</label>
-            <input
-              type="number"
-              className="input"
-              value={effectiveRetention}
-              min={1}
-              max={3650}
-              onChange={(e) => setRetention(parseInt(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className="label">Enabled</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', paddingTop: 6 }}>
+            <div>
+              <label className="label" style={{ fontSize: 11 }}>Time (UTC)</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <select className="select" value={newHour} onChange={(e) => setNewHour(parseInt(e.target.value))} style={{ width: 65, height: 32, fontSize: 12 }}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{h.toString().padStart(2, '0')}h</option>
+                  ))}
+                </select>
+                <select className="select" value={newMinute} onChange={(e) => setNewMinute(parseInt(e.target.value))} style={{ width: 65, height: 32, fontSize: 12 }}>
+                  {[0, 15, 30, 45].map((m) => (
+                    <option key={m} value={m}>{m.toString().padStart(2, '0')}m</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label" style={{ fontSize: 11 }}>Retention (days)</label>
               <input
-                type="checkbox"
-                id="backup-active"
-                checked={effectiveActive}
-                onChange={(e) => setActive(e.target.checked)}
+                type="number"
+                className="input"
+                value={newRetention}
+                min={1}
+                max={3650}
+                onChange={(e) => setNewRetention(parseInt(e.target.value))}
+                style={{ width: 80, height: 32, fontSize: 12 }}
               />
-              <label htmlFor="backup-active" style={{ fontSize: 13, color: 'var(--text-main)' }}>
-                Automatic daily backups
-              </label>
             </div>
+            <button
+              onClick={() => saveMutation.mutate({
+                device_id: newDeviceId ? parseInt(newDeviceId) : null,
+                hour: newHour,
+                minute: newMinute,
+                retention_days: newRetention,
+                is_active: true,
+              })}
+              disabled={saveMutation.isPending}
+              className="btn btn-primary btn-sm"
+              style={{ height: 32 }}
+            >
+              {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
+              Add
+            </button>
           </div>
         </div>
-        <button
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          className="btn btn-primary btn-sm"
-        >
-          {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
-          Save Schedule
-        </button>
       </div>
     </div>
   )
@@ -272,10 +342,11 @@ export default function BackupsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.detail || 'Backup failed'),
   })
 
+  const apiDevices = (devices || []).filter((d: any) => d.api_username) as any[]
+
   const backupAllMutation = useMutation({
     mutationFn: async () => {
-      const devList = (devices || []) as any[]
-      await Promise.allSettled(devList.map((d) => backupsApi.manualBackup(d.id)))
+      await Promise.allSettled(apiDevices.map((d: any) => backupsApi.manualBackup(d.id)))
     },
     onSuccess: () => {
       toast.success('Backup triggered for all devices')
@@ -391,7 +462,7 @@ export default function BackupsPage() {
         </button>
         <button
           onClick={() => backupAllMutation.mutate()}
-          disabled={backupAllMutation.isPending || !devices?.length}
+          disabled={backupAllMutation.isPending || !apiDevices.length}
           className="btn btn-primary btn-sm"
         >
           {backupAllMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Archive size={13} />}
@@ -719,7 +790,7 @@ export default function BackupsPage() {
         </div>
         <div className="card-body">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {(devices || []).map((d: any) => (
+            {apiDevices.map((d: any) => (
               <button
                 key={d.id}
                 onClick={() => manualMutation.mutate(d.id)}
@@ -732,8 +803,8 @@ export default function BackupsPage() {
                 {d.hostname}
               </button>
             ))}
-            {!devices?.length && (
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>No devices configured.</span>
+            {!apiDevices.length && (
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>No devices with API credentials configured.</span>
             )}
           </div>
         </div>

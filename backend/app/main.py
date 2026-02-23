@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone="UTC")
 
 
 async def _acquire_scheduler_lock(job_id: str, ttl_seconds: int) -> bool:
@@ -216,6 +216,25 @@ async def run_migrations():
         except Exception as e:
             logger.warning("Migration unique index datacenter_rack skipped: %s", e)
 
+    # backup_schedules: add device_id column for per-device schedules
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE backup_schedules ADD COLUMN IF NOT EXISTS "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE"
+            ))
+        except Exception as e:
+            logger.warning("Migration ALTER backup_schedules.device_id skipped: %s", e)
+
+        # Drop the old unique constraint on device_id if it conflicts, and create a proper unique index
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_backup_schedule_device "
+                "ON backup_schedules (device_id)"
+            ))
+        except Exception as e:
+            logger.warning("Migration unique index backup_schedule_device skipped: %s", e)
+
     logger.info("Database migrations applied")
 
 
@@ -350,29 +369,19 @@ async def lifespan(app: FastAPI):
         max_instances=1,
     )
 
-    # Config backup scheduler — load saved schedule from DB (defaults: 02:00 UTC)
-    async def _start_backup_scheduler():
-        from app.database import AsyncSessionLocal
-        from app.models.config_backup import BackupSchedule
-        from app.services.config_fetcher import run_scheduled_backups, cleanup_expired_backups
-        async with AsyncSessionLocal() as db:
-            from sqlalchemy import select
-            sched_result = await db.execute(select(BackupSchedule).limit(1))
-            sched = sched_result.scalar_one_or_none()
+    # Config backup scheduler — runs every minute, checks which schedules match
+    from app.services.config_fetcher import run_scheduled_backups, cleanup_expired_backups
+    scheduler.add_job(
+        run_scheduled_backups,
+        "cron",
+        minute="*",
+        id="config_backup",
+        max_instances=1,
+    )
+    logger.info("Config backup checker registered (runs every minute, matches per-device schedules)")
 
-        hour = sched.hour if sched else 2
-        minute = sched.minute if sched else 0
-        is_active = sched.is_active if sched else True
-
-        if is_active:
-            scheduler.add_job(run_scheduled_backups, "cron", hour=hour, minute=minute, id="config_backup")
-            logger.info("Config backup scheduled at %02d:%02d UTC", hour, minute)
-
-        # Cleanup expired backups daily at 03:00 UTC
-        scheduler.add_job(cleanup_expired_backups, "cron", hour=3, minute=0, id="backup_cleanup")
-
-    import asyncio as _asyncio
-    _asyncio.create_task(_start_backup_scheduler())
+    # Cleanup expired backups daily at 03:00 UTC
+    scheduler.add_job(cleanup_expired_backups, "cron", hour=3, minute=0, id="backup_cleanup")
 
     scheduler.start()
     logger.info("Scheduled tasks started")

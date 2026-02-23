@@ -226,6 +226,9 @@ export interface ConfigBackupDetail extends ConfigBackup {
 }
 
 export interface BackupSchedule {
+  id?: number
+  device_id?: number | null
+  device_hostname?: string | null
   hour: number
   minute: number
   retention_days: number

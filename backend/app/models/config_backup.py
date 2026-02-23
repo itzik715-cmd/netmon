@@ -23,13 +23,16 @@ class ConfigBackup(Base):
 
 
 class BackupSchedule(Base):
-    """Global backup schedule configuration (single-row settings table)."""
+    """Backup schedule — one per device, or device_id=NULL for 'all API-enabled devices'."""
     __tablename__ = "backup_schedules"
 
     id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, unique=True)
     hour = Column(Integer, default=2)          # 0-23 UTC
     minute = Column(Integer, default=0)        # 0-59
     retention_days = Column(Integer, default=90)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    device = relationship("Device", foreign_keys=[device_id])

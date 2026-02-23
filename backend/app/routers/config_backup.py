@@ -40,6 +40,9 @@ class BackupItem(BaseModel):
 
 
 class ScheduleSettings(BaseModel):
+    id: Optional[int] = None
+    device_id: Optional[int] = None
+    device_hostname: Optional[str] = None
     hour: int       # 0-23
     minute: int     # 0-59
     retention_days: int
@@ -129,30 +132,40 @@ async def backups_summary(
 # Schedule settings
 # ---------------------------------------------------------------------------
 
-@router.get("/schedule", response_model=ScheduleSettings)
-async def get_schedule(
+@router.get("/schedule", response_model=list[ScheduleSettings])
+async def get_schedules(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    result = await db.execute(select(BackupSchedule).limit(1))
-    sched = result.scalar_one_or_none()
-    if not sched:
-        return ScheduleSettings(hour=2, minute=0, retention_days=90, is_active=True)
-    return ScheduleSettings(
-        hour=sched.hour,
-        minute=sched.minute,
-        retention_days=sched.retention_days,
-        is_active=sched.is_active,
+    """Return all backup schedules (global + per-device)."""
+    result = await db.execute(
+        select(BackupSchedule, Device.hostname)
+        .join(Device, Device.id == BackupSchedule.device_id, isouter=True)
+        .order_by(BackupSchedule.device_id.asc().nullsfirst())
     )
+    rows = result.all()
+
+    return [
+        ScheduleSettings(
+            id=sched.id,
+            device_id=sched.device_id,
+            device_hostname=hostname,
+            hour=sched.hour,
+            minute=sched.minute,
+            retention_days=sched.retention_days,
+            is_active=sched.is_active,
+        )
+        for sched, hostname in rows
+    ]
 
 
 @router.put("/schedule", response_model=ScheduleSettings)
-async def update_schedule(
+async def upsert_schedule(
     data: ScheduleSettings,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    """Update backup schedule. Re-registers APScheduler job."""
+    """Create or update a backup schedule. Use device_id=null for global."""
     if not 0 <= data.hour <= 23:
         raise HTTPException(400, "hour must be 0-23")
     if not 0 <= data.minute <= 59:
@@ -160,8 +173,26 @@ async def update_schedule(
     if data.retention_days < 1:
         raise HTTPException(400, "retention_days must be >= 1")
 
-    result = await db.execute(select(BackupSchedule).limit(1))
+    # Validate device exists if device_id provided
+    hostname = None
+    if data.device_id is not None:
+        dev_result = await db.execute(select(Device).where(Device.id == data.device_id))
+        device = dev_result.scalar_one_or_none()
+        if not device:
+            raise HTTPException(404, "Device not found")
+        hostname = device.hostname
+
+    # Upsert: find existing schedule for this device_id (or global)
+    if data.device_id is not None:
+        result = await db.execute(
+            select(BackupSchedule).where(BackupSchedule.device_id == data.device_id)
+        )
+    else:
+        result = await db.execute(
+            select(BackupSchedule).where(BackupSchedule.device_id.is_(None))
+        )
     sched = result.scalar_one_or_none()
+
     if sched:
         sched.hour = data.hour
         sched.minute = data.minute
@@ -169,48 +200,42 @@ async def update_schedule(
         sched.is_active = data.is_active
     else:
         sched = BackupSchedule(
-            hour=data.hour, minute=data.minute,
-            retention_days=data.retention_days, is_active=data.is_active,
+            device_id=data.device_id,
+            hour=data.hour,
+            minute=data.minute,
+            retention_days=data.retention_days,
+            is_active=data.is_active,
         )
         db.add(sched)
 
     await db.commit()
+    await db.refresh(sched)
 
-    # Update the running APScheduler job
-    _reschedule_backup_job(data.hour, data.minute, data.is_active)
+    return ScheduleSettings(
+        id=sched.id,
+        device_id=sched.device_id,
+        device_hostname=hostname,
+        hour=sched.hour,
+        minute=sched.minute,
+        retention_days=sched.retention_days,
+        is_active=sched.is_active,
+    )
 
-    return data
 
-
-def _reschedule_backup_job(hour: int, minute: int, is_active: bool):
-    """Update APScheduler job timing without restarting."""
-    try:
-        from app.main import scheduler
-        job = scheduler.get_job("config_backup")
-        if job:
-            if is_active:
-                scheduler.reschedule_job(
-                    "config_backup",
-                    trigger="cron",
-                    hour=hour,
-                    minute=minute,
-                )
-                logger.info("Backup job rescheduled to %02d:%02d UTC", hour, minute)
-            else:
-                scheduler.pause_job("config_backup")
-                logger.info("Backup job paused")
-        else:
-            if is_active:
-                from app.services.config_fetcher import run_scheduled_backups
-                scheduler.add_job(
-                    run_scheduled_backups,
-                    "cron",
-                    hour=hour,
-                    minute=minute,
-                    id="config_backup",
-                )
-    except Exception as exc:
-        logger.warning("Could not update APScheduler job: %s", exc)
+@router.delete("/schedule/{schedule_id}")
+async def delete_schedule(
+    schedule_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """Delete a backup schedule."""
+    result = await db.execute(select(BackupSchedule).where(BackupSchedule.id == schedule_id))
+    sched = result.scalar_one_or_none()
+    if not sched:
+        raise HTTPException(404, "Schedule not found")
+    await db.delete(sched)
+    await db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -225,11 +250,12 @@ async def manual_backup(
     _user=Depends(get_current_user),
 ):
     """Trigger an immediate config backup for a single device."""
-    # Verify device exists
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
+    if not device.api_username or not device.api_password:
+        raise HTTPException(400, f"Device {device.hostname} has no API credentials configured")
 
     from app.services.config_fetcher import backup_device
     backup = await backup_device(device_id, db, backup_type="manual")

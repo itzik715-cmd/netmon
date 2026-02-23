@@ -291,27 +291,67 @@ async def backup_device(device_id: int, db, backup_type: str = "manual"):
 
 
 async def run_scheduled_backups():
-    """Called by APScheduler to back up all active devices."""
+    """
+    Called by APScheduler every minute.  Checks which BackupSchedule entries
+    match the current hour:minute (UTC) and runs backups for those devices.
+    """
     from app.database import AsyncSessionLocal
     from app.models.device import Device
+    from app.models.config_backup import BackupSchedule
     from sqlalchemy import select
 
-    logger.info("Starting scheduled config backup run")
+    now = datetime.now(timezone.utc)
+    current_hour = now.hour
+    current_minute = now.minute
+
     async with AsyncSessionLocal() as db:
+        # Load all active schedules that match current time
         result = await db.execute(
-            select(Device).where(Device.is_active == True, Device.polling_enabled == True)
+            select(BackupSchedule).where(
+                BackupSchedule.is_active == True,
+                BackupSchedule.hour == current_hour,
+                BackupSchedule.minute == current_minute,
+            )
         )
-        devices = result.scalars().all()
+        schedules = result.scalars().all()
 
-        ok = fail = 0
-        for device in devices:
-            try:
-                await backup_device(device.id, db, backup_type="scheduled")
-                ok += 1
-            except Exception as exc:
-                logger.error("Scheduled backup failed for %s: %s", device.hostname, exc)
-                fail += 1
+    if not schedules:
+        return
 
+    logger.info("Backup schedule matched at %02d:%02d UTC — %d schedule(s)", current_hour, current_minute, len(schedules))
+
+    ok = fail = 0
+    for sched in schedules:
+        async with AsyncSessionLocal() as db:
+            if sched.device_id:
+                # Per-device schedule: back up only this device
+                result = await db.execute(
+                    select(Device).where(
+                        Device.id == sched.device_id,
+                        Device.is_active == True,
+                        Device.api_username.isnot(None),
+                    )
+                )
+                devices = result.scalars().all()
+            else:
+                # Global schedule: back up all active devices with API credentials
+                result = await db.execute(
+                    select(Device).where(
+                        Device.is_active == True,
+                        Device.api_username.isnot(None),
+                    )
+                )
+                devices = result.scalars().all()
+
+            for device in devices:
+                try:
+                    await backup_device(device.id, db, backup_type="scheduled")
+                    ok += 1
+                except Exception as exc:
+                    logger.error("Scheduled backup failed for %s: %s", device.hostname, exc)
+                    fail += 1
+
+    if ok > 0 or fail > 0:
         logger.info("Scheduled backup done: %d OK, %d failed", ok, fail)
         from app.routers.system_events import log_system_event
         await log_system_event(
