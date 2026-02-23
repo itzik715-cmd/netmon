@@ -146,6 +146,26 @@ export const blocksApi = {
   sync: (deviceId: number) => api.post(`/blocks/device/${deviceId}/sync`),
 }
 
+// Topology
+export const topologyApi = {
+  get: () => api.get('/topology/'),
+  discover: () => api.post('/topology/discover'),
+  addLink: (sourceId: number, targetId: number, sourceIf?: string, targetIf?: string) =>
+    api.post('/topology/link', null, { params: { source_id: sourceId, target_id: targetId, source_if: sourceIf, target_if: targetIf } }),
+  deleteLink: (id: number) => api.delete(`/topology/link/${id}`),
+  deviceMetrics: (deviceId: number, hours?: number) =>
+    api.get(`/topology/device/${deviceId}/metrics`, { params: { hours } }),
+}
+
+// Reports
+export const reportsApi = {
+  summary: () => api.get('/reports/summary'),
+  devices: () => api.get('/reports/devices', { responseType: 'blob' }),
+  interfaces: (deviceId?: number) => api.get('/reports/interfaces', { params: { device_id: deviceId }, responseType: 'blob' }),
+  alerts: (hours?: number) => api.get('/reports/alerts', { params: { hours }, responseType: 'blob' }),
+  flows: (hours?: number) => api.get('/reports/flows', { params: { hours }, responseType: 'blob' }),
+}
+
 // Settings
 export const settingsApi = {
   getAll: () => api.get('/settings/'),

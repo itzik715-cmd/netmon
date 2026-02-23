@@ -92,3 +92,28 @@ class DeviceBlock(Base):
     synced_at = Column(DateTime(timezone=True), nullable=True)
 
     device = relationship("Device", back_populates="blocks")
+
+
+class DeviceLink(Base):
+    """Stores discovered or manually configured links between devices (LLDP/CDP)."""
+    __tablename__ = "device_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_if = Column(String(100), nullable=True)   # local port name
+    target_if = Column(String(100), nullable=True)   # remote port name
+    link_type = Column(String(20), default="lldp")   # lldp, cdp, manual
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DeviceMetricHistory(Base):
+    """Historical CPU / memory snapshots from SNMP polling."""
+    __tablename__ = "device_metric_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+    cpu_usage = Column(Float, nullable=True)
+    memory_usage = Column(Float, nullable=True)
+    uptime = Column(Integer, nullable=True)

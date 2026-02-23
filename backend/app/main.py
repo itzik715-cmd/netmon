@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os
@@ -223,6 +223,8 @@ app.include_router(alerts.router)
 app.include_router(flows.router)
 app.include_router(settings_router.router)
 app.include_router(blocks.router)
+app.include_router(topology.router)
+app.include_router(reports.router)
 
 
 @app.get("/api/health")

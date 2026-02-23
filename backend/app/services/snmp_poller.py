@@ -18,7 +18,7 @@ from pysnmp.hlapi import (
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select, update, delete
 from app.config import settings
-from app.models.device import Device, DeviceRoute
+from app.models.device import Device, DeviceRoute, DeviceMetricHistory, DeviceLink
 from app.models.interface import Interface, InterfaceMetric
 import json
 
@@ -64,6 +64,24 @@ OID_IP_ROUTE_MASK   = "1.3.6.1.2.1.4.21.1.11"
 OID_IP_ROUTE_NHOP   = "1.3.6.1.2.1.4.21.1.7"
 OID_IP_ROUTE_PROTO  = "1.3.6.1.2.1.4.21.1.9"
 OID_IP_ROUTE_METRIC = "1.3.6.1.2.1.4.21.1.3"
+
+# LLDP OIDs
+OID_LLDP_REM_SYS_NAME = "1.0.8802.1.1.2.1.4.1.1.9"   # lldpRemSysName
+OID_LLDP_REM_PORT_ID  = "1.0.8802.1.1.2.1.4.1.1.7"   # lldpRemPortId
+OID_LLDP_REM_MAN_ADDR = "1.0.8802.1.1.2.1.4.2.1.4"   # lldpRemManAddr (IP)
+OID_LLDP_LOC_PORT_ID  = "1.0.8802.1.1.2.1.3.7.1.3"   # lldpLocPortId
+
+# Cisco CPU OIDs
+OID_CPU_5MIN_CISCO    = "1.3.6.1.4.1.9.2.1.58.0"      # Cisco: 5-min CPU avg
+OID_CPU_PROC_CISCO    = "1.3.6.1.4.1.9.9.109.1.1.1.1.8.1"  # Cisco: process CPU
+OID_MEM_USED_CISCO    = "1.3.6.1.4.1.9.2.1.8.0"       # Cisco: mem used
+OID_MEM_FREE_CISCO    = "1.3.6.1.4.1.9.2.1.6.0"       # Cisco: mem free
+# Arista CPU
+OID_CPU_ARISTA        = "1.3.6.1.2.1.25.3.3.1.2.1"    # HOST-RESOURCES-MIB: hrProcessorLoad
+OID_MEM_TOTAL_HRM     = "1.3.6.1.2.1.25.2.2.0"        # hrMemorySize (KB)
+OID_MEM_STORAGE_TABLE = "1.3.6.1.2.1.25.2.3"          # hrStorageTable
+OID_MEM_STORAGE_USED  = "1.3.6.1.2.1.25.2.3.1.6"      # hrStorageUsed
+OID_MEM_STORAGE_SIZE  = "1.3.6.1.2.1.25.2.3.1.5"      # hrStorageSize
 
 # Protocol code → name mapping (RFC 1354 / RFC 2096)
 ROUTE_PROTO_MAP = {
@@ -325,6 +343,22 @@ async def poll_device(device: Device, db: AsyncSession) -> bool:
             await db.commit()
             return False
 
+        # Poll CPU / memory
+        cpu, mem = await _poll_cpu_mem(device)
+        if cpu is not None or mem is not None:
+            await db.execute(
+                update(Device)
+                .where(Device.id == device.id)
+                .values(cpu_usage=cpu, memory_usage=mem)
+            )
+            db.add(DeviceMetricHistory(
+                device_id=device.id,
+                timestamp=now,
+                cpu_usage=cpu,
+                memory_usage=mem,
+                uptime=uptime_seconds,
+            ))
+
         await poll_interfaces(device, db, now)
         await db.commit()
         return True
@@ -445,3 +479,145 @@ async def discover_interfaces(device: Device, db: AsyncSession) -> int:
 
     await db.commit()
     return created
+
+
+async def _poll_cpu_mem(device: Device) -> tuple[Optional[float], Optional[float]]:
+    """
+    Query CPU and memory utilization.
+    Tries HOST-RESOURCES-MIB (universal) first, then Cisco-specific OIDs.
+    Returns (cpu_pct, mem_pct) — either may be None.
+    """
+    cpu: Optional[float] = None
+    mem: Optional[float] = None
+
+    # HOST-RESOURCES-MIB hrProcessorLoad (works on Arista, many others)
+    cpu_val = await snmp_get(device, OID_CPU_ARISTA)
+    if cpu_val is not None:
+        try:
+            cpu = float(cpu_val)
+        except ValueError:
+            pass
+
+    # Cisco CPU
+    if cpu is None:
+        cisco_cpu = await snmp_get(device, OID_CPU_5MIN_CISCO)
+        if cisco_cpu is not None:
+            try:
+                cpu = float(cisco_cpu)
+            except ValueError:
+                pass
+
+    # Memory via Cisco OIDs
+    mem_used_raw = await snmp_get(device, OID_MEM_USED_CISCO)
+    mem_free_raw = await snmp_get(device, OID_MEM_FREE_CISCO)
+    if mem_used_raw is not None and mem_free_raw is not None:
+        try:
+            used = float(mem_used_raw)
+            free = float(mem_free_raw)
+            total = used + free
+            if total > 0:
+                mem = round((used / total) * 100.0, 1)
+        except ValueError:
+            pass
+
+    # HOST-RESOURCES hrMemorySize fallback
+    if mem is None:
+        mem_total_raw = await snmp_get(device, OID_MEM_TOTAL_HRM)
+        if mem_total_raw is not None:
+            try:
+                total_kb = float(mem_total_raw)
+                # Walk hrStorageTable to find RAM
+                storage_used = await snmp_bulk_walk(device, OID_MEM_STORAGE_USED)
+                storage_size = await snmp_bulk_walk(device, OID_MEM_STORAGE_SIZE)
+                for oid_key, size_val in storage_size.items():
+                    used_key = oid_key.replace(OID_MEM_STORAGE_SIZE, OID_MEM_STORAGE_USED)
+                    used_val = storage_used.get(used_key)
+                    if used_val and size_val:
+                        sz = float(size_val)
+                        us = float(used_val)
+                        if sz > 0:
+                            mem = round((us / sz) * 100.0, 1)
+                            break
+            except Exception:
+                pass
+
+    return cpu, mem
+
+
+async def discover_lldp_neighbors(device: Device, db: AsyncSession) -> int:
+    """
+    Walk LLDP-MIB on the device, discover neighbors, and store/update DeviceLink records.
+    Returns number of links discovered.
+    """
+    sys_names   = await snmp_bulk_walk(device, OID_LLDP_REM_SYS_NAME)
+    rem_port_ids = await snmp_bulk_walk(device, OID_LLDP_REM_PORT_ID)
+    loc_port_ids = await snmp_bulk_walk(device, OID_LLDP_LOC_PORT_ID)
+
+    if not sys_names:
+        return 0
+
+    # Build a map of local port index → local port id string
+    loc_ports: dict[str, str] = {}
+    for oid_str, val in loc_port_ids.items():
+        idx = oid_str.split(".")[-1]
+        loc_ports[idx] = str(val)
+
+    # Load all known devices (to match neighbors by hostname)
+    result = await db.execute(select(Device).where(Device.is_active == True))
+    all_devices = {d.hostname.lower(): d for d in result.scalars().all()}
+    all_devices_by_ip = {d.ip_address: d for d in all_devices.values()}
+
+    # Load existing links from this device
+    existing = await db.execute(
+        select(DeviceLink).where(DeviceLink.source_device_id == device.id)
+    )
+    existing_links: dict[int, DeviceLink] = {lnk.target_device_id: lnk for lnk in existing.scalars().all()}
+    seen_targets: set[int] = set()
+
+    links_found = 0
+    for oid_str, rem_sys_name in sys_names.items():
+        # OID format: 1.0.8802.1.1.2.1.4.1.1.9.<time_mark>.<local_if_idx>.<rem_idx>
+        parts = oid_str.split(".")
+        # last 3 parts: time_mark.local_if_idx.rem_idx
+        try:
+            local_if_idx = parts[-2]
+        except IndexError:
+            local_if_idx = "0"
+
+        rem_name = str(rem_sys_name).strip().lower()
+        # Match to known device
+        neighbor: Optional[Device] = all_devices.get(rem_name)
+
+        # Try to match by management IP from lldpRemManAddr if hostname didn't match
+        if neighbor is None:
+            man_key_prefix = OID_LLDP_REM_MAN_ADDR + "." + ".".join(parts[-3:])
+            # We don't walk ManAddr here — skip for now
+            pass
+
+        if neighbor is None or neighbor.id == device.id:
+            continue
+
+        # Get local/remote port names
+        src_if = loc_ports.get(local_if_idx, f"if{local_if_idx}")
+        rem_port_key = oid_str.replace(OID_LLDP_REM_SYS_NAME, OID_LLDP_REM_PORT_ID)
+        tgt_if = str(rem_port_ids.get(rem_port_key, "")).strip() or None
+
+        target_id = neighbor.id
+        seen_targets.add(target_id)
+
+        if target_id in existing_links:
+            lnk = existing_links[target_id]
+            lnk.source_if = src_if
+            lnk.target_if = tgt_if
+        else:
+            db.add(DeviceLink(
+                source_device_id=device.id,
+                target_device_id=target_id,
+                source_if=src_if,
+                target_if=tgt_if,
+                link_type="lldp",
+            ))
+        links_found += 1
+
+    await db.commit()
+    return links_found

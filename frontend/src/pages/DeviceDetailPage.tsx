@@ -1,13 +1,16 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { devicesApi, interfacesApi } from '../services/api'
+import { devicesApi, interfacesApi, topologyApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { ArrowLeft, RefreshCw, Search, Map, Wifi } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Search, Map, BarChart2 } from 'lucide-react'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 
-type Tab = 'interfaces' | 'routes'
+type Tab = 'interfaces' | 'routes' | 'metrics'
 
 function formatUptime(seconds: number): string {
   const dur = intervalToDuration({ start: 0, end: seconds * 1000 })
@@ -59,6 +62,14 @@ export default function DeviceDetailPage() {
     queryKey: ['device-routes', deviceId],
     queryFn: () => devicesApi.routes(deviceId).then((r) => r.data as DeviceRoute[]),
     enabled: tab === 'routes',
+  })
+
+  const [metricsHours, setMetricsHours] = useState(24)
+  const { data: metricsData, isLoading: metricsLoading } = useQuery({
+    queryKey: ['device-metrics', deviceId, metricsHours],
+    queryFn: () => topologyApi.deviceMetrics(deviceId, metricsHours).then((r) => r.data),
+    enabled: tab === 'metrics',
+    refetchInterval: tab === 'metrics' ? 60_000 : false,
   })
 
   const pollMutation = useMutation({
@@ -151,6 +162,10 @@ export default function DeviceDetailPage() {
           <Map size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
           Routing Table {routes ? `(${routes.length})` : ''}
           {!isL3 && <span className="tag-gray" style={{ marginLeft: 6, fontSize: 10 }}>L3 only</span>}
+        </button>
+        <button className={`tab-btn${tab === 'metrics' ? ' active' : ''}`} onClick={() => setTab('metrics')}>
+          <BarChart2 size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+          Performance
         </button>
       </div>
 
@@ -259,6 +274,138 @@ export default function DeviceDetailPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Metrics / Performance tab */}
+      {tab === 'metrics' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* time range selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Time range:</span>
+            {[
+              { label: '1h', value: 1 },
+              { label: '6h', value: 6 },
+              { label: '24h', value: 24 },
+              { label: '7d', value: 168 },
+            ].map(({ label, value }) => (
+              <button
+                key={value}
+                onClick={() => setMetricsHours(value)}
+                className={`btn btn-sm ${metricsHours === value ? 'btn-primary' : 'btn-outline'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {metricsLoading ? (
+            <div className="empty-state"><p>Loading metrics...</p></div>
+          ) : !metricsData || metricsData.length === 0 ? (
+            <div className="empty-state">
+              <BarChart2 size={32} style={{ color: 'var(--text-light)', marginBottom: 8 }} />
+              <p style={{ color: 'var(--text-muted)' }}>No performance data yet.</p>
+              <p style={{ fontSize: 12, color: 'var(--text-light)' }}>
+                CPU and memory metrics are collected during each poll cycle. Check that SNMP polling is active.
+              </p>
+            </div>
+          ) : (() => {
+            const chartData = metricsData.map((m: any) => ({
+              time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              cpu: m.cpu_usage != null ? parseFloat(m.cpu_usage.toFixed(1)) : null,
+              mem: m.memory_usage != null ? parseFloat(m.memory_usage.toFixed(1)) : null,
+            }))
+            const hasCpu = chartData.some((d: any) => d.cpu != null)
+            const hasMem = chartData.some((d: any) => d.mem != null)
+            return (
+              <>
+                {hasCpu && (
+                  <div className="card">
+                    <div className="card-header">
+                      <BarChart2 size={15} />
+                      <h3>CPU Utilization</h3>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+                        Current: {device.cpu_usage != null ? `${device.cpu_usage.toFixed(1)}%` : '—'}
+                      </span>
+                    </div>
+                    <div className="card-body" style={{ paddingTop: 8 }}>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={chartData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                          <XAxis dataKey="time" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                          <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} width={40} />
+                          <Tooltip
+                            contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}
+                            formatter={(v: any) => [`${v}%`, 'CPU']}
+                          />
+                          <Line type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+                {hasMem && (
+                  <div className="card">
+                    <div className="card-header">
+                      <BarChart2 size={15} />
+                      <h3>Memory Utilization</h3>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+                        Current: {device.memory_usage != null ? `${device.memory_usage.toFixed(1)}%` : '—'}
+                      </span>
+                    </div>
+                    <div className="card-body" style={{ paddingTop: 8 }}>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={chartData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                          <XAxis dataKey="time" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                          <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} width={40} />
+                          <Tooltip
+                            contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}
+                            formatter={(v: any) => [`${v}%`, 'Memory']}
+                          />
+                          <Line type="monotone" dataKey="mem" stroke="#10b981" strokeWidth={2} dot={false} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+                {/* Stats table */}
+                <div className="card">
+                  <div className="card-header"><h3>Recent Samples</h3></div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Time</th><th>CPU %</th><th>Memory %</th></tr>
+                      </thead>
+                      <tbody>
+                        {metricsData.slice(0, 20).map((m: any, i: number) => (
+                          <tr key={i}>
+                            <td style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
+                              {new Date(m.timestamp).toLocaleString()}
+                            </td>
+                            <td>
+                              {m.cpu_usage != null ? (
+                                <span style={{ color: m.cpu_usage > 80 ? 'var(--accent-red)' : m.cpu_usage > 60 ? 'var(--accent-orange)' : 'var(--accent-green)', fontWeight: 600, fontSize: 13 }}>
+                                  {m.cpu_usage.toFixed(1)}%
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              {m.memory_usage != null ? (
+                                <span style={{ color: m.memory_usage > 80 ? 'var(--accent-red)' : m.memory_usage > 60 ? 'var(--accent-orange)' : 'var(--accent-green)', fontWeight: 600, fontSize: 13 }}>
+                                  {m.memory_usage.toFixed(1)}%
+                                </span>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
     </div>

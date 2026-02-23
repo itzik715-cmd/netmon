@@ -324,7 +324,7 @@ async def create_location(payload: LocationCreate, db: AsyncSession = Depends(ge
 async def discover_and_poll(device_id: int):
     """Enrich device info, discover interfaces, poll, and discover routes for L3."""
     from app.database import AsyncSessionLocal
-    from app.services.snmp_poller import enrich_device_info, discover_interfaces, poll_device, discover_routes
+    from app.services.snmp_poller import enrich_device_info, discover_interfaces, poll_device, discover_routes, discover_lldp_neighbors
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
         device = result.scalar_one_or_none()
@@ -336,6 +336,7 @@ async def discover_and_poll(device_id: int):
         await poll_device(device, db)
         if device.layer in ("L3", "L2/L3") or device.device_type in ("router", "spine", "leaf"):
             await discover_routes(device, db)
+        await discover_lldp_neighbors(device, db)
 
 
 async def run_discovery(device_id: int):
