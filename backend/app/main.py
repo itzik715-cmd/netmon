@@ -128,7 +128,18 @@ async def run_migrations():
             except Exception as e:
                 logger.warning("Migration ALTER devices.%s skipped: %s", col, e)
 
-        # Add datacenter/rack columns to device_locations
+        # Composite indexes to speed up per-interface and per-device metric lookups
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_interface_metrics_iface_ts ON interface_metrics (interface_id, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_device_metric_history_dev_ts ON device_metric_history (device_id, timestamp DESC)",
+        ]:
+            try:
+                await conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.warning("Migration index skipped: %s", e)
+
+    # device_locations migrations — separate transaction to avoid aborting the above
+    async with engine.begin() as conn:
         for col, col_type in location_columns:
             try:
                 await conn.execute(
@@ -150,25 +161,15 @@ async def run_migrations():
         except Exception as e:
             logger.warning("Migration backfill datacenter/rack skipped: %s", e)
 
-        # Unique constraint on (datacenter, rack)
+    # Unique constraint — separate transaction; use CREATE UNIQUE INDEX which supports IF NOT EXISTS
+    async with engine.begin() as conn:
         try:
             await conn.execute(text(
-                "ALTER TABLE device_locations "
-                "ADD CONSTRAINT IF NOT EXISTS uq_location_datacenter_rack "
-                "UNIQUE (datacenter, rack)"
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_location_datacenter_rack "
+                "ON device_locations (datacenter, rack)"
             ))
         except Exception as e:
-            logger.warning("Migration unique constraint skipped: %s", e)
-
-        # Composite indexes to speed up per-interface and per-device metric lookups
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS ix_interface_metrics_iface_ts ON interface_metrics (interface_id, timestamp DESC)",
-            "CREATE INDEX IF NOT EXISTS ix_device_metric_history_dev_ts ON device_metric_history (device_id, timestamp DESC)",
-        ]:
-            try:
-                await conn.execute(text(idx_sql))
-            except Exception as e:
-                logger.warning("Migration index skipped: %s", e)
+            logger.warning("Migration unique index datacenter_rack skipped: %s", e)
 
     logger.info("Database migrations applied")
 
