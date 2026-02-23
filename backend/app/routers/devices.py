@@ -323,7 +323,30 @@ async def list_locations(db: AsyncSession = Depends(get_db), _: User = Depends(g
 
 @router.post("/locations/", response_model=LocationResponse, dependencies=[Depends(require_admin())])
 async def create_location(payload: LocationCreate, db: AsyncSession = Depends(get_db)):
-    loc = DeviceLocation(**payload.dict())
+    # Auto-generate name from datacenter + rack
+    name = payload.name or f"{payload.datacenter}_{payload.rack}"
+
+    # Check for duplicate datacenter+rack
+    existing = await db.execute(
+        select(DeviceLocation).where(
+            DeviceLocation.datacenter == payload.datacenter,
+            DeviceLocation.rack == payload.rack,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Location {payload.datacenter}_{payload.rack} already exists",
+        )
+
+    loc = DeviceLocation(
+        name=name,
+        datacenter=payload.datacenter,
+        rack=payload.rack,
+        description=payload.description,
+        address=payload.address,
+        timezone=payload.timezone,
+    )
     db.add(loc)
     await db.commit()
     await db.refresh(loc)

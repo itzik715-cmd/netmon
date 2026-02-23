@@ -4,7 +4,9 @@ from datetime import datetime
 
 
 class LocationCreate(BaseModel):
-    name: str
+    name: Optional[str] = None
+    datacenter: str
+    rack: str
     description: Optional[str] = None
     address: Optional[str] = None
     timezone: str = "UTC"
@@ -13,6 +15,8 @@ class LocationCreate(BaseModel):
 class LocationResponse(BaseModel):
     id: int
     name: str
+    datacenter: Optional[str] = None
+    rack: Optional[str] = None
     description: Optional[str] = None
     address: Optional[str] = None
     timezone: str

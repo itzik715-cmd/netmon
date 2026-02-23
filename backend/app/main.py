@@ -113,6 +113,12 @@ async def run_migrations():
         ("flow_enabled",   "BOOLEAN DEFAULT FALSE"),
     ]
 
+    # device_locations new columns
+    location_columns = [
+        ("datacenter", "VARCHAR(50)"),
+        ("rack",       "VARCHAR(50)"),
+    ]
+
     async with engine.begin() as conn:
         for col, col_type in devices_columns:
             try:
@@ -121,6 +127,38 @@ async def run_migrations():
                 )
             except Exception as e:
                 logger.warning("Migration ALTER devices.%s skipped: %s", col, e)
+
+        # Add datacenter/rack columns to device_locations
+        for col, col_type in location_columns:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE device_locations ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER device_locations.%s skipped: %s", col, e)
+
+        # Backfill: parse existing name values to extract datacenter and rack
+        try:
+            await conn.execute(text(
+                "UPDATE device_locations "
+                "SET datacenter = split_part(name, '_', 1), "
+                "    rack = CASE WHEN position('_' in name) > 0 "
+                "                THEN substring(name from position('_' in name) + 1) "
+                "                ELSE name END "
+                "WHERE datacenter IS NULL"
+            ))
+        except Exception as e:
+            logger.warning("Migration backfill datacenter/rack skipped: %s", e)
+
+        # Unique constraint on (datacenter, rack)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE device_locations "
+                "ADD CONSTRAINT IF NOT EXISTS uq_location_datacenter_rack "
+                "UNIQUE (datacenter, rack)"
+            ))
+        except Exception as e:
+            logger.warning("Migration unique constraint skipped: %s", e)
 
         # Composite indexes to speed up per-interface and per-device metric lookups
         for idx_sql in [

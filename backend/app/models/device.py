@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Text, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Text, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -9,12 +9,18 @@ class DeviceLocation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False)
+    datacenter = Column(String(50), nullable=True)
+    rack = Column(String(50), nullable=True)
     description = Column(String(255))
     address = Column(String(255))
     timezone = Column(String(50), default="UTC")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     devices = relationship("Device", back_populates="location")
+
+    __table_args__ = (
+        UniqueConstraint("datacenter", "rack", name="uq_location_datacenter_rack"),
+    )
 
 
 class Device(Base):

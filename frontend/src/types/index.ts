@@ -56,6 +56,8 @@ export interface Device {
 export interface Location {
   id: number
   name: string
+  datacenter?: string
+  rack?: string
   description?: string
   address?: string
   timezone: string

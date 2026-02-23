@@ -1,7 +1,7 @@
 import { useState, FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { devicesApi } from '../../services/api'
-import { X, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { X, Loader2, CheckCircle, AlertCircle, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type TestResult = { success: boolean; sys_name?: string; sys_descr?: string }
@@ -28,11 +28,33 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
   })
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
+  const [showNewLocation, setShowNewLocation] = useState(false)
+  const [newDc, setNewDc] = useState('')
+  const [newRack, setNewRack] = useState('')
+  const [creatingLoc, setCreatingLoc] = useState(false)
 
   const { data: locations } = useQuery({
     queryKey: ['locations'],
     queryFn: () => devicesApi.locations().then((r) => r.data),
   })
+
+  const handleCreateLocation = async () => {
+    if (!newDc.trim() || !newRack.trim()) { toast.error('Enter both Datacenter and Rack'); return }
+    setCreatingLoc(true)
+    try {
+      const res = await devicesApi.createLocation({ datacenter: newDc.trim(), rack: newRack.trim() })
+      qc.invalidateQueries({ queryKey: ['locations'] })
+      setForm(p => ({ ...p, location_id: String(res.data.id) }))
+      setShowNewLocation(false)
+      setNewDc('')
+      setNewRack('')
+      toast.success(`Location ${res.data.name} created`)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail ?? 'Failed to create location')
+    } finally {
+      setCreatingLoc(false)
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: (data: object) => devicesApi.create(data),
@@ -154,12 +176,34 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div>
                   <label className="label">Location</label>
-                  <select className="select" value={form.location_id} onChange={set('location_id')}>
-                    <option value="">No location</option>
-                    {(locations || []).map((l: any) => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select className="select" style={{ flex: 1 }} value={form.location_id} onChange={set('location_id')}>
+                      <option value="">No location</option>
+                      {(locations || []).map((l: any) => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </select>
+                    <button type="button" className="btn btn-outline btn-sm" title="New Location"
+                      onClick={() => setShowNewLocation(v => !v)} style={{ flexShrink: 0, padding: '0 8px' }}>
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                  {showNewLocation && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1 }}>
+                        <label className="label" style={{ fontSize: 10 }}>Datacenter</label>
+                        <input className="input" placeholder="IL-PT" value={newDc} onChange={e => setNewDc(e.target.value)} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label className="label" style={{ fontSize: 10 }}>Rack / Cabinet</label>
+                        <input className="input" placeholder="Z34" value={newRack} onChange={e => setNewRack(e.target.value)} />
+                      </div>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handleCreateLocation}
+                        disabled={creatingLoc} style={{ flexShrink: 0, height: 34 }}>
+                        {creatingLoc ? <Loader2 size={12} className="animate-spin" /> : 'Add'}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="label">Poll Interval (seconds)</label>

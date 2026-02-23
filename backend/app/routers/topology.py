@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 from typing import List
 
 from app.database import get_db
-from app.models.device import Device, DeviceLink, DeviceMetricHistory
+from app.models.device import Device, DeviceLink, DeviceMetricHistory, DeviceLocation
 from app.models.interface import Interface
 from app.middleware.rbac import get_current_user, require_operator_or_above
 from app.models.user import User
@@ -30,6 +30,10 @@ async def get_topology(
     )
     devices = dev_result.scalars().all()
 
+    # Preload locations
+    loc_result = await db.execute(select(DeviceLocation))
+    loc_map: dict[int, DeviceLocation] = {loc.id: loc for loc in loc_result.scalars().all()}
+
     # Interface count per device
     iface_counts: dict[int, int] = {}
     for device in devices:
@@ -38,8 +42,10 @@ async def get_topology(
         )
         iface_counts[device.id] = cnt.scalar() or 0
 
-    nodes = [
-        {
+    nodes = []
+    for d in devices:
+        loc = loc_map.get(d.location_id) if d.location_id else None
+        nodes.append({
             "id": d.id,
             "hostname": d.hostname,
             "ip_address": d.ip_address,
@@ -47,14 +53,15 @@ async def get_topology(
             "layer": d.layer,
             "vendor": d.vendor,
             "status": d.status,
-            "location": d.location_id,
+            "location_id": d.location_id,
+            "location_name": loc.name if loc else None,
+            "datacenter": loc.datacenter if loc else None,
+            "rack": loc.rack if loc else None,
             "cpu_usage": d.cpu_usage,
             "memory_usage": d.memory_usage,
             "interface_count": iface_counts.get(d.id, 0),
             "last_seen": d.last_seen.isoformat() if d.last_seen else None,
-        }
-        for d in devices
-    ]
+        })
 
     link_result = await db.execute(select(DeviceLink))
     links = link_result.scalars().all()

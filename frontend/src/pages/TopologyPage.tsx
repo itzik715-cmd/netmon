@@ -14,6 +14,10 @@ interface TopoNode {
   layer?: string
   vendor?: string
   status: string
+  location_id?: number
+  location_name?: string
+  datacenter?: string
+  rack?: string
   cpu_usage?: number
   memory_usage?: number
   interface_count: number
@@ -30,26 +34,102 @@ interface TopoEdge {
 }
 
 interface NodePos { x: number; y: number }
+interface LocationRegion { key: string; label: string; x: number; y: number; w: number; h: number }
 
-// ─── Layout: assign positions by device type tier ────────────────────────────
-function computeLayout(nodes: TopoNode[], width: number, height: number): Record<number, NodePos> {
-  const tierOrder = ['spine', 'core', 'router', 'firewall', 'leaf', 'distribution', 'switch', 'tor', 'access', 'server', 'unknown', 'other']
-  const tiers: Record<string, TopoNode[]> = {}
+// ─── Layout: group by location, then by device type tier within each group ──
+const TIER_ORDER = ['spine', 'core', 'router', 'firewall', 'leaf', 'distribution', 'switch', 'tor', 'access', 'server', 'unknown', 'other']
+
+function computeLayout(nodes: TopoNode[], width: number, height: number): { positions: Record<number, NodePos>; regions: LocationRegion[] } {
+  // Group nodes by location
+  const groups: Record<string, TopoNode[]> = {}
   nodes.forEach(n => {
-    const tier = tierOrder.find(t => (n.device_type || '').toLowerCase().includes(t)) || 'unknown'
-    ;(tiers[tier] = tiers[tier] || []).push(n)
+    const key = n.location_name || '__unassigned__'
+    ;(groups[key] = groups[key] || []).push(n)
   })
-  const orderedTiers = tierOrder.filter(t => tiers[t]?.length)
+
+  const groupKeys = Object.keys(groups).sort((a, b) => {
+    if (a === '__unassigned__') return 1
+    if (b === '__unassigned__') return -1
+    return a.localeCompare(b)
+  })
+
   const pos: Record<number, NodePos> = {}
-  orderedTiers.forEach((tier, ti) => {
-    const rows = tiers[tier]
-    const y = 80 + ti * (height - 120) / Math.max(orderedTiers.length - 1, 1)
-    rows.forEach((n, ni) => {
-      const x = 80 + ni * (width - 160) / Math.max(rows.length - 1, 1)
-      pos[n.id] = { x: isNaN(x) ? width / 2 : x, y }
+  const regions: LocationRegion[] = []
+
+  if (groupKeys.length <= 1 && groupKeys[0] === '__unassigned__') {
+    // No locations assigned — fallback to tier-only layout
+    const tiers: Record<string, TopoNode[]> = {}
+    nodes.forEach(n => {
+      const tier = TIER_ORDER.find(t => (n.device_type || '').toLowerCase().includes(t)) || 'unknown'
+      ;(tiers[tier] = tiers[tier] || []).push(n)
     })
+    const orderedTiers = TIER_ORDER.filter(t => tiers[t]?.length)
+    orderedTiers.forEach((tier, ti) => {
+      const rows = tiers[tier]
+      const y = 80 + ti * (height - 120) / Math.max(orderedTiers.length - 1, 1)
+      rows.forEach((n, ni) => {
+        const x = 80 + ni * (width - 160) / Math.max(rows.length - 1, 1)
+        pos[n.id] = { x: isNaN(x) ? width / 2 : x, y }
+      })
+    })
+    return { positions: pos, regions: [] }
+  }
+
+  // Calculate region sizes based on node counts
+  const PAD = 40
+  const NODE_SPACING_X = 120
+  const NODE_SPACING_Y = 100
+  const REGION_GAP = 30
+  const HEADER_H = 30
+
+  // Compute per-group tier layout dimensions
+  const groupLayouts: { key: string; label: string; tierNodes: TopoNode[][]; cols: number; rows: number }[] = []
+  groupKeys.forEach(key => {
+    const gNodes = groups[key]
+    const tiers: Record<string, TopoNode[]> = {}
+    gNodes.forEach(n => {
+      const tier = TIER_ORDER.find(t => (n.device_type || '').toLowerCase().includes(t)) || 'unknown'
+      ;(tiers[tier] = tiers[tier] || []).push(n)
+    })
+    const orderedTiers = TIER_ORDER.filter(t => tiers[t]?.length)
+    const tierNodes = orderedTiers.map(t => tiers[t])
+    const maxCols = Math.max(...tierNodes.map(r => r.length), 1)
+    const label = key === '__unassigned__' ? 'Unassigned' : key
+    groupLayouts.push({ key, label, tierNodes, cols: maxCols, rows: tierNodes.length })
   })
-  return pos
+
+  // Lay out groups left-to-right, wrapping if needed
+  let curX = PAD
+  let curY = PAD
+  let rowMaxH = 0
+
+  groupLayouts.forEach(g => {
+    const regionW = Math.max(g.cols * NODE_SPACING_X + PAD, 160)
+    const regionH = g.rows * NODE_SPACING_Y + HEADER_H + PAD
+
+    // Wrap to next row if too wide
+    if (curX + regionW > width - PAD && curX > PAD) {
+      curX = PAD
+      curY += rowMaxH + REGION_GAP
+      rowMaxH = 0
+    }
+
+    regions.push({ key: g.key, label: g.label, x: curX, y: curY, w: regionW, h: regionH })
+
+    // Position nodes within this region
+    g.tierNodes.forEach((tierRow, ti) => {
+      tierRow.forEach((n, ni) => {
+        const nx = curX + PAD / 2 + ni * NODE_SPACING_X + NODE_SPACING_X / 2
+        const ny = curY + HEADER_H + PAD / 2 + ti * NODE_SPACING_Y + NODE_SPACING_Y / 2
+        pos[n.id] = { x: nx, y: ny }
+      })
+    })
+
+    curX += regionW + REGION_GAP
+    rowMaxH = Math.max(rowMaxH, regionH)
+  })
+
+  return { positions: pos, regions }
 }
 
 // ─── Device type icon ─────────────────────────────────────────────────────────
@@ -74,6 +154,7 @@ export default function TopologyPage() {
   const svgRef = useRef<SVGSVGElement>(null)
   const [dims, setDims] = useState({ w: 1200, h: 700 })
   const [positions, setPositions] = useState<Record<number, NodePos>>({})
+  const [regions, setRegions] = useState<LocationRegion[]>([])
   const [dragging, setDragging] = useState<{ id: number; ox: number; oy: number } | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -110,15 +191,16 @@ export default function TopologyPage() {
   // Init positions when data arrives
   useEffect(() => {
     if (!data?.nodes?.length) return
+    const result = computeLayout(data.nodes, dims.w, dims.h)
     setPositions(prev => {
-      const computed = computeLayout(data.nodes, dims.w, dims.h)
       // Keep manually repositioned nodes
       const merged: Record<number, NodePos> = {}
       data.nodes.forEach(n => {
-        merged[n.id] = prev[n.id] || computed[n.id]
+        merged[n.id] = prev[n.id] || result.positions[n.id]
       })
       return merged
     })
+    setRegions(result.regions)
   }, [data, dims])
 
   // Drag node
@@ -258,6 +340,29 @@ export default function TopologyPage() {
           onWheel={onWheel}
         >
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+            {/* Location regions */}
+            {regions.map(r => (
+              <g key={r.key}>
+                <rect
+                  x={r.x} y={r.y} width={r.w} height={r.h}
+                  rx={10}
+                  fill="var(--primary-light, #f0f4ff)"
+                  stroke="var(--border, #e2e8f0)"
+                  strokeWidth={1.5}
+                  strokeDasharray="6,3"
+                  opacity={0.6}
+                />
+                <text
+                  x={r.x + 12} y={r.y + 20}
+                  fontSize={12} fontWeight={700}
+                  fill="var(--text-muted, #64748b)"
+                  style={{ userSelect: 'none' }}
+                >
+                  {r.label}
+                </text>
+              </g>
+            ))}
+
             {/* Edges */}
             {edges.map(edge => {
               const s = positions[edge.source]
