@@ -55,9 +55,12 @@ async def scheduled_polling():
     from opening simultaneously, which was exhausting the file-descriptor
     limit (ENFILE/EMFILE) on busy hosts.
 
-    Within that single worker, ONE shared SnmpEngine is created for the
-    entire cycle and destroyed afterwards, further reducing socket churn
-    compared to a per-device engine.
+    Each device gets its own SnmpEngine (not shared) to avoid pysnmp's
+    MIB-builder race condition: when multiple in-flight requests share one
+    engine, concurrent MIB loading via import_symbols races and raises
+    MibNotFoundError.  Per-device engines are safe because with only one
+    worker (guaranteed by the Redis lock) and Semaphore(5) the total open
+    sockets is bounded to 5 at any moment.
     """
     if not await _acquire_scheduler_lock("polling", settings.SNMP_POLL_INTERVAL_SECONDS):
         return  # another worker is already handling this cycle
@@ -65,8 +68,7 @@ async def scheduled_polling():
     from app.database import AsyncSessionLocal
     from app.models.device import Device
     from sqlalchemy import select
-    from app.services.snmp_poller import poll_device, _close_engine
-    from pysnmp.hlapi.asyncio import SnmpEngine
+    from app.services.snmp_poller import poll_device
 
     # Use a short-lived session only to fetch the device list
     async with AsyncSessionLocal() as db:
@@ -78,20 +80,17 @@ async def scheduled_polling():
     if not devices:
         return
 
-    # ONE shared engine for the whole cycle — one UDP socket instead of
-    # one-per-device, preventing file-descriptor exhaustion.
-    engine = SnmpEngine()
+    # Each device uses its own SnmpEngine (created and closed inside poll_device).
+    # Semaphore caps concurrency at 5 so we never open more than 5 UDP sockets
+    # simultaneously — safe even with the per-device engine approach.
     sem = asyncio.Semaphore(5)
 
     async def _poll_one(device: Device):
         async with sem:
             async with AsyncSessionLocal() as dev_db:
-                return await poll_device(device, dev_db, engine=engine)
+                return await poll_device(device, dev_db)
 
-    try:
-        await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
-    finally:
-        _close_engine(engine)
+    await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
 
 
 async def scheduled_alerts():
