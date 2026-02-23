@@ -345,11 +345,19 @@ async def discover_routes(device: Device, db: AsyncSession) -> int:
     return len(routes)
 
 
-async def poll_device(device: Device, db: AsyncSession) -> bool:
+async def poll_device(device: Device, db: AsyncSession,
+                      engine: Optional[SnmpEngine] = None) -> bool:
     """Poll a single device and update metrics.
-    Uses one SnmpEngine for the entire device poll to avoid socket leaks.
+
+    *engine* — optional shared SnmpEngine supplied by the caller.  When
+    provided the caller owns its lifecycle (no close on exit).  When omitted
+    a temporary engine is created and closed here.  Passing a shared engine
+    is preferred: it reuses one UDP socket for the entire polling cycle
+    instead of opening a new socket per device.
     """
-    engine = SnmpEngine()
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
     try:
         logger.info(f"Polling device: {device.hostname} ({device.ip_address})")
 
@@ -402,7 +410,8 @@ async def poll_device(device: Device, db: AsyncSession) -> bool:
         logger.error(f"Error polling device {device.hostname}: {e}")
         return False
     finally:
-        _close_engine(engine)
+        if _own_engine:
+            _close_engine(engine)
 
 
 async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,

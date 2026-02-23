@@ -30,12 +30,43 @@ limiter = Limiter(key_func=get_remote_address)
 scheduler = AsyncIOScheduler()
 
 
+async def _acquire_scheduler_lock(job_id: str, ttl_seconds: int) -> bool:
+    """Try to acquire a Redis SETNX lock so only one uvicorn worker runs each
+    scheduled job.  Returns True if the lock was acquired (caller should
+    proceed) or if Redis is unavailable (degrade gracefully — allow the job
+    to run rather than silently skip it).  Returns False if another worker
+    already holds the lock.
+    """
+    import redis.asyncio as aioredis
+    try:
+        r = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=1)
+        acquired = await r.set(f"sched:{job_id}", "1", nx=True, ex=ttl_seconds)
+        await r.aclose()
+        return bool(acquired)
+    except Exception:
+        return True   # Redis down → let the job run (better than silent skip)
+
+
 async def scheduled_polling():
-    """Run SNMP polling for all active devices."""
+    """Run SNMP polling for all active devices.
+
+    Uses a Redis distributed lock so that only one of the N uvicorn worker
+    processes runs this job per interval — preventing N×devices SnmpEngines
+    from opening simultaneously, which was exhausting the file-descriptor
+    limit (ENFILE/EMFILE) on busy hosts.
+
+    Within that single worker, ONE shared SnmpEngine is created for the
+    entire cycle and destroyed afterwards, further reducing socket churn
+    compared to a per-device engine.
+    """
+    if not await _acquire_scheduler_lock("polling", settings.SNMP_POLL_INTERVAL_SECONDS):
+        return  # another worker is already handling this cycle
+
     from app.database import AsyncSessionLocal
     from app.models.device import Device
     from sqlalchemy import select
-    from app.services.snmp_poller import poll_device
+    from app.services.snmp_poller import poll_device, _close_engine
+    from pysnmp.hlapi.asyncio import SnmpEngine
 
     # Use a short-lived session only to fetch the device list
     async with AsyncSessionLocal() as db:
@@ -47,16 +78,20 @@ async def scheduled_polling():
     if not devices:
         return
 
-    # Limit concurrent SNMP polls to avoid exhausting file descriptors and
-    # triggering pysnmp MIB-loader races when too many engines run at once.
+    # ONE shared engine for the whole cycle — one UDP socket instead of
+    # one-per-device, preventing file-descriptor exhaustion.
+    engine = SnmpEngine()
     sem = asyncio.Semaphore(5)
 
     async def _poll_one(device: Device):
         async with sem:
             async with AsyncSessionLocal() as dev_db:
-                return await poll_device(device, dev_db)
+                return await poll_device(device, dev_db, engine=engine)
 
-    await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
+    try:
+        await asyncio.gather(*[_poll_one(d) for d in devices], return_exceptions=True)
+    finally:
+        _close_engine(engine)
 
 
 async def scheduled_alerts():
@@ -216,24 +251,30 @@ async def lifespan(app: FastAPI):
     await run_migrations()   # adds missing columns to existing tables
     await create_default_data()
 
-    # Start schedulers
+    # Start schedulers.
+    # max_instances=1 prevents a second run from starting within the same
+    # worker while a previous run is still in progress.  The Redis lock in
+    # each job body prevents duplicate runs across multiple uvicorn workers.
     scheduler.add_job(
         scheduled_polling,
         "interval",
         seconds=settings.SNMP_POLL_INTERVAL_SECONDS,
         id="snmp_poll",
+        max_instances=1,
     )
     scheduler.add_job(
         scheduled_alerts,
         "interval",
         seconds=60,
         id="alert_eval",
+        max_instances=1,
     )
     scheduler.add_job(
         scheduled_cleanup,
         "interval",
         hours=6,
         id="metrics_cleanup",
+        max_instances=1,
     )
 
     # Config backup scheduler — load saved schedule from DB (defaults: 02:00 UTC)
