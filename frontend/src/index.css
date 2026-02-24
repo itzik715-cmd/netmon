@@ -2387,3 +2387,595 @@ a.stat-card {
   stroke-dasharray: 4,3;
   opacity: 0.6;
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   IP PROFILE — Redesigned Flow Analysis
+   ═══════════════════════════════════════════════════════════ */
+
+.ip-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Banner */
+.ip-profile__banner {
+  background: linear-gradient(135deg, #f8fafc, #f0f9ff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.ip-profile__banner-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ip-profile__banner-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  background: var(--primary-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ip-profile__banner-icon svg {
+  width: 32px;
+  height: 32px;
+  color: var(--primary-500);
+}
+
+.ip-profile__banner-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ip-profile__banner-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.ip-profile__ip-address {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--primary-500);
+  line-height: 1.2;
+}
+
+.ip-profile__summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.ip-profile__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Stat mini-cards */
+.ip-profile__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.ip-profile__stat-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-xs);
+  position: relative;
+  overflow: hidden;
+}
+.ip-profile__stat-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+}
+.ip-profile__stat-card--blue::after { background: var(--primary-500); }
+.ip-profile__stat-card--green::after { background: var(--success-500); }
+
+.ip-profile__stat-card--dimmed {
+  opacity: 0.4;
+}
+
+.ip-profile__stat-icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.ip-profile__stat-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.ip-profile__stat-icon--blue { color: var(--primary-500); }
+.ip-profile__stat-icon--green { color: var(--success-500); }
+
+.ip-profile__stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+  line-height: 1;
+}
+
+.ip-profile__asymmetric-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--warning-500);
+  background: var(--warning-50);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  margin-top: 4px;
+}
+
+
+/* ─── Traffic Direction Cards ────────────────────────────── */
+
+.traffic-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.traffic-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.traffic-card__header svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.traffic-card__header h3 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+  flex: 1;
+}
+
+.traffic-card__body {
+  padding: 16px 18px;
+}
+
+.traffic-card--empty {
+  background: var(--neutral-50);
+  border: 2px dashed var(--neutral-300);
+}
+
+.traffic-card__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  color: var(--text-light);
+}
+.traffic-card__empty-state svg {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 12px;
+  opacity: 0.35;
+}
+.traffic-card__empty-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--neutral-500);
+  margin-bottom: 4px;
+}
+.traffic-card__empty-desc {
+  font-size: var(--text-sm);
+  color: var(--text-light);
+  text-align: center;
+}
+
+.traffic-card__donut {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.traffic-card__peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.traffic-card__peer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  transition: background var(--transition-fast);
+}
+.traffic-card__peer-row:hover {
+  background: var(--neutral-50);
+}
+
+.traffic-card__peer-row--selected {
+  border-color: var(--primary-200);
+  background: var(--primary-50);
+}
+
+.traffic-card__peer-rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--neutral-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.traffic-card__peer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.traffic-card__peer-ip {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.traffic-card__peer-bar {
+  flex: 1;
+  background: var(--neutral-100);
+  border-radius: 3px;
+  height: 6px;
+  min-width: 30px;
+  overflow: hidden;
+}
+.traffic-card__peer-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--transition-base);
+}
+
+.traffic-card__peer-bytes {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.traffic-card__peer-pct {
+  font-size: 10px;
+  color: var(--text-light);
+  min-width: 38px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.traffic-card__peer-check {
+  color: var(--primary-500);
+  flex-shrink: 0;
+}
+
+
+/* ─── Traffic Balance ────────────────────────────────────── */
+
+.traffic-balance {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  padding: 20px 24px;
+}
+
+.traffic-balance__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 16px;
+}
+
+.traffic-balance__bar {
+  display: flex;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.traffic-balance__bar-sent {
+  background: var(--primary-500);
+  min-width: 2px;
+  transition: width var(--transition-base);
+}
+
+.traffic-balance__bar-received {
+  background: var(--success-500);
+  min-width: 2px;
+  transition: width var(--transition-base);
+}
+
+.traffic-balance__labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.traffic-balance__pct {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.traffic-balance__classification {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.traffic-balance__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+}
+.traffic-balance__badge--green { background: var(--success-50); color: var(--success-700); }
+.traffic-balance__badge--blue { background: var(--primary-50); color: var(--primary-700); }
+.traffic-balance__badge--gray { background: var(--neutral-100); color: var(--neutral-600); }
+.traffic-balance__badge--orange { background: var(--warning-50); color: var(--warning-700); }
+
+
+/* ─── Flow Table Improvements ────────────────────────────── */
+
+.flow-direction-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.flow-direction-icon--out { color: var(--primary-500); }
+.flow-direction-icon--in { color: var(--success-500); }
+
+.flow-ip-link {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary-500);
+  transition: color var(--transition-fast);
+}
+.flow-ip-link:hover {
+  text-decoration: underline;
+}
+
+.flow-bytes-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--primary-200);
+  margin-top: 3px;
+}
+
+.flow-filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--primary-50);
+  border-bottom: 1px solid var(--primary-200);
+  font-size: 12px;
+  color: var(--primary-700);
+}
+
+/* Zebra striping for flow table */
+.flow-table tbody tr:nth-child(even) td {
+  background: var(--neutral-50);
+}
+.flow-table tbody tr:nth-child(even):hover td {
+  background: var(--primary-50);
+}
+
+
+/* ─── Device Chips ───────────────────────────────────────── */
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+.device-chip:hover {
+  color: var(--text-main);
+}
+
+.device-chip--active {
+  background: var(--primary-50);
+  color: var(--primary-500);
+  border-color: var(--primary-500);
+  font-weight: 600;
+}
+
+.device-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neutral-300);
+  flex-shrink: 0;
+}
+.device-chip--active .device-chip__dot {
+  background: var(--success-500);
+  box-shadow: 0 0 0 2px var(--success-50);
+}
+
+.device-chip__name {
+  font-weight: 600;
+}
+
+.device-chip__ip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+
+/* ─── Recent IPs Dropdown ────────────────────────────────── */
+
+.recent-ips {
+  position: relative;
+}
+
+.recent-ips__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.recent-ips__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+.recent-ips__item:hover {
+  background: var(--primary-50);
+}
+.recent-ips__item svg {
+  width: 12px;
+  height: 12px;
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.recent-ips__header {
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+  border-bottom: 1px solid var(--border);
+}
+
+
+/* ─── Protocol / Port Analysis ───────────────────────────── */
+
+.protocol-single {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.protocol-single__name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.protocol-single__bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--primary-500);
+}
+.protocol-single__stat {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.protocol-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+}
+.protocol-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.protocol-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

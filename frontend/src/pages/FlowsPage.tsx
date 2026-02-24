@@ -1,14 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { flowsApi, devicesApi } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend, Label,
+  ResponsiveContainer, PieChart, Pie, Cell, Label,
 } from 'recharts'
-import { Activity, Search, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import {
+  Search, Globe, Copy, ExternalLink, X, ArrowUpRight, ArrowDownLeft,
+  Activity, HardDrive, BarChart3, Check, AlertTriangle, Clock,
+  Filter, Loader2,
+} from 'lucide-react'
 
+const COLORS_OUT = ['#0284c7', '#38bdf8', '#7dd3fc', '#bae6fd', '#0369a1', '#075985', '#0c4a6e', '#0ea5e9']
+const COLORS_IN  = ['#15803d', '#22c55e', '#4ade80', '#86efac', '#166534', '#14532d', '#16a34a', '#a3e635']
 const COLORS     = ['#1a9dc8', '#a78bfa', '#06b6d4', '#f97316', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']
-const COLORS_IN  = ['#27ae60', '#2ecc71', '#1abc9c', '#16a085', '#0d9488', '#059669', '#10b981', '#34d399']
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`
@@ -27,113 +32,196 @@ const TIME_RANGES = [
 
 const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
 
-// -- IP search bar ---------------------------------------------------------------
+const PORT_NAMES: Record<number, string> = {
+  20: 'FTP-Data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
+  53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP', 443: 'HTTPS',
+  993: 'IMAPS', 995: 'POP3S', 3306: 'MySQL', 3389: 'RDP',
+  5432: 'PostgreSQL', 8080: 'HTTP-Alt', 8443: 'HTTPS-Alt',
+}
+function portName(port: number): string {
+  return PORT_NAMES[port] || `port/${port}`
+}
+
+// -- Recent IPs ----------------------------------------------------------------
+const RECENT_IPS_KEY = 'netmon-recent-ips'
+function getRecentIps(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_IPS_KEY) || '[]')
+  } catch { return [] }
+}
+function addRecentIp(ip: string) {
+  const list = getRecentIps().filter((i) => i !== ip)
+  list.unshift(ip)
+  localStorage.setItem(RECENT_IPS_KEY, JSON.stringify(list.slice(0, 10)))
+}
+
+// -- IP search bar --------------------------------------------------------------
 function IpSearchBar({
   value, onChange, onClear,
 }: { value: string; onChange: (v: string) => void; onClear: () => void }) {
   const [draft, setDraft] = useState(value)
+  const [showRecent, setShowRecent] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const recentIps = getRecentIps()
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setShowRecent(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
-    onChange(draft.trim())
+    const ip = draft.trim()
+    if (ip) { addRecentIp(ip); onChange(ip) }
+    setShowRecent(false)
+  }
+
+  function pickRecent(ip: string) {
+    setDraft(ip)
+    addRecentIp(ip)
+    onChange(ip)
+    setShowRecent(false)
   }
 
   return (
-    <form onSubmit={submit} className="flex-row-gap">
-      <div className="search-bar">
-        <Search size={13} />
-        <input
-          type="text"
-          placeholder="Search by IP address..."
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className="mono"
-        />
-      </div>
-      <button type="submit" className="btn btn-primary btn-sm">Search</button>
-      {value && (
-        <button
-          type="button"
-          className="btn btn-outline btn-sm"
-          onClick={() => { setDraft(''); onClear(); }}
-        >
-          Clear
-        </button>
+    <div ref={wrapRef} className="recent-ips">
+      <form onSubmit={submit} className="flex-row-gap">
+        <div className="search-bar">
+          <Search size={13} />
+          <input
+            type="text"
+            placeholder="Search by IP address..."
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => recentIps.length > 0 && setShowRecent(true)}
+            className="mono"
+          />
+        </div>
+        <button type="submit" className="btn btn-primary btn-sm">Search</button>
+        {value && (
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => { setDraft(''); onClear(); }}
+          >
+            Clear
+          </button>
+        )}
+      </form>
+      {showRecent && recentIps.length > 0 && (
+        <div className="recent-ips__dropdown">
+          <div className="recent-ips__header">Recent Searches</div>
+          {recentIps.map((ip) => (
+            <button key={ip} className="recent-ips__item" onClick={() => pickRecent(ip)}>
+              <Clock size={12} />
+              {ip}
+            </button>
+          ))}
+        </div>
       )}
-    </form>
+    </div>
   )
 }
 
-// -- Donut + ranked list column ---------------------------------------------------
-function TrafficColumn({
-  title, accentColor, colors, totalBytes, peers, selectedPeer, onSelectPeer,
+// -- Traffic Direction Card ----------------------------------------------------
+function TrafficDirectionCard({
+  title, icon, emptyLabel, emptyDesc,
+  colors, totalBytes, peers, selectedPeer, onSelectPeer, onNavigateIp,
 }: {
   title: string
-  accentColor: string
+  icon: React.ReactNode
+  emptyLabel: string
+  emptyDesc: string
   colors: string[]
   totalBytes: number
   peers: { ip: string; bytes: number }[]
   selectedPeer: string
   onSelectPeer: (ip: string) => void
+  onNavigateIp: (ip: string) => void
 }) {
+  if (totalBytes === 0 || peers.length === 0) {
+    return (
+      <div className="traffic-card traffic-card--empty">
+        <div className="traffic-card__empty-state">
+          {icon}
+          <div className="traffic-card__empty-title">{emptyLabel}</div>
+          <div className="traffic-card__empty-desc">{emptyDesc}</div>
+        </div>
+      </div>
+    )
+  }
+
   const maxBytes = peers[0]?.bytes || 1
 
   return (
-    <div className="flex-col-gap">
-      <div className="stat-label" style={{ color: accentColor }}>
-        {title}
+    <div className="traffic-card">
+      <div className="traffic-card__header">
+        {icon}
+        <h3>{title}</h3>
       </div>
-      <div className="grid-traffic-column">
-        {/* Donut chart */}
-        <ResponsiveContainer width="100%" height={130}>
-          <PieChart>
-            <Pie
-              data={peers.length ? peers : [{ ip: 'none', bytes: 1 }]}
-              dataKey="bytes"
-              nameKey="ip"
-              cx="50%" cy="50%"
-              innerRadius={38}
-              outerRadius={58}
-              strokeWidth={1}
-            >
-              {(peers.length ? peers : [{ ip: 'none', bytes: 1 }]).map((_: any, i: number) => (
-                <Cell
-                  key={i}
-                  fill={peers.length ? colors[i % colors.length] : 'var(--border)'}
+      <div className="traffic-card__body">
+        {/* Donut */}
+        <div className="traffic-card__donut">
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie
+                data={peers.slice(0, 8)}
+                dataKey="bytes"
+                nameKey="ip"
+                cx="50%" cy="50%"
+                innerRadius={55}
+                outerRadius={80}
+                strokeWidth={1}
+              >
+                {peers.slice(0, 8).map((_, i) => (
+                  <Cell key={i} fill={colors[i % colors.length]} />
+                ))}
+                <Label
+                  value={formatBytes(totalBytes)}
+                  position="center"
+                  style={{ fontSize: 13, fontWeight: 700, fill: 'var(--text-main)' }}
                 />
-              ))}
-              <Label
-                value={formatBytes(totalBytes)}
-                position="center"
-                style={{ fontSize: 11, fontWeight: 700, fill: 'var(--text-main)' }}
-              />
-            </Pie>
-            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-          </PieChart>
-        </ResponsiveContainer>
+              </Pie>
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
 
         {/* Ranked list */}
-        <div className="peer-list">
-          {peers.length === 0 && (
-            <div className="text-muted text-xs">No data</div>
-          )}
+        <div className="traffic-card__peer-list">
           {peers.slice(0, 8).map((peer, i) => {
-            const pct = Math.round((peer.bytes / maxBytes) * 100)
+            const pct = totalBytes > 0 ? ((peer.bytes / totalBytes) * 100).toFixed(1) : '0.0'
+            const barPct = Math.round((peer.bytes / maxBytes) * 100)
             const isSelected = selectedPeer === peer.ip
             return (
               <div
                 key={peer.ip}
+                className={`traffic-card__peer-row${isSelected ? ' traffic-card__peer-row--selected' : ''}`}
                 onClick={() => onSelectPeer(isSelected ? '' : peer.ip)}
-                className={`peer-row${isSelected ? ' peer-row--selected' : ''}`}
-                style={isSelected ? { background: `${accentColor}18`, borderColor: `${accentColor}40` } : undefined}
               >
-                <span className="peer-rank">{i + 1}</span>
-                <span className="peer-swatch" style={{ background: colors[i % colors.length] }} />
-                <span className="mono peer-ip" style={{ color: accentColor }}>{peer.ip}</span>
-                <div className="peer-bar-track">
-                  <div className="peer-bar-fill" style={{ width: `${pct}%`, background: colors[i % colors.length] }} />
+                <span className="traffic-card__peer-rank">{i + 1}</span>
+                <span className="traffic-card__peer-dot" style={{ background: colors[i % colors.length] }} />
+                <button
+                  className="traffic-card__peer-ip flow-ip-link"
+                  title="Click to investigate this IP"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNavigateIp(peer.ip)
+                  }}
+                >
+                  {peer.ip}
+                </button>
+                <div className="traffic-card__peer-bar">
+                  <div className="traffic-card__peer-bar-fill" style={{ width: `${barPct}%`, background: colors[i % colors.length] }} />
                 </div>
-                <span className="peer-bytes">{formatBytes(peer.bytes)}</span>
+                <span className="traffic-card__peer-bytes">{formatBytes(peer.bytes)}</span>
+                <span className="traffic-card__peer-pct">{pct}%</span>
+                {isSelected && <Check size={14} className="traffic-card__peer-check" />}
               </div>
             )
           })}
@@ -143,14 +231,56 @@ function TrafficColumn({
   )
 }
 
-// -- IP Profile card --------------------------------------------------------------
+// -- Traffic Balance -----------------------------------------------------------
+function TrafficBalance({ sent, received }: { sent: number; received: number }) {
+  const total = sent + received
+  const sentPct = total > 0 ? (sent / total) * 100 : 50
+  const rcvPct = total > 0 ? (received / total) * 100 : 50
+
+  let badge: { label: string; cls: string }
+  if (sent === 0 && received > 0)      badge = { label: 'Download Target', cls: 'traffic-balance__badge--green' }
+  else if (received === 0 && sent > 0) badge = { label: 'Upload Source', cls: 'traffic-balance__badge--blue' }
+  else if (total === 0)                badge = { label: 'No Traffic', cls: 'traffic-balance__badge--gray' }
+  else {
+    const ratio = Math.max(sent, received) / Math.max(Math.min(sent, received), 1)
+    if (ratio < 3) badge = { label: 'Balanced', cls: 'traffic-balance__badge--gray' }
+    else badge = { label: `Asymmetric (${sent > received ? 'send' : 'receive'} dominant)`, cls: 'traffic-balance__badge--orange' }
+  }
+
+  return (
+    <div className="traffic-balance">
+      <div className="traffic-balance__title">Traffic Balance</div>
+      <div className="traffic-balance__bar">
+        <div className="traffic-balance__bar-sent" style={{ width: `${total > 0 ? Math.max(sentPct, 0.5) : 50}%` }} />
+        <div className="traffic-balance__bar-received" style={{ width: `${total > 0 ? Math.max(rcvPct, 0.5) : 50}%` }} />
+      </div>
+      <div className="traffic-balance__labels">
+        <span>{formatBytes(sent)} sent</span>
+        <span>{formatBytes(received)} received</span>
+      </div>
+      <div className="traffic-balance__pct">
+        {total > 0 ? `${sentPct.toFixed(1)}% sent \u2014 ${rcvPct.toFixed(1)}% received` : 'No traffic data'}
+      </div>
+      <div className="traffic-balance__classification">
+        Ratio: {total > 0 ? `${sent > 0 ? (sent / Math.max(received, 1)).toFixed(1) : '0'} : ${received > 0 ? (received / Math.max(sent, 1)).toFixed(1) : '0'}` : '0 : 0'}
+        <span className={`traffic-balance__badge ${badge.cls}`}>{badge.label}</span>
+      </div>
+    </div>
+  )
+}
+
+// -- IP Profile card -----------------------------------------------------------
 function IpProfile({
-  ip, hours, selectedPeer, onSelectPeer,
+  ip, hours, selectedPeer, onSelectPeer, onClear, onNavigateIp,
+  displayedConversations,
 }: {
   ip: string
   hours: number
   selectedPeer: string
   onSelectPeer: (peer: string) => void
+  onClear: () => void
+  onNavigateIp: (ip: string) => void
+  displayedConversations: any[]
 }) {
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ip-profile', ip, hours],
@@ -158,99 +288,236 @@ function IpProfile({
     enabled: !!ip,
   })
 
-  if (isLoading) return <div className="card card-body">Loading profile for {ip}...</div>
-  if (!profile)  return null
+  // Top Ports from conversations
+  const topPorts = useMemo(() => {
+    if (!displayedConversations || displayedConversations.length === 0) return []
+    const portMap: Record<number, number> = {}
+    for (const c of displayedConversations) {
+      if (c.dst_port != null) {
+        portMap[c.dst_port] = (portMap[c.dst_port] || 0) + (c.bytes || 0)
+      }
+    }
+    return Object.entries(portMap)
+      .map(([port, bytes]) => ({ port: Number(port), bytes, name: portName(Number(port)) }))
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 8)
+  }, [displayedConversations])
+
+  if (isLoading) {
+    return (
+      <div className="card card-body flex-row-gap">
+        <Loader2 size={16} className="animate-spin" />
+        Loading profile for {ip}...
+      </div>
+    )
+  }
+  if (!profile) return null
 
   const topOut: { ip: string; bytes: number }[] = profile.top_out || []
   const topIn:  { ip: string; bytes: number }[] = profile.top_in  || []
+  const totalFlows = profile.flows_as_src + profile.flows_as_dst
+  const totalBytes = profile.bytes_sent + profile.bytes_received
+  const isAsymmetric = profile.bytes_received > 0 && profile.bytes_sent > 0
+    ? Math.max(profile.bytes_received, profile.bytes_sent) / Math.min(profile.bytes_received, profile.bytes_sent) > 10
+    : (profile.bytes_received > 0 && profile.bytes_sent === 0) || (profile.bytes_sent > 0 && profile.bytes_received === 0)
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <Activity size={15} />
-        <h3>
-          IP Profile —{' '}
-          <span className="mono link-primary">{ip}</span>
-        </h3>
-      </div>
-      <div className="card-body flex-col-gap">
+    <div className="ip-profile">
+      {/* SECTION 1: Banner */}
+      <div className="ip-profile__banner">
+        <div className="ip-profile__banner-top">
+          <div className="ip-profile__banner-icon">
+            <Globe />
+          </div>
+          <div className="ip-profile__banner-info">
+            <div className="ip-profile__banner-label">IP Profile</div>
+            <div className="ip-profile__ip-address">{ip}</div>
+            <div className="ip-profile__summary">
+              {totalFlows.toLocaleString()} total flows &middot; {formatBytes(totalBytes)} total traffic
+            </div>
+          </div>
+          <div className="ip-profile__actions">
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => navigator.clipboard.writeText(ip)}
+              title="Copy IP to clipboard"
+            >
+              <Copy size={12} /> Copy IP
+            </button>
+            <a
+              href={`https://whois.domaintools.com/${ip}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline btn-sm"
+            >
+              <ExternalLink size={12} /> Whois
+            </a>
+            <button className="btn btn-outline btn-sm" onClick={onClear}>
+              <X size={12} /> Clear
+            </button>
+          </div>
+        </div>
 
-        {/* Stat row */}
-        <div className="stats-grid">
-          {[
-            { label: 'Sent',           value: formatBytes(profile.bytes_sent),     icon: <ArrowUpRight size={12} />, color: 'var(--accent-blue, var(--primary))'  },
-            { label: 'Received',       value: formatBytes(profile.bytes_received), icon: <ArrowDownRight size={12} />, color: 'var(--accent-green)' },
-            { label: 'Flows as Source', value: profile.flows_as_src.toLocaleString() + ' flows', icon: <ArrowUpRight size={12} />, color: 'var(--accent-blue, var(--primary))'  },
-            { label: 'Flows as Dest',  value: profile.flows_as_dst.toLocaleString() + ' flows', icon: <ArrowDownRight size={12} />, color: 'var(--accent-green)' },
-          ].map(({ label, value, icon, color }) => (
-            <div key={label} className="info-card">
-              <div className="stat-label">
-                <span style={{ color }}>{icon}</span> {label}
+        {/* Stat mini-cards */}
+        <div className="ip-profile__stats">
+          {/* Sent */}
+          <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.bytes_sent === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+              <ArrowUpRight size={14} /> SENT
+            </div>
+            <div className="ip-profile__stat-value">{formatBytes(profile.bytes_sent)}</div>
+            {isAsymmetric && profile.bytes_sent === 0 && (
+              <div className="ip-profile__asymmetric-badge">
+                <AlertTriangle size={10} /> Asymmetric
               </div>
-              <div className="stat-value-sm mono">{value}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* TOP OUT | TOP IN */}
-        <div className="grid-2">
-          <TrafficColumn
-            title="Top Out (destinations)"
-            accentColor="var(--accent-blue, var(--primary))"
-            colors={COLORS}
-            totalBytes={profile.bytes_sent}
-            peers={topOut}
-            selectedPeer={selectedPeer}
-            onSelectPeer={onSelectPeer}
-          />
-          <TrafficColumn
-            title="Top In (sources)"
-            accentColor="var(--accent-green)"
-            colors={COLORS_IN}
-            totalBytes={profile.bytes_received}
-            peers={topIn}
-            selectedPeer={selectedPeer}
-            onSelectPeer={onSelectPeer}
-          />
-        </div>
-
-        {/* Protocol distribution */}
-        {profile.protocol_distribution.length > 0 && (
-          <div>
-            <div className="stat-label">
-              Protocols
-            </div>
-            <ResponsiveContainer width="100%" height={130}>
-              <PieChart>
-                <Pie
-                  data={profile.protocol_distribution}
-                  dataKey="bytes"
-                  nameKey="protocol"
-                  cx="50%" cy="50%"
-                  outerRadius={50}
-                >
-                  {profile.protocol_distribution.map((_: any, i: number) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                <Legend formatter={(v) => <span className="text-muted text-xs">{v}</span>} />
-              </PieChart>
-            </ResponsiveContainer>
+            )}
           </div>
-        )}
-
-        {profile.flows_as_src + profile.flows_as_dst === 0 && (
-          <div className="empty-state">
-            <p>No flows found for {ip} in the selected time window</p>
+          {/* Received */}
+          <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.bytes_received === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
+              <ArrowDownLeft size={14} /> RECEIVED
+            </div>
+            <div className="ip-profile__stat-value">{formatBytes(profile.bytes_received)}</div>
           </div>
-        )}
+          {/* As Source */}
+          <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.flows_as_src === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+              <ArrowUpRight size={14} /> AS SOURCE
+            </div>
+            <div className="ip-profile__stat-value">{profile.flows_as_src.toLocaleString()}</div>
+          </div>
+          {/* As Dest */}
+          <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.flows_as_dst === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
+              <ArrowDownLeft size={14} /> AS DEST
+            </div>
+            <div className="ip-profile__stat-value">{profile.flows_as_dst.toLocaleString()}</div>
+          </div>
+        </div>
       </div>
+
+      {/* SECTION 2: Traffic Direction Cards */}
+      <div className="grid-2">
+        <TrafficDirectionCard
+          title="Outbound Traffic (Destinations)"
+          icon={<ArrowUpRight size={15} className="flow-direction-icon--out" />}
+          emptyLabel="No outbound traffic"
+          emptyDesc="This IP has not sent any data in the selected time window"
+          colors={COLORS_OUT}
+          totalBytes={profile.bytes_sent}
+          peers={topOut}
+          selectedPeer={selectedPeer}
+          onSelectPeer={onSelectPeer}
+          onNavigateIp={onNavigateIp}
+        />
+        <TrafficDirectionCard
+          title="Inbound Traffic (Sources)"
+          icon={<ArrowDownLeft size={15} className="flow-direction-icon--in" />}
+          emptyLabel="No inbound traffic"
+          emptyDesc="This IP has not received any data in the selected time window"
+          colors={COLORS_IN}
+          totalBytes={profile.bytes_received}
+          peers={topIn}
+          selectedPeer={selectedPeer}
+          onSelectPeer={onSelectPeer}
+          onNavigateIp={onNavigateIp}
+        />
+      </div>
+
+      {/* SECTION 3: Protocol & Port Analysis */}
+      <div className="grid-2">
+        {/* Protocol Distribution */}
+        <div className="card">
+          <div className="card-header">
+            <BarChart3 size={15} />
+            <h3>Protocol Distribution</h3>
+          </div>
+          <div className="card-body">
+            {profile.protocol_distribution.length === 0 ? (
+              <div className="empty-state"><p>No protocol data</p></div>
+            ) : profile.protocol_distribution.length === 1 ? (
+              <div className="protocol-single">
+                <span className="protocol-single__name">{profile.protocol_distribution[0].protocol}</span>
+                <div className="protocol-single__bar" />
+                <span className="protocol-single__stat">
+                  {profile.protocol_distribution[0].count.toLocaleString()} flows &middot; {formatBytes(profile.protocol_distribution[0].bytes)}
+                </span>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={40}>
+                  <BarChart data={[profile.protocol_distribution.reduce((acc: any, p: any) => { acc[p.protocol] = p.bytes; return acc }, {})]} layout="horizontal" barSize={28}>
+                    {profile.protocol_distribution.map((p: any, i: number) => (
+                      <Bar key={p.protocol} dataKey={p.protocol} stackId="a" fill={COLORS[i % COLORS.length]} radius={i === 0 ? [4, 0, 0, 4] : i === profile.protocol_distribution.length - 1 ? [0, 4, 4, 0] : 0} />
+                    ))}
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="protocol-legend">
+                  {profile.protocol_distribution.map((p: any, i: number) => (
+                    <div key={p.protocol} className="protocol-legend__item">
+                      <span className="protocol-legend__dot" style={{ background: COLORS[i % COLORS.length] }} />
+                      <span>{p.protocol}</span>
+                      <span className="mono">{p.count.toLocaleString()}</span>
+                      <span className="mono">{formatBytes(p.bytes)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Top Ports */}
+        <div className="card">
+          <div className="card-header">
+            <BarChart3 size={15} />
+            <h3>Top Ports</h3>
+          </div>
+          <div className="card-body">
+            {topPorts.length === 0 ? (
+              <div className="empty-state"><p>No port data available</p></div>
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(topPorts.length * 28 + 20, 100)}>
+                <BarChart data={topPorts} layout="vertical" margin={{ left: 80 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                    tickLine={false}
+                    width={80}
+                  />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
+                  <Bar dataKey="bytes" fill="#a78bfa" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 4: Traffic Balance */}
+      <TrafficBalance sent={profile.bytes_sent} received={profile.bytes_received} />
+
+      {/* No flows state */}
+      {totalFlows === 0 && (
+        <div className="card">
+          <div className="card-body">
+            <div className="empty-state">
+              <div className="empty-state__icon"><Activity size={48} /></div>
+              <p className="empty-state__title">No flows found</p>
+              <p className="empty-state__description">No flows found for {ip} in the selected time window</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-// -- main page --------------------------------------------------------------------
+// -- main page -----------------------------------------------------------------
 export default function FlowsPage() {
   const [hours, setHours]           = useState(1)
   const [searchIp, setSearchIp]     = useState('')
@@ -259,6 +526,7 @@ export default function FlowsPage() {
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number> | null>(null)
 
   function handleSearchChange(ip: string) {
+    addRecentIp(ip)
     setSearchIp(ip)
     setSelectedPeer('')
   }
@@ -324,6 +592,10 @@ export default function FlowsPage() {
       )
     : (conversations || [])
 
+  const maxBytesInView = useMemo(() => {
+    return Math.max(...displayedConversations.map((f: any) => f.bytes || 0), 1)
+  }, [displayedConversations])
+
   return (
     <div className="flex-col-gap">
       {/* Header */}
@@ -348,12 +620,12 @@ export default function FlowsPage() {
         </div>
       </div>
 
-      {/* Device filter -- shown when at least one device is sending flows */}
+      {/* Device filter */}
       {flowDevices.length > 0 && (
         <div className="card device-filter-bar">
           <div className="flex-row-gap device-filter-inner">
             <span className="stat-label device-filter-label">
-              Devices
+              <Filter size={11} /> Devices
             </span>
             {flowDevices.map((d) => {
               const isSelected = selectedDeviceIds === null || selectedDeviceIds.has(d.id)
@@ -361,11 +633,11 @@ export default function FlowsPage() {
                 <button
                   key={d.id}
                   onClick={() => toggleDevice(d.id)}
-                  className={`filter-chip${isSelected ? ' active' : ''}`}
+                  className={`device-chip${isSelected ? ' device-chip--active' : ''}`}
                 >
-                  <span className={`status-dot ${isSelected ? 'dot-green' : ''}`} />
-                  {d.hostname}
-                  <span className="mono text-xs text-muted">{d.ip_address}</span>
+                  <span className="device-chip__dot" />
+                  <span className="device-chip__name">{d.hostname}</span>
+                  <span className="device-chip__ip">{d.ip_address}</span>
                 </button>
               )
             })}
@@ -388,6 +660,9 @@ export default function FlowsPage() {
           hours={hours}
           selectedPeer={selectedPeer}
           onSelectPeer={setSelectedPeer}
+          onClear={() => { setSearchIp(''); setSelectedPeer('') }}
+          onNavigateIp={handleSearchChange}
+          displayedConversations={displayedConversations}
         />
       )}
 
@@ -405,7 +680,7 @@ export default function FlowsPage() {
           </div>
           <div className="stat-card">
             <div className="stat-icon green">
-              <Activity size={20} />
+              <HardDrive size={20} />
             </div>
             <div className="stat-body">
               <div className="stat-label">Total Traffic</div>
@@ -436,7 +711,7 @@ export default function FlowsPage() {
             <div className="grid-2">
               <div className="card">
                 <div className="card-header">
-                  <Activity size={15} />
+                  <BarChart3 size={15} />
                   <h3>Top Talkers (by bytes)</h3>
                 </div>
                 <div className="card-body">
@@ -468,7 +743,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <Activity size={15} />
+                  <BarChart3 size={15} />
                   <h3>Top Destinations</h3>
                 </div>
                 <div className="card-body">
@@ -500,7 +775,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <Activity size={15} />
+                  <BarChart3 size={15} />
                   <h3>Protocol Distribution</h3>
                 </div>
                 <div className="card-body">
@@ -518,7 +793,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <Activity size={15} />
+                  <BarChart3 size={15} />
                   <h3>Applications</h3>
                 </div>
                 <div className="card-body">
@@ -528,7 +803,6 @@ export default function FlowsPage() {
                         {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                       </Pie>
                       <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                      <Legend formatter={(v) => <span className="text-muted text-sm">{v}</span>} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -536,7 +810,7 @@ export default function FlowsPage() {
             </div>
           )}
 
-          {/* Conversations table */}
+          {/* SECTION 5: Conversations table */}
           <div className="card">
             <div className="card-header">
               <Activity size={15} />
@@ -554,6 +828,9 @@ export default function FlowsPage() {
                   'Top Conversations'
                 )}
               </h3>
+              <span className="card-header__sub">
+                Showing {displayedConversations.length}{conversations ? ` of ${conversations.length}` : ''} flows
+              </span>
               {selectedPeer && (
                 <button
                   className="btn btn-outline btn-sm ml-auto"
@@ -563,8 +840,20 @@ export default function FlowsPage() {
                 </button>
               )}
             </div>
+
+            {/* Filter banner */}
+            {selectedPeer && (
+              <div className="flow-filter-banner">
+                <Filter size={12} />
+                Filtered: showing only flows between <strong className="mono">{searchIp}</strong> and <strong className="mono">{selectedPeer}</strong>
+                <button className="btn btn-outline btn-sm ml-auto" onClick={() => setSelectedPeer('')}>
+                  <X size={10} /> Clear filter
+                </button>
+              </div>
+            )}
+
             <div className="table-wrap">
-              <table>
+              <table className="flow-table">
                 <thead>
                   <tr>
                     {searchIp && <th className="flow-dir-col"></th>}
@@ -581,32 +870,33 @@ export default function FlowsPage() {
                 <tbody>
                   {displayedConversations.map((flow: any) => {
                     const isOutgoing = flow.src_ip === searchIp
+                    const bytesPct = Math.round(((flow.bytes || 0) / maxBytesInView) * 100)
                     return (
                       <tr key={flow.id}>
                         {searchIp && (
                           <td title={isOutgoing ? 'Outgoing' : 'Incoming'} className="text-center">
                             {isOutgoing
-                              ? <ArrowUpRight size={14} className="flow-dir-out" />
-                              : <ArrowDownRight size={14} className="flow-dir-in" />
+                              ? <ArrowUpRight size={14} className="flow-direction-icon flow-direction-icon--out" />
+                              : <ArrowDownLeft size={14} className="flow-direction-icon flow-direction-icon--in" />
                             }
                           </td>
                         )}
-                        <td className="mono text-sm">
+                        <td>
                           {flow.src_ip === searchIp
-                            ? <span className="font-semibold link-primary">{flow.src_ip}</span>
+                            ? <span className="mono text-sm font-semibold link-primary">{flow.src_ip}</span>
                             : (
-                              <button className="btn--ghost mono text-sm link-primary"
+                              <button className="flow-ip-link" title="Click to investigate this IP"
                                 onClick={() => handleSearchChange(flow.src_ip)}>
                                 {flow.src_ip}
                               </button>
                             )
                           }
                         </td>
-                        <td className="mono text-sm">
+                        <td>
                           {flow.dst_ip === searchIp
-                            ? <span className="font-semibold text-success">{flow.dst_ip}</span>
+                            ? <span className="mono text-sm font-semibold text-success">{flow.dst_ip}</span>
                             : (
-                              <button className="btn--ghost mono text-sm link-primary"
+                              <button className="flow-ip-link" title="Click to investigate this IP"
                                 onClick={() => handleSearchChange(flow.dst_ip)}>
                                 {flow.dst_ip}
                               </button>
@@ -616,7 +906,10 @@ export default function FlowsPage() {
                         <td><span className="tag-blue">{flow.protocol}</span></td>
                         <td className="mono text-sm text-muted">{flow.dst_port}</td>
                         <td className="text-sm text-muted">{flow.application || '\u2014'}</td>
-                        <td className="mono text-sm">{formatBytes(flow.bytes)}</td>
+                        <td className="mono text-sm">
+                          {formatBytes(flow.bytes)}
+                          <div className="flow-bytes-bar" style={{ width: `${bytesPct}%` }} />
+                        </td>
                         <td className="text-muted">{flow.packets?.toLocaleString()}</td>
                         <td className="text-xs text-light">
                           {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '\u2014'}
@@ -638,6 +931,13 @@ export default function FlowsPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Load more hint */}
+            {conversations && conversations.length === 100 && (
+              <div className="table-footer">
+                <span className="table-info">Showing first 100 flows. Narrow your search for more specific results.</span>
+              </div>
+            )}
           </div>
         </>
       )}
