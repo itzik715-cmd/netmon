@@ -169,18 +169,20 @@ async def update_ports(
                        "sFlow UDP port", user_id=current_user.id)
     await db.commit()
 
-    # Regenerate nginx.conf and restart nginx
-    nginx_restarted = False
+    # Regenerate nginx.conf and restart nginx after a delay so response gets sent
+    import asyncio
     try:
         _regenerate_nginx_conf(config.http_port, config.https_port)
-        nginx_restarted = _docker_restart(SERVICE_TO_CONTAINER["nginx"])
+
+        async def _delayed_restart():
+            await asyncio.sleep(1)
+            _docker_restart(SERVICE_TO_CONTAINER["nginx"])
+
+        asyncio.create_task(_delayed_restart())
     except Exception as e:
         logger.error(f"Failed to regenerate nginx.conf: {e}")
 
-    return {
-        "message": "Port configuration saved" + (" and Nginx restarted" if nginx_restarted else ""),
-        "nginx_restarted": nginx_restarted,
-    }
+    return {"message": "Port configuration saved. Nginx is restarting..."}
 
 
 def _regenerate_nginx_conf(http_port: int, https_port: int):
@@ -419,6 +421,8 @@ async def get_services(db: AsyncSession = Depends(get_db)):
 
 @router.post("/services/{service_id}/restart", dependencies=[Depends(require_admin())])
 async def restart_service(service_id: str):
+    import asyncio
+
     container_name = SERVICE_TO_CONTAINER.get(service_id)
     if not container_name:
         raise HTTPException(status_code=400, detail=f"Unknown service: {service_id}")
@@ -426,12 +430,16 @@ async def restart_service(service_id: str):
     if not Path(DOCKER_SOCKET).exists():
         raise HTTPException(status_code=500, detail="Docker socket not available")
 
-    success = _docker_restart(container_name)
-    if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to restart '{service_id}'. Check server logs.")
+    # Restart after a short delay so the HTTP response can be sent first.
+    # This is critical for nginx/backend since they proxy this very request.
+    async def _delayed_restart():
+        await asyncio.sleep(1)
+        _docker_restart(container_name)
+
+    asyncio.create_task(_delayed_restart())
 
     return {
-        "message": f"Service '{service_id}' restarted successfully",
+        "message": f"Service '{service_id}' restart initiated",
         "warning": "Backend restart will disconnect your session" if service_id == "backend" else None,
     }
 

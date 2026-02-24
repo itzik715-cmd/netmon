@@ -369,11 +369,7 @@ function PortsPanel() {
 
   const saveMutation = useMutation({
     mutationFn: () => serverMgmtApi.updatePorts(ports),
-    onSuccess: (r) => {
-      toast.success(r.data.message)
-      if (r.data.nginx_restarted) toast.success('Nginx restarted with new ports')
-      else toast('Nginx may need a manual restart', { icon: '\u26A0\uFE0F' })
-    },
+    onSuccess: (r) => toast.success(r.data.message),
   })
 
   const portField = (label: string, key: keyof typeof ports) => (
@@ -563,7 +559,15 @@ function ServicesPanel() {
     onSuccess: (r) => {
       toast.success(r.data.message)
       if (r.data.warning) toast(r.data.warning, { icon: '\u26A0\uFE0F' })
-      queryClient.invalidateQueries({ queryKey: ['server-services'] })
+      // Delay refetch to let the service restart
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['server-services'] }), 5000)
+    },
+    onError: (_err, id) => {
+      // Nginx/backend restart kills the proxy connection, so treat network errors as success
+      if (id === 'nginx' || id === 'backend') {
+        toast.success(`${id === 'nginx' ? 'Nginx' : 'Backend'} restart initiated`)
+        setTimeout(() => queryClient.invalidateQueries({ queryKey: ['server-services'] }), 5000)
+      }
     },
   })
 
