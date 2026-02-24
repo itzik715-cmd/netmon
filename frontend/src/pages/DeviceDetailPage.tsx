@@ -245,7 +245,7 @@ export default function DeviceDetailPage() {
   if (deviceLoading) return <div className="empty-state"><p>Loading device...</p></div>
   if (!device) return <div className="empty-state"><p>Device not found</p></div>
 
-  // Apply all filters
+  // Apply all filters then sort by utilization (highest first)
   const filteredIfs = (interfaces || []).filter((i) => {
     if (search) {
       const q = search.toLowerCase()
@@ -263,6 +263,12 @@ export default function DeviceDetailPage() {
     if (filterSpeed === 'with' && !i.speed) return false
     if (filterSpeed === 'without' && i.speed) return false
     return true
+  }).sort((a, b) => {
+    const uA = utilization?.[a.id]
+    const uB = utilization?.[b.id]
+    const pctA = uA ? Math.max(uA.utilization_in, uA.utilization_out) : -1
+    const pctB = uB ? Math.max(uB.utilization_in, uB.utilization_out) : -1
+    return pctB - pctA
   })
 
   const activeFilterCount = [filterAdmin, filterOper, filterAlias, filterSpeed].filter(Boolean).length
