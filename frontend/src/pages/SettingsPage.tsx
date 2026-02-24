@@ -218,7 +218,7 @@ function DuoStatusPanel() {
       const data = r.data
       setDuoConfig((prev) => ({
         ...prev,
-        enabled: data.duo_enabled === 'true',
+        enabled: String(data.duo_enabled).toLowerCase() === 'true',
         integration_key: data.duo_integration_key || '',
         secret_key: data.duo_secret_key || '',
         api_hostname: data.duo_api_hostname || '',
