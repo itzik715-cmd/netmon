@@ -198,6 +198,8 @@ export const settingsApi = {
   update: (key: string, value: string) => api.put(`/settings/${key}`, { value }),
   getLdap: () => api.get('/settings/ldap/config'),
   saveLdap: (data: object) => api.put('/settings/ldap/config', data),
+  getDuo: () => api.get('/settings/duo/config'),
+  saveDuo: (data: object) => api.put('/settings/duo/config', data),
 }
 
 export const systemEventsApi = {

@@ -3,6 +3,7 @@ Duo Universal Prompt MFA integration.
 
 Uses the duo_universal SDK for OIDC-based redirect flow.
 State is preserved in Redis between redirect-out and callback.
+Configuration can come from DB settings (GUI) or env vars (fallback).
 """
 import json
 import logging
@@ -10,39 +11,61 @@ from typing import Optional, Dict, Any, Tuple
 
 import redis.asyncio as aioredis
 from duo_universal.client import Client, DuoException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_duo_client: Optional[Client] = None
-
 DUO_STATE_TTL_SECONDS = 300  # 5 minutes
 DUO_STATE_PREFIX = "duo_state:"
 
+# DB setting keys
+DUO_DB_KEYS = [
+    "duo_enabled", "duo_integration_key", "duo_secret_key",
+    "duo_api_hostname", "duo_redirect_uri",
+]
 
-def get_duo_client() -> Optional[Client]:
-    """Return the singleton Duo Client, or None if not configured."""
-    global _duo_client
-    if not settings.DUO_ENABLED:
+
+async def get_duo_config(db: AsyncSession) -> Dict[str, str]:
+    """Load Duo config from DB, falling back to env vars."""
+    from app.models.settings import SystemSetting
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key.in_(DUO_DB_KEYS))
+    )
+    db_map = {s.key: s.value for s in result.scalars().all()}
+
+    return {
+        "enabled": db_map.get("duo_enabled", str(settings.DUO_ENABLED)).lower() in ("true", "1", "yes"),
+        "integration_key": db_map.get("duo_integration_key") or settings.DUO_INTEGRATION_KEY,
+        "secret_key": db_map.get("duo_secret_key") or settings.DUO_SECRET_KEY,
+        "api_hostname": db_map.get("duo_api_hostname") or settings.DUO_API_HOSTNAME,
+        "redirect_uri": db_map.get("duo_redirect_uri") or settings.DUO_REDIRECT_URI,
+    }
+
+
+def build_duo_client(cfg: Dict[str, Any]) -> Optional[Client]:
+    """Build a Duo Client from config dict. Returns None if not fully configured."""
+    if not cfg.get("enabled"):
         return None
-    if not all([settings.DUO_INTEGRATION_KEY, settings.DUO_SECRET_KEY,
-                settings.DUO_API_HOSTNAME, settings.DUO_REDIRECT_URI]):
-        logger.warning("DUO_ENABLED=true but missing required DUO_* configuration")
+    ikey = cfg.get("integration_key", "")
+    skey = cfg.get("secret_key", "")
+    host = cfg.get("api_hostname", "")
+    redirect = cfg.get("redirect_uri", "")
+    if not all([ikey, skey, host, redirect]):
+        logger.warning("Duo enabled but missing required configuration")
         return None
-    if _duo_client is None:
-        _duo_client = Client(
-            client_id=settings.DUO_INTEGRATION_KEY,
-            client_secret=settings.DUO_SECRET_KEY,
-            host=settings.DUO_API_HOSTNAME,
-            redirect_uri=settings.DUO_REDIRECT_URI,
-        )
-    return _duo_client
+    return Client(
+        client_id=ikey,
+        client_secret=skey,
+        host=host,
+        redirect_uri=redirect,
+    )
 
 
-def duo_health_check() -> bool:
+def duo_health_check_with_client(client: Optional[Client]) -> bool:
     """Check connectivity to Duo. Returns True if healthy."""
-    client = get_duo_client()
     if not client:
         return False
     try:
@@ -53,27 +76,15 @@ def duo_health_check() -> bool:
         return False
 
 
-def create_duo_auth_url(username: str) -> Tuple[str, str]:
-    """
-    Generate the Duo auth URL and state parameter.
-    Returns (auth_url, state).
-    """
-    client = get_duo_client()
-    if not client:
-        raise DuoException("Duo client not configured")
+def create_duo_auth_url(client: Client, username: str) -> Tuple[str, str]:
+    """Generate the Duo auth URL and state parameter. Returns (auth_url, state)."""
     state = client.generate_state()
     auth_url = client.create_auth_url(username, state)
     return auth_url, state
 
 
-def verify_duo_code(duo_code: str, username: str) -> bool:
-    """
-    Exchange the Duo authorization code for a 2FA result.
-    Returns True if the result is "allow".
-    """
-    client = get_duo_client()
-    if not client:
-        return False
+def verify_duo_code(client: Client, duo_code: str, username: str) -> bool:
+    """Exchange the Duo authorization code for a 2FA result. Returns True if allowed."""
     try:
         token = client.exchange_authorization_code_for_2fa_result(duo_code, username)
         if token and token.get("auth_result", {}).get("result") == "allow":

@@ -10,8 +10,8 @@ from app.services.auth import (
 )
 from app.services.ldap_auth import authenticate_ldap, get_or_create_ldap_user, test_ldap_connection
 from app.services.duo_auth import (
-    get_duo_client, create_duo_auth_url, store_duo_state,
-    retrieve_and_delete_duo_state, verify_duo_code, duo_health_check
+    get_duo_config, build_duo_client, create_duo_auth_url, store_duo_state,
+    retrieve_and_delete_duo_state, verify_duo_code, duo_health_check_with_client
 )
 from app.middleware.rbac import get_current_user, require_admin
 from app.schemas.auth import (
@@ -68,11 +68,12 @@ async def login(
     await db.refresh(user, ["role"])
     role_name = user.role.name if user.role else "readonly"
 
-    # Check if Duo MFA is required
-    duo_client = get_duo_client()
+    # Check if Duo MFA is required (load config from DB + env fallback)
+    duo_cfg = await get_duo_config(db)
+    duo_client = build_duo_client(duo_cfg)
     if duo_client is not None:
         try:
-            auth_url, state = create_duo_auth_url(user.username)
+            auth_url, state = create_duo_auth_url(duo_client, user.username)
             await store_duo_state(state, {
                 "user_id": user.id,
                 "username": user.username,
@@ -144,9 +145,18 @@ async def duo_callback(
             detail="Invalid or expired MFA session. Please log in again.",
         )
 
+    # Build Duo client from DB config to verify the code
+    duo_cfg = await get_duo_config(db)
+    duo_client = build_duo_client(duo_cfg)
+    if not duo_client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MFA service not configured.",
+        )
+
     # Verify the Duo authorization code
     username = user_data["username"]
-    if not verify_duo_code(payload.duo_code, username):
+    if not verify_duo_code(duo_client, payload.duo_code, username):
         await log_audit(
             db, "duo_mfa_failed", username=username,
             source_ip=source_ip, success=False,
@@ -193,21 +203,24 @@ async def duo_callback(
 
 
 @router.get("/duo/status", dependencies=[Depends(require_admin())])
-async def duo_status():
-    """Return Duo MFA status for the admin settings page."""
-    duo_client = get_duo_client()
+async def duo_status(db: AsyncSession = Depends(get_db)):
+    """Return Duo MFA config for the admin settings page."""
+    duo_cfg = await get_duo_config(db)
+    duo_client = build_duo_client(duo_cfg)
     healthy = False
     if duo_client:
         try:
-            healthy = duo_health_check()
+            healthy = duo_health_check_with_client(duo_client)
         except Exception:
             healthy = False
 
     return {
-        "enabled": settings.DUO_ENABLED,
+        "enabled": duo_cfg["enabled"],
         "configured": duo_client is not None,
         "healthy": healthy,
-        "api_hostname": settings.DUO_API_HOSTNAME if settings.DUO_ENABLED else None,
+        "api_hostname": duo_cfg.get("api_hostname", "") if duo_cfg["enabled"] else "",
+        "integration_key": duo_cfg.get("integration_key", "") if duo_cfg["enabled"] else "",
+        "redirect_uri": duo_cfg.get("redirect_uri", "") if duo_cfg["enabled"] else "",
     }
 
 

@@ -202,10 +202,71 @@ export default function SettingsPage() {
 
 
 function DuoStatusPanel() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['duo-status'],
-    queryFn: () => authApi.duoStatus().then((r) => r.data),
+  const [duoConfig, setDuoConfig] = useState({
+    enabled: false,
+    integration_key: '',
+    secret_key: '',
+    api_hostname: '',
+    redirect_uri: '',
   })
+  const [duoTestResult, setDuoTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [duoTesting, setDuoTesting] = useState(false)
+
+  useQuery({
+    queryKey: ['duo-config'],
+    queryFn: () => settingsApi.getDuo().then((r) => {
+      const data = r.data
+      setDuoConfig((prev) => ({
+        ...prev,
+        enabled: data.duo_enabled === 'true',
+        integration_key: data.duo_integration_key || '',
+        secret_key: data.duo_secret_key || '',
+        api_hostname: data.duo_api_hostname || '',
+        redirect_uri: data.duo_redirect_uri || '',
+      }))
+      return data
+    }),
+  })
+
+  const saveDuoMutation = useMutation({
+    mutationFn: () => settingsApi.saveDuo({
+      duo_enabled: duoConfig.enabled,
+      duo_integration_key: duoConfig.integration_key,
+      duo_secret_key: duoConfig.secret_key,
+      duo_api_hostname: duoConfig.api_hostname,
+      duo_redirect_uri: duoConfig.redirect_uri,
+    }),
+    onSuccess: () => toast.success('Duo MFA configuration saved'),
+  })
+
+  const handleTestDuo = async () => {
+    setDuoTesting(true)
+    setDuoTestResult(null)
+    try {
+      const r = await authApi.duoStatus()
+      const data = r.data
+      if (data.healthy) {
+        setDuoTestResult({ success: true, message: `Connected to Duo API (${data.api_hostname})` })
+      } else if (data.configured) {
+        setDuoTestResult({ success: false, message: 'Duo configured but API unreachable — check hostname and credentials' })
+      } else {
+        setDuoTestResult({ success: false, message: 'Duo not fully configured — save configuration first' })
+      }
+    } catch (err: any) {
+      setDuoTestResult({ success: false, message: err.response?.data?.detail || 'Test failed' })
+    } finally {
+      setDuoTesting(false)
+    }
+  }
+
+  const duoField = (label: string, key: keyof typeof duoConfig, type = 'text', placeholder = '') => (
+    <div className="form-field">
+      <label className="form-label">{label}</label>
+      <input type={type} className="form-input" value={duoConfig[key] as string}
+        placeholder={placeholder}
+        onChange={(e) => setDuoConfig((p) => ({ ...p, [key]: e.target.value }))} />
+    </div>
+  )
 
   return (
     <div className="card settings-card">
@@ -214,82 +275,59 @@ function DuoStatusPanel() {
         <h3>Duo Multi-Factor Authentication</h3>
       </div>
       <div className="card-body">
-        {isLoading ? (
-          <div className="empty-state"><Loader2 size={20} className="animate-spin" /></div>
-        ) : (
-          <div className="flex-col-gap">
-            <div className="toggle-row">
-              <div>
-                <div className="toggle-row__title">Duo MFA Status</div>
-                <div className="toggle-row__description">
-                  Duo MFA is configured via environment variables on the server.
-                </div>
+        <div className="flex-col-gap">
+          <div className="toggle-row">
+            <div>
+              <div className="toggle-row__title">Enable Duo MFA</div>
+              <div className="toggle-row__description">
+                Require all users to verify via Duo after entering credentials
               </div>
-              <span className={data?.enabled ? 'tag-green' : 'tag-gray'}>
-                {data?.enabled ? 'Enabled' : 'Disabled'}
-              </span>
             </div>
-
-            {data?.enabled && (
-              <>
-                <div className="form-section">
-                  <div className="form-section-title">Configuration</div>
-                  <div className="security-item">• API Hostname: <span className="mono">{data.api_hostname || 'Not configured'}</span></div>
-                  <div className="security-item">• Service Status: {data.healthy ? <span className="tag-green">Connected</span> : <span className="tag-red">Unreachable</span>}</div>
-                  <div className="security-item">• Scope: All users (including LDAP)</div>
-                </div>
-
-                <div className="form-section">
-                  <div className="form-section-title">How it works</div>
-                  <div className="security-item">
-                    When enabled, all users must verify their identity via the Duo Universal Prompt
-                    after entering their username and password. This applies to both local and LDAP users.
-                    Users who are not enrolled in Duo will be prompted to set up their MFA device on first login.
-                  </div>
-                </div>
-              </>
-            )}
-
-            {!data?.enabled && (
-              <div className="form-section">
-                <div className="form-section-title">Setup Instructions</div>
-                <div className="security-item">
-                  To enable Duo MFA, follow these steps:
-                </div>
-                <div className="security-item">
-                  <strong>1.</strong> Log in to the <strong>Duo Admin Panel</strong> at <span className="mono">admin.duosecurity.com</span>
-                </div>
-                <div className="security-item">
-                  <strong>2.</strong> Navigate to <strong>Applications → Protect an Application</strong>
-                </div>
-                <div className="security-item">
-                  <strong>3.</strong> Search for <strong>"Web SDK"</strong> and click <strong>Protect</strong>
-                </div>
-                <div className="security-item">
-                  <strong>4.</strong> Copy the <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>API Hostname</strong>
-                </div>
-                <div className="security-item">
-                  <strong>5.</strong> Set the <strong>Redirect URI</strong> in Duo to your login page URL (e.g. <span className="mono">https://netmon.example.com/login</span>)
-                </div>
-                <div className="security-item">
-                  <strong>6.</strong> Set the following environment variables on the backend server:
-                </div>
-                <div className="security-item">
-                  <pre className="mono" style={{ fontSize: '12px', background: 'var(--surface-raised)', padding: '12px', borderRadius: '6px', margin: '4px 0' }}>
-{`DUO_ENABLED=true
-DUO_INTEGRATION_KEY=<Client ID>
-DUO_SECRET_KEY=<Client Secret>
-DUO_API_HOSTNAME=api-XXXXXXXX.duosecurity.com
-DUO_REDIRECT_URI=https://your-domain/login`}
-                  </pre>
-                </div>
-                <div className="security-item">
-                  <strong>7.</strong> Restart the backend service: <span className="mono">docker compose restart backend</span>
-                </div>
-              </div>
-            )}
+            <button
+              className={`toggle ${duoConfig.enabled ? 'toggle--active' : ''}`}
+              onClick={() => setDuoConfig((p) => ({ ...p, enabled: !p.enabled }))}
+            >
+              <span className="toggle__knob" />
+            </button>
           </div>
-        )}
+
+          {duoConfig.enabled && (
+            <>
+              <div className="info-box">
+                <span className="info-box__title">Setup:</span> Go to{' '}
+                <span className="mono">admin.duosecurity.com</span> → Applications → Protect an Application → search <strong>"Web SDK"</strong> → Protect. Copy the Client ID, Client Secret, and API Hostname below.
+              </div>
+
+              {duoField('Client ID (Integration Key)', 'integration_key', 'text', 'DIXXXXXXXXXXXXXXXXXX')}
+              {duoField('Client Secret (Secret Key)', 'secret_key', 'password', 'Enter secret key')}
+              {duoField('API Hostname', 'api_hostname', 'text', 'api-XXXXXXXX.duosecurity.com')}
+              {duoField('Redirect URI', 'redirect_uri', 'text', 'https://netmon.example.com/login')}
+
+              <p className="form-help">
+                The Redirect URI must match the one configured in the Duo Admin Panel and must point to your NetMon login page.
+              </p>
+
+              <div>
+                <button onClick={handleTestDuo} disabled={duoTesting} className="btn btn-outline">
+                  {duoTesting ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
+                  Test Connection
+                </button>
+                {duoTestResult && (
+                  <div className={duoTestResult.success ? 'test-success' : 'test-error'}>
+                    {duoTestResult.success ? '\u2713' : '\u2717'} {duoTestResult.message}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="settings-save-bar">
+            <button onClick={() => saveDuoMutation.mutate()} disabled={saveDuoMutation.isPending} className="btn btn-primary">
+              {saveDuoMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Save Duo Configuration
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
