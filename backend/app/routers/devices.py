@@ -63,7 +63,13 @@ async def create_device(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Device with this IP already exists")
 
-    device = Device(**payload.dict())
+    from app.crypto import encrypt_value
+    device_data = payload.dict()
+    # Encrypt sensitive credentials before storing
+    for field in ("api_password", "snmp_community", "snmp_v3_auth_key", "snmp_v3_priv_key"):
+        if device_data.get(field):
+            device_data[field] = encrypt_value(device_data[field])
+    device = Device(**device_data)
     db.add(device)
     await db.commit()
     await db.refresh(device, ["location"])
@@ -207,7 +213,11 @@ async def update_device(
         if clash.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Another device already uses this IP address")
 
+    from app.crypto import encrypt_value
     for key, value in update_data.items():
+        # Encrypt sensitive credentials before storing
+        if key in ("api_password", "snmp_community", "snmp_v3_auth_key", "snmp_v3_priv_key") and value:
+            value = encrypt_value(value)
         setattr(device, key, value)
     await db.commit()
     await db.refresh(device, ["location"])

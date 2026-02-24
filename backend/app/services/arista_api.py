@@ -22,9 +22,11 @@ async def arista_eapi(device: Device, commands: list[str], format: str = "json")
     Returns a list of per-command result dicts.
     Raises httpx.HTTPStatusError or ValueError on failure.
     """
+    from app.crypto import decrypt_value
     if not device.api_username or not device.api_password:
         raise ValueError(f"Device {device.hostname} has no eAPI credentials configured")
 
+    api_password = decrypt_value(device.api_password)
     protocol = device.api_protocol or "https"
     port = device.api_port or 443
     url = f"{protocol}://{device.ip_address}:{port}/command-api"
@@ -40,11 +42,12 @@ async def arista_eapi(device: Device, commands: list[str], format: str = "json")
         "id": "netmon-1",
     }
 
-    async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+    from app.config import settings as _settings
+    async with httpx.AsyncClient(verify=_settings.DEVICE_SSL_VERIFY, timeout=15.0) as client:
         resp = await client.post(
             url,
             json=payload,
-            auth=(device.api_username, device.api_password),
+            auth=(device.api_username, api_password),
         )
         resp.raise_for_status()
         data = resp.json()

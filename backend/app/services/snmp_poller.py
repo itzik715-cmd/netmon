@@ -120,17 +120,19 @@ def _close_engine(engine: SnmpEngine) -> None:
 
 
 def make_auth_data(device: Device):
+    from app.crypto import decrypt_value
     if device.snmp_version == "3":
         auth_proto = usmHMACSHAAuthProtocol if device.snmp_v3_auth_protocol == "SHA" else usmHMACMD5AuthProtocol
         priv_proto = usmAesCfb128Protocol if device.snmp_v3_priv_protocol == "AES" else usmDESPrivProtocol
         return UsmUserData(
             device.snmp_v3_username or "admin",
-            authKey=device.snmp_v3_auth_key,
-            privKey=device.snmp_v3_priv_key,
+            authKey=decrypt_value(device.snmp_v3_auth_key),
+            privKey=decrypt_value(device.snmp_v3_priv_key),
             authProtocol=auth_proto,
             privProtocol=priv_proto,
         )
-    return CommunityData(device.snmp_community or "public", mpModel=1 if device.snmp_version == "2c" else 0)
+    community = decrypt_value(device.snmp_community) if device.snmp_community else "public"
+    return CommunityData(community, mpModel=1 if device.snmp_version == "2c" else 0)
 
 
 async def snmp_get(device: Device, oid: str, engine: Optional[SnmpEngine] = None) -> Optional[Any]:

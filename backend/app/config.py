@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     PASSWORD_MIN_LENGTH: int = 10
     RATE_LIMIT_LOGIN: str = "10/minute"
 
+    # Device API
+    DEVICE_SSL_VERIFY: bool = False  # Set True if devices have valid/trusted certs
+
     # SNMP
     SNMP_COMMUNITY: str = "public"
     SNMP_VERSION: str = "2c"

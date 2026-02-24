@@ -32,8 +32,9 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
     """
     import httpx
 
+    from app.crypto import decrypt_value
     username = device.api_username
-    password = device.api_password
+    password = decrypt_value(device.api_password)
     if not username or not password:
         raise ValueError(
             f"No API credentials for {device.hostname}. "
@@ -67,7 +68,8 @@ async def _fetch_via_eapi(device) -> tuple[Optional[str], Optional[str]]:
     for protocol, port in candidates:
         url = f"{protocol}://{device.ip_address}:{port}/command-api"
         try:
-            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+            from app.config import settings as _settings
+            async with httpx.AsyncClient(verify=_settings.DEVICE_SSL_VERIFY, timeout=timeout) as client:
                 resp = await client.post(url, json=payload, auth=(username, password))
                 resp.raise_for_status()
                 data = resp.json()

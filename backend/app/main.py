@@ -285,16 +285,18 @@ async def create_default_data():
 
         await db.commit()
 
-        # Create default admin user
+        # Create default admin user with random password
         existing_admin = await db.execute(select(User).where(User.username == "admin"))
         if not existing_admin.scalar_one_or_none():
             admin_role = await db.execute(select(Role).where(Role.name == "admin"))
             admin_role = admin_role.scalar_one_or_none()
             if admin_role:
+                import secrets
+                temp_password = secrets.token_urlsafe(16)
                 admin_user = User(
                     username="admin",
                     email="admin@netmon.local",
-                    password_hash=hash_password("admin"),
+                    password_hash=hash_password(temp_password),
                     role_id=admin_role.id,
                     is_active=True,
                     must_change_password=True,  # Force change on first login
@@ -302,7 +304,12 @@ async def create_default_data():
                 )
                 db.add(admin_user)
                 await db.commit()
-                logger.info("Default admin user created (admin/admin) - MUST CHANGE PASSWORD ON FIRST LOGIN")
+                logger.warning("=" * 60)
+                logger.warning("  DEFAULT ADMIN CREDENTIALS (first run only)")
+                logger.warning("  Username: admin")
+                logger.warning("  Password: %s", temp_password)
+                logger.warning("  You MUST change this password on first login.")
+                logger.warning("=" * 60)
 
         # Default settings
         from app.models.settings import SystemSetting
