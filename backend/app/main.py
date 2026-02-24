@@ -234,6 +234,19 @@ async def run_migrations():
         except Exception as e:
             logger.warning("Migration unique index backup_schedule_device skipped: %s", e)
 
+    # config_backups: add changelog metadata columns
+    async with engine.begin() as conn:
+        for col, col_type in [
+            ("triggered_by", "VARCHAR(100)"),
+            ("notes", "TEXT"),
+        ]:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE config_backups ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER config_backups.%s skipped: %s", col, e)
+
     logger.info("Database migrations applied")
 
 
@@ -432,6 +445,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request ID middleware for log correlation
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    import uuid
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 # CSRF Origin validation middleware

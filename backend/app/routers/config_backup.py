@@ -258,7 +258,7 @@ async def manual_backup(
         raise HTTPException(400, f"Device {device.hostname} has no API credentials configured")
 
     from app.services.config_fetcher import backup_device
-    backup = await backup_device(device_id, db, backup_type="manual")
+    backup = await backup_device(device_id, db, backup_type="manual", triggered_by=_user.username)
 
     item = BackupItem.model_validate(backup)
     item.device_hostname = device.hostname

@@ -2,6 +2,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
 import ipaddress
+import json
 
 
 class LocationCreate(BaseModel):
@@ -59,6 +60,18 @@ class DeviceCreate(BaseModel):
             raise ValueError(f"Invalid IP address: {v}")
         return v
 
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip():
+            try:
+                parsed = json.loads(v)
+                if not isinstance(parsed, list) or not all(isinstance(t, str) for t in parsed):
+                    raise ValueError("Tags must be a JSON array of strings")
+            except json.JSONDecodeError:
+                raise ValueError("Tags must be valid JSON")
+        return v
+
 
 class DeviceUpdate(BaseModel):
     hostname: Optional[str] = None
@@ -95,6 +108,18 @@ class DeviceUpdate(BaseModel):
                 ipaddress.ip_address(v)
             except ValueError:
                 raise ValueError(f"Invalid IP address: {v}")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip():
+            try:
+                parsed = json.loads(v)
+                if not isinstance(parsed, list) or not all(isinstance(t, str) for t in parsed):
+                    raise ValueError("Tags must be a JSON array of strings")
+            except json.JSONDecodeError:
+                raise ValueError("Tags must be valid JSON")
         return v
 
 

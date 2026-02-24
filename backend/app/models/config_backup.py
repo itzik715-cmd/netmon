@@ -16,6 +16,8 @@ class ConfigBackup(Base):
     config_hash = Column(String(64), nullable=True)  # SHA-256 of running config (quick change detection)
     size_bytes = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)              # error message if backup failed
+    triggered_by = Column(String(100), nullable=True)  # username or "scheduler" / "system"
+    notes = Column(Text, nullable=True)                # optional notes for manual backups
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
 

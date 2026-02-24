@@ -216,7 +216,7 @@ def diff_configs(
 # Backup execution
 # ---------------------------------------------------------------------------
 
-async def backup_device(device_id: int, db, backup_type: str = "manual"):
+async def backup_device(device_id: int, db, backup_type: str = "manual", triggered_by: str = None):
     """
     Fetch and persist a ConfigBackup record for the given device.
     Handles errors gracefully — stores error message in backup record.
@@ -242,6 +242,7 @@ async def backup_device(device_id: int, db, backup_type: str = "manual"):
     backup = ConfigBackup(
         device_id=device_id,
         backup_type=backup_type,
+        triggered_by=triggered_by or ("scheduler" if backup_type == "scheduled" else "system"),
         expires_at=expires_at,
     )
 

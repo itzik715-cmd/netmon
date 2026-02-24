@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, interfacesApi, topologyApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
@@ -138,7 +138,8 @@ function TextFilterPanel({
 
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const deviceId = parseInt(id!)
+  const deviceId = parseInt(id || '', 10)
+  if (isNaN(deviceId)) return <Navigate to="/devices" replace />
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('interfaces')
   const [search, setSearch] = useState('')

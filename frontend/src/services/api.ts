@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/authStore'
 import toast from 'react-hot-toast'
 
 const api: AxiosInstance = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
@@ -26,7 +26,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       try {
-        const response = await axios.post('/api/auth/refresh', {}, { withCredentials: true })
+        const response = await axios.post(`${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/refresh`, {}, { withCredentials: true })
         const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = response.data
         const currentUser = useAuthStore.getState().user
         if (currentUser) {
