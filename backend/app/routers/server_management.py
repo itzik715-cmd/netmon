@@ -4,7 +4,8 @@ All endpoints require admin role.
 """
 import logging
 import re
-import subprocess
+import socket
+import http.client
 import smtplib
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -33,7 +34,15 @@ router = APIRouter(prefix="/api/server-mgmt", tags=["Server Management"])
 
 SSL_DIR = Path("/etc/nginx/ssl")
 NGINX_CONF_PATH = Path("/app/nginx-config/nginx.conf")
-COMPOSE_FILE = Path("/app/project/docker-compose.yml")
+DOCKER_SOCKET = "/var/run/docker.sock"
+
+SERVICE_TO_CONTAINER = {
+    "backend": "netmon-backend",
+    "db": "netmon-db",
+    "redis": "netmon-redis",
+    "nginx": "netmon-nginx",
+    "frontend": "netmon-frontend",
+}
 
 # ── Pydantic Models ──────────────────────────────────────────────────────────
 
@@ -102,6 +111,25 @@ async def save_setting(
         db.add(setting)
 
 
+def _docker_restart(container_name: str, timeout: int = 30) -> bool:
+    """Restart a container via Docker Engine API over the unix socket."""
+    try:
+        conn = http.client.HTTPConnection("localhost")
+        conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.sock.connect(DOCKER_SOCKET)
+        conn.request("POST", f"/containers/{container_name}/restart?t={timeout}")
+        resp = conn.getresponse()
+        conn.close()
+        if resp.status == 204:
+            logger.info(f"Container '{container_name}' restarted successfully")
+            return True
+        logger.error(f"Docker restart failed for '{container_name}': HTTP {resp.status} {resp.read().decode()}")
+        return False
+    except Exception as e:
+        logger.error(f"Docker restart failed for '{container_name}': {e}")
+        return False
+
+
 # ── 1. GET /ports ────────────────────────────────────────────────────────────
 
 
@@ -141,13 +169,18 @@ async def update_ports(
                        "sFlow UDP port", user_id=current_user.id)
     await db.commit()
 
-    # Regenerate nginx.conf
+    # Regenerate nginx.conf and restart nginx
+    nginx_restarted = False
     try:
         _regenerate_nginx_conf(config.http_port, config.https_port)
+        nginx_restarted = _docker_restart(SERVICE_TO_CONTAINER["nginx"])
     except Exception as e:
         logger.error(f"Failed to regenerate nginx.conf: {e}")
 
-    return {"message": "Port configuration saved", "restart_required": True}
+    return {
+        "message": "Port configuration saved" + (" and Nginx restarted" if nginx_restarted else ""),
+        "nginx_restarted": nginx_restarted,
+    }
 
 
 def _regenerate_nginx_conf(http_port: int, https_port: int):
@@ -384,31 +417,23 @@ async def get_services(db: AsyncSession = Depends(get_db)):
 # ── 7. POST /services/{service_id}/restart ───────────────────────────────────
 
 
-ALLOWED_SERVICES = {"backend", "db", "redis", "nginx", "frontend"}
-
-
 @router.post("/services/{service_id}/restart", dependencies=[Depends(require_admin())])
 async def restart_service(service_id: str):
-    if service_id not in ALLOWED_SERVICES:
+    container_name = SERVICE_TO_CONTAINER.get(service_id)
+    if not container_name:
         raise HTTPException(status_code=400, detail=f"Unknown service: {service_id}")
 
-    compose_file = str(COMPOSE_FILE)
-    if not COMPOSE_FILE.exists():
-        raise HTTPException(status_code=500, detail="docker-compose.yml not found")
+    if not Path(DOCKER_SOCKET).exists():
+        raise HTTPException(status_code=500, detail="Docker socket not available")
 
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", compose_file, "restart", service_id],
-            capture_output=True, text=True, timeout=60,
-        )
-        if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"Restart failed: {result.stderr}")
-        return {"message": f"Service '{service_id}' restart initiated",
-                "warning": "Backend restart will disconnect your session" if service_id == "backend" else None}
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Restart timed out")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="docker command not found")
+    success = _docker_restart(container_name)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to restart '{service_id}'. Check server logs.")
+
+    return {
+        "message": f"Service '{service_id}' restarted successfully",
+        "warning": "Backend restart will disconnect your session" if service_id == "backend" else None,
+    }
 
 
 # ── 8. GET /smtp ─────────────────────────────────────────────────────────────

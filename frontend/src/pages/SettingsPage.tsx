@@ -371,7 +371,8 @@ function PortsPanel() {
     mutationFn: () => serverMgmtApi.updatePorts(ports),
     onSuccess: (r) => {
       toast.success(r.data.message)
-      if (r.data.restart_required) toast('Restart Nginx to apply port changes', { icon: '\u26A0\uFE0F' })
+      if (r.data.nginx_restarted) toast.success('Nginx restarted with new ports')
+      else toast('Nginx may need a manual restart', { icon: '\u26A0\uFE0F' })
     },
   })
 
