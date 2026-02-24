@@ -50,6 +50,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        DOCKER_GID: ${DOCKER_GID:-988}
     container_name: netmon-backend
     restart: unless-stopped
     environment:

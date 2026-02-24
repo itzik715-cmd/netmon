@@ -171,6 +171,13 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
   sed -i "s|CHANGE_THIS_TO_RANDOM_64_CHARS|${SECRET}|g" "$PROJECT_DIR/.env"
   sed -i "s|CHANGE_THIS_TO_DIFFERENT_RANDOM_64_CHARS|${JWT_SECRET}|g" "$PROJECT_DIR/.env"
 
+  # Detect Docker socket GID so the backend container can restart services
+  DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 988)
+  if ! grep -q "^DOCKER_GID=" "$PROJECT_DIR/.env"; then
+    echo "DOCKER_GID=${DOCKER_GID}" >> "$PROJECT_DIR/.env"
+  fi
+  log "Docker socket GID: ${DOCKER_GID}"
+
   log "Generated .env with random secrets"
 else
   warn ".env already exists, skipping generation"
