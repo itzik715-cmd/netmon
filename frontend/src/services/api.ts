@@ -199,3 +199,19 @@ export const systemEventsApi = {
   list: (params?: { limit?: number; offset?: number; level?: string; source?: string }) =>
     api.get('/system-events/', { params }),
 }
+
+// Server Management
+export const serverMgmtApi = {
+  getPorts: () => api.get('/server-mgmt/ports'),
+  updatePorts: (data: object) => api.put('/server-mgmt/ports', data),
+  getSslStatus: () => api.get('/server-mgmt/ssl/status'),
+  uploadSsl: (formData: FormData) => api.post('/server-mgmt/ssl/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  generateSelfSigned: (data: object) => api.post('/server-mgmt/ssl/generate-self-signed', data),
+  getServices: () => api.get('/server-mgmt/services'),
+  restartService: (id: string) => api.post(`/server-mgmt/services/${id}/restart`),
+  getSmtp: () => api.get('/server-mgmt/smtp'),
+  saveSmtp: (data: object) => api.put('/server-mgmt/smtp', data),
+  testSmtp: (data: object) => api.post('/server-mgmt/smtp/test', data),
+}

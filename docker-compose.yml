@@ -71,6 +71,10 @@ services:
       DUO_REDIRECT_URI: ${DUO_REDIRECT_URI:-}
     volumes:
       - ./logs:/app/logs
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx:/app/nginx-config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/app/project:ro
     networks:
       - netmon-net
     ports:
@@ -126,7 +130,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/ssl:/etc/nginx/ssl
       - nginx_logs:/var/log/nginx
     depends_on:
       - backend

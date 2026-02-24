@@ -1,10 +1,10 @@
-import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { settingsApi, authApi } from '../services/api'
-import { Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { settingsApi, authApi, serverMgmtApi } from '../services/api'
+import { Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint, Network, Lock, Server, Mail, RefreshCw, Upload, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-type Tab = 'ldap' | 'mfa' | 'security'
+type Tab = 'ldap' | 'mfa' | 'security' | 'ports' | 'ssl' | 'services' | 'smtp'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('ldap')
@@ -87,6 +87,22 @@ export default function SettingsPage() {
         <button className={`tab-btn${tab === 'security' ? ' active' : ''}`} onClick={() => setTab('security')}>
           <Shield size={13} />
           Security
+        </button>
+        <button className={`tab-btn${tab === 'ports' ? ' active' : ''}`} onClick={() => setTab('ports')}>
+          <Network size={13} />
+          Ports
+        </button>
+        <button className={`tab-btn${tab === 'ssl' ? ' active' : ''}`} onClick={() => setTab('ssl')}>
+          <Lock size={13} />
+          SSL Certificate
+        </button>
+        <button className={`tab-btn${tab === 'services' ? ' active' : ''}`} onClick={() => setTab('services')}>
+          <Server size={13} />
+          Services
+        </button>
+        <button className={`tab-btn${tab === 'smtp' ? ' active' : ''}`} onClick={() => setTab('smtp')}>
+          <Mail size={13} />
+          SMTP
         </button>
       </div>
 
@@ -196,6 +212,11 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {tab === 'ports' && <PortsPanel />}
+      {tab === 'ssl' && <SslPanel />}
+      {tab === 'services' && <ServicesPanel />}
+      {tab === 'smtp' && <SmtpPanel />}
     </div>
   )
 }
@@ -325,6 +346,392 @@ function DuoStatusPanel() {
             <button onClick={() => saveDuoMutation.mutate()} disabled={saveDuoMutation.isPending} className="btn btn-primary">
               {saveDuoMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               Save Duo Configuration
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Ports Tab ────────────────────────────────────────────────────────────────
+
+function PortsPanel() {
+  const [ports, setPorts] = useState({
+    http_port: 80, https_port: 443, api_port: 8000, netflow_port: 2055, sflow_port: 6343,
+  })
+
+  useQuery({
+    queryKey: ['server-ports'],
+    queryFn: () => serverMgmtApi.getPorts().then((r) => { setPorts(r.data); return r.data }),
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: () => serverMgmtApi.updatePorts(ports),
+    onSuccess: (r) => {
+      toast.success(r.data.message)
+      if (r.data.restart_required) toast('Restart Nginx to apply port changes', { icon: '\u26A0\uFE0F' })
+    },
+  })
+
+  const portField = (label: string, key: keyof typeof ports) => (
+    <div className="form-field">
+      <label className="form-label">{label}</label>
+      <input type="number" className="form-input" min={1} max={65535} value={ports[key]}
+        onChange={(e) => setPorts((p) => ({ ...p, [key]: parseInt(e.target.value) || 0 }))} />
+    </div>
+  )
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header"><Network size={15} /><h3>Port Configuration</h3></div>
+      <div className="card-body">
+        <div className="flex-col-gap">
+          <div className="form-section">
+            <div className="form-section-title">Web & API</div>
+            <div className="grid-server-port">
+              {portField('HTTP Port', 'http_port')}
+              {portField('HTTPS Port', 'https_port')}
+            </div>
+            {portField('Backend API Port', 'api_port')}
+          </div>
+          <div className="form-section">
+            <div className="form-section-title">Flow Collection</div>
+            <div className="grid-server-port">
+              {portField('NetFlow Port (UDP)', 'netflow_port')}
+              {portField('sFlow Port (UDP)', 'sflow_port')}
+            </div>
+          </div>
+          <div className="info-box">
+            <AlertTriangle size={13} /> Changing ports requires a service restart to take effect.
+          </div>
+          <div className="settings-save-bar">
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="btn btn-primary">
+              {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Save Port Configuration
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── SSL Tab ──────────────────────────────────────────────────────────────────
+
+function SslPanel() {
+  const queryClient = useQueryClient()
+  const certFileRef = useRef<HTMLInputElement>(null)
+  const keyFileRef = useRef<HTMLInputElement>(null)
+  const [genConfig, setGenConfig] = useState({ common_name: 'netmon.local', organization: 'NetMon', days: 365 })
+
+  const { data: sslStatus, isLoading } = useQuery({
+    queryKey: ['ssl-status'],
+    queryFn: () => serverMgmtApi.getSslStatus().then((r) => r.data),
+  })
+
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      const formData = new FormData()
+      const certFile = certFileRef.current?.files?.[0]
+      const keyFile = keyFileRef.current?.files?.[0]
+      if (!certFile || !keyFile) throw new Error('Select both certificate and key files')
+      formData.append('cert', certFile)
+      formData.append('key', keyFile)
+      return serverMgmtApi.uploadSsl(formData)
+    },
+    onSuccess: (r) => {
+      toast.success(r.data.message)
+      queryClient.invalidateQueries({ queryKey: ['ssl-status'] })
+    },
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: () => serverMgmtApi.generateSelfSigned(genConfig),
+    onSuccess: (r) => {
+      toast.success(r.data.message)
+      queryClient.invalidateQueries({ queryKey: ['ssl-status'] })
+    },
+  })
+
+  const daysRemaining = sslStatus?.days_remaining ?? 0
+  const expiryColor = daysRemaining > 60 ? '#22c55e' : daysRemaining > 30 ? '#f59e0b' : '#ef4444'
+
+  return (
+    <div className="flex-col-gap">
+      {/* Current Certificate */}
+      <div className="card settings-card">
+        <div className="card-header"><Lock size={15} /><h3>Current SSL Certificate</h3></div>
+        <div className="card-body">
+          {isLoading ? <Loader2 size={16} className="animate-spin" /> : !sslStatus?.installed ? (
+            <div className="info-box">No SSL certificate installed.</div>
+          ) : sslStatus.error ? (
+            <div className="test-error">Failed to parse certificate: {sslStatus.error}</div>
+          ) : (
+            <div className="flex-col-gap">
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className={`status-dot status-dot--${daysRemaining > 0 ? 'up' : 'down'}`} />
+                <strong>{sslStatus.subject}</strong>
+                <span className="badge" style={{ backgroundColor: sslStatus.is_self_signed ? '#f59e0b' : '#22c55e', color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px' }}>
+                  {sslStatus.is_self_signed ? 'Self-Signed' : 'CA-Signed'}
+                </span>
+                <span className="badge" style={{ backgroundColor: expiryColor, color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px' }}>
+                  {daysRemaining} days remaining
+                </span>
+              </div>
+              <div className="security-item">Issuer: {sslStatus.issuer}</div>
+              <div className="security-item">Valid from: {new Date(sslStatus.not_before).toLocaleDateString()} to {new Date(sslStatus.not_after).toLocaleDateString()}</div>
+              {sslStatus.san?.length > 0 && <div className="security-item">SAN: {sslStatus.san.join(', ')}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Upload */}
+      <div className="card settings-card">
+        <div className="card-header"><Upload size={15} /><h3>Upload Certificate</h3></div>
+        <div className="card-body">
+          <div className="flex-col-gap">
+            <div className="form-field">
+              <label className="form-label">Certificate File (.pem, .crt)</label>
+              <input type="file" ref={certFileRef} accept=".pem,.crt" className="form-input" />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Private Key File (.pem, .key)</label>
+              <input type="file" ref={keyFileRef} accept=".pem,.key" className="form-input" />
+            </div>
+            <div className="settings-save-bar">
+              <button onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending} className="btn btn-primary">
+                {uploadMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                Upload & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Generate Self-Signed */}
+      <div className="card settings-card">
+        <div className="card-header"><Lock size={15} /><h3>Generate Self-Signed Certificate</h3></div>
+        <div className="card-body">
+          <div className="flex-col-gap">
+            <div className="form-field">
+              <label className="form-label">Common Name (CN)</label>
+              <input type="text" className="form-input" value={genConfig.common_name}
+                onChange={(e) => setGenConfig((p) => ({ ...p, common_name: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Organization</label>
+              <input type="text" className="form-input" value={genConfig.organization}
+                onChange={(e) => setGenConfig((p) => ({ ...p, organization: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Validity (days)</label>
+              <input type="number" className="form-input" min={30} max={3650} value={genConfig.days}
+                onChange={(e) => setGenConfig((p) => ({ ...p, days: parseInt(e.target.value) || 365 }))} />
+            </div>
+            <div className="settings-save-bar">
+              <button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending} className="btn btn-primary">
+                {generateMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Lock size={13} />}
+                Generate & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Services Tab ─────────────────────────────────────────────────────────────
+
+function ServicesPanel() {
+  const queryClient = useQueryClient()
+
+  const { data: services, isLoading } = useQuery({
+    queryKey: ['server-services'],
+    queryFn: () => serverMgmtApi.getServices().then((r) => r.data),
+    refetchInterval: 30000,
+  })
+
+  const restartMutation = useMutation({
+    mutationFn: (id: string) => serverMgmtApi.restartService(id),
+    onSuccess: (r) => {
+      toast.success(r.data.message)
+      if (r.data.warning) toast(r.data.warning, { icon: '\u26A0\uFE0F' })
+      queryClient.invalidateQueries({ queryKey: ['server-services'] })
+    },
+  })
+
+  const handleRestart = (id: string, name: string) => {
+    if (id === 'backend') {
+      if (!confirm(`Restarting ${name} will disconnect your session. Continue?`)) return
+    } else {
+      if (!confirm(`Restart ${name}?`)) return
+    }
+    restartMutation.mutate(id)
+  }
+
+  const statusColor = (s: string) => s === 'running' ? '#22c55e' : s === 'error' ? '#ef4444' : '#f59e0b'
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header">
+        <Server size={15} /><h3>Service Status</h3>
+        <button onClick={() => queryClient.invalidateQueries({ queryKey: ['server-services'] })} className="btn btn-outline" style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '0.75rem' }}>
+          <RefreshCw size={12} /> Refresh
+        </button>
+      </div>
+      <div className="card-body">
+        {isLoading ? <Loader2 size={16} className="animate-spin" /> : (
+          <table className="data-table" style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Status</th>
+                <th>Port</th>
+                <th style={{ textAlign: 'right' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(services || []).map((svc: any) => (
+                <tr key={svc.id}>
+                  <td><strong>{svc.name}</strong></td>
+                  <td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor(svc.status), display: 'inline-block' }} />
+                      {svc.status}
+                    </span>
+                  </td>
+                  <td>{svc.port}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    {svc.id !== 'flow_collector' && (
+                      <button onClick={() => handleRestart(svc.id, svc.name)} disabled={restartMutation.isPending} className="btn btn-outline" style={{ padding: '3px 8px', fontSize: '0.72rem' }}>
+                        <RefreshCw size={11} /> Restart
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="info-box" style={{ marginTop: '0.75rem' }}>
+          Services auto-refresh every 30 seconds.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── SMTP Tab ─────────────────────────────────────────────────────────────────
+
+function SmtpPanel() {
+  const [smtp, setSmtp] = useState({
+    enabled: false, host: '', port: 587, username: '', password: '', use_tls: true,
+    from_address: '', from_name: 'NetMon',
+  })
+  const [testEmail, setTestEmail] = useState('')
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  useQuery({
+    queryKey: ['smtp-config'],
+    queryFn: () => serverMgmtApi.getSmtp().then((r) => { setSmtp(r.data); return r.data }),
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: () => serverMgmtApi.saveSmtp(smtp),
+    onSuccess: (r) => toast.success(r.data.message),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: () => serverMgmtApi.testSmtp({ to_address: testEmail }),
+    onSuccess: (r) => setTestResult({ success: true, message: r.data.message }),
+    onError: (err: any) => setTestResult({ success: false, message: err.response?.data?.detail || 'Test failed' }),
+  })
+
+  const smtpField = (label: string, key: keyof typeof smtp, type = 'text') => (
+    <div className="form-field">
+      <label className="form-label">{label}</label>
+      <input type={type} className="form-input" value={smtp[key] as string}
+        onChange={(e) => setSmtp((p) => ({ ...p, [key]: type === 'number' ? parseInt(e.target.value) || 0 : e.target.value }))} />
+    </div>
+  )
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header"><Mail size={15} /><h3>SMTP / Email Configuration</h3></div>
+      <div className="card-body">
+        <div className="flex-col-gap">
+          <div className="toggle-row">
+            <div>
+              <div className="toggle-row__title">Enable SMTP</div>
+              <div className="toggle-row__description">Enable email notifications for alerts and system events</div>
+            </div>
+            <button className={`toggle ${smtp.enabled ? 'toggle--active' : ''}`}
+              onClick={() => setSmtp((p) => ({ ...p, enabled: !p.enabled }))}>
+              <span className="toggle__knob" />
+            </button>
+          </div>
+
+          {smtp.enabled && (
+            <>
+              <div className="form-section">
+                <div className="form-section-title">SMTP Server</div>
+                <div className="grid-server-port">
+                  {smtpField('SMTP Host', 'host')}
+                  <div className="form-field">
+                    <label className="form-label">Port</label>
+                    <input type="number" className="form-input port-input" min={1} max={65535} value={smtp.port}
+                      onChange={(e) => setSmtp((p) => ({ ...p, port: parseInt(e.target.value) || 587 }))} />
+                  </div>
+                </div>
+                {smtpField('Username', 'username')}
+                {smtpField('Password', 'password', 'password')}
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={smtp.use_tls}
+                    onChange={(e) => setSmtp((p) => ({ ...p, use_tls: e.target.checked }))} />
+                  <span className="checkbox-label__text">Use STARTTLS</span>
+                </label>
+              </div>
+
+              <div className="form-section">
+                <div className="form-section-title">Sender Identity</div>
+                {smtpField('From Address', 'from_address')}
+                {smtpField('From Name', 'from_name')}
+              </div>
+
+              <div className="form-section">
+                <div className="form-section-title">Test Email</div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+                  <div className="form-field" style={{ flex: 1 }}>
+                    <label className="form-label">Recipient Address</label>
+                    <input type="email" className="form-input" placeholder="test@example.com" value={testEmail}
+                      onChange={(e) => setTestEmail(e.target.value)} />
+                  </div>
+                  <button onClick={() => { setTestResult(null); testMutation.mutate() }}
+                    disabled={testMutation.isPending || !testEmail} className="btn btn-outline" style={{ height: '36px' }}>
+                    {testMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
+                    Send Test
+                  </button>
+                </div>
+                {testResult && (
+                  <div className={testResult.success ? 'test-success' : 'test-error'} style={{ marginTop: '0.5rem' }}>
+                    {testResult.success ? '\u2713' : '\u2717'} {testResult.message}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="settings-save-bar">
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="btn btn-primary">
+              {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Save SMTP Configuration
             </button>
           </div>
         </div>

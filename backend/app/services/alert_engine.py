@@ -189,5 +189,18 @@ async def send_webhook_notification(rule: AlertRule, event: AlertEvent, message:
 
 
 async def send_email_notification(rule: AlertRule, event: AlertEvent, message: str):
-    """Placeholder for email notification."""
-    logger.info(f"Email notification to {rule.notification_email}: {message}")
+    """Send alert email notification via configured SMTP."""
+    from app.database import AsyncSessionLocal
+    from app.services.email_sender import send_email
+    try:
+        async with AsyncSessionLocal() as db:
+            subject = f"[NetMon Alert] {rule.severity.upper()}: {rule.name}"
+            body = f"""<h2>NetMon Alert Triggered</h2>
+            <p><strong>Rule:</strong> {rule.name}</p>
+            <p><strong>Severity:</strong> {rule.severity}</p>
+            <p><strong>Message:</strong> {message}</p>
+            <p><strong>Value:</strong> {event.metric_value} (threshold: {event.threshold_value})</p>
+            <p><strong>Time:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</p>"""
+            await send_email(db, rule.notification_email, subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send alert email: {e}")
