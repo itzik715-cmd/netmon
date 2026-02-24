@@ -1,6 +1,7 @@
 from typing import Optional, Tuple
 from ldap3 import Server, Connection, ALL, NTLM, SIMPLE, Tls
 from ldap3.core.exceptions import LDAPException, LDAPBindError
+from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.user import User, Role
@@ -65,8 +66,9 @@ async def authenticate_ldap(
             auto_bind=True,
         )
 
-        # Search for user
-        user_filter = cfg["user_filter"].format(username=username)
+        # Search for user — escape LDAP metacharacters to prevent injection
+        safe_username = escape_filter_chars(username)
+        user_filter = cfg["user_filter"].format(username=safe_username)
         conn.search(
             cfg["base_dn"],
             user_filter,

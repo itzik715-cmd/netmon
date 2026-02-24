@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     SECRET_KEY: str = secrets.token_urlsafe(64)
-    ALLOWED_ORIGINS: str = "*"
+    ALLOWED_ORIGINS: str = "https://91-228-127-79.cloud-xip.io"
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://netmon:netmon@db:5432/netmon"
@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     SESSION_MAX_HOURS: int = 4  # Auto-logout after N hours (0 = disabled). Readonly role is exempt.
 
     # HTTPS
-    HTTPS_ONLY: bool = False
+    HTTPS_ONLY: bool = True
 
     # Duo MFA (optional)
     DUO_ENABLED: bool = False

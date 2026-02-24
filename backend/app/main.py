@@ -8,9 +8,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from app.extensions import limiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
@@ -26,7 +26,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-limiter = Limiter(key_func=get_remote_address)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 

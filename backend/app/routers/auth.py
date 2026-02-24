@@ -19,6 +19,7 @@ from app.schemas.auth import (
     RefreshTokenRequest, LDAPConfigRequest, DuoCallbackRequest
 )
 from app.config import settings
+from app.extensions import limiter
 from datetime import datetime, timezone, timedelta
 import logging
 
@@ -34,6 +35,7 @@ def get_client_ip(request: Request) -> str:
 
 
 @router.post("/login")
+@limiter.limit(settings.RATE_LIMIT_LOGIN)
 async def login(
     request: Request,
     payload: LoginRequest,
