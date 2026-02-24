@@ -2223,3 +2223,167 @@ a.stat-card {
   align-items: center;
   flex-shrink: 0;
 }
+
+/* ─── Topology Rack Visualization ─────────────────────────────────────────── */
+
+.topo-rack { cursor: grab; }
+.topo-rack:active { cursor: grabbing; }
+
+.topo-rack-body {
+  fill: #f8fafc;
+  stroke: #cbd5e1;
+  stroke-width: 2;
+}
+
+.topo-rack-header {
+  fill: #334155;
+}
+
+.topo-rack-header-text {
+  fill: white;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  user-select: none;
+  pointer-events: none;
+}
+
+.topo-rack-footer {
+  fill: #475569;
+}
+
+.topo-rack-rail {
+  stroke: #94a3b8;
+  stroke-width: 3;
+  opacity: 0.4;
+}
+
+.topo-rack-slot {
+  stroke: #e2e8f0;
+  stroke-width: 1;
+}
+
+.topo-device-spine {
+  stroke: white;
+  stroke-width: 2.5;
+  cursor: pointer;
+}
+
+.topo-device-leaf {
+  stroke: white;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.topo-device-firewall {
+  stroke: white;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.topo-device-label {
+  fill: white;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+}
+
+.topo-device-hostname {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--text-main);
+  pointer-events: none;
+  user-select: none;
+}
+
+.topo-device-ip {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+.topo-server-unit {
+  fill: #e2e8f0;
+  stroke: #cbd5e1;
+  stroke-width: 1;
+}
+
+.topo-server-text {
+  font-size: 7px;
+  fill: #64748b;
+  font-family: 'DM Mono', monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+.topo-server-dot {
+  fill: #94a3b8;
+}
+
+.topo-server-led {
+  fill: #22c55e;
+}
+
+.topo-tooltip {
+  pointer-events: none;
+}
+
+.topo-tooltip rect {
+  fill: #1e293b;
+  opacity: 0.95;
+  rx: 8;
+}
+
+.topo-tooltip text {
+  fill: white;
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.topo-link {
+  stroke-width: 1.5;
+  opacity: 0.5;
+  fill: none;
+}
+
+.topo-link--highlighted {
+  stroke-width: 2.5;
+  opacity: 0.9;
+}
+
+.topo-link--manual {
+  stroke-dasharray: 6,3;
+}
+
+.topo-link--lldp {
+  stroke: #94a3b8;
+}
+
+.topo-link--manual-color {
+  stroke: #a78bfa;
+}
+
+.topo-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.topo-legend__shape {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.topo-section-separator {
+  stroke: #e2e8f0;
+  stroke-width: 1;
+  stroke-dasharray: 4,3;
+  opacity: 0.6;
+}
