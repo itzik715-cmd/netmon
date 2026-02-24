@@ -199,6 +199,12 @@ export default function DeviceDetailPage() {
     refetchInterval: 60_000,
   })
 
+  const { data: utilization } = useQuery({
+    queryKey: ['interfaces-utilization', deviceId],
+    queryFn: () => interfacesApi.utilization(deviceId).then((r) => r.data as Record<number, { utilization_in: number; utilization_out: number; in_bps: number; out_bps: number }>),
+    refetchInterval: 60_000,
+  })
+
   const { data: routes, isLoading: routesLoading } = useQuery({
     queryKey: ['device-routes', deviceId],
     queryFn: () => devicesApi.routes(deviceId).then((r) => r.data as DeviceRoute[]),
@@ -459,6 +465,7 @@ export default function DeviceDetailPage() {
                       />
                     </FilterTh>
 
+                    <th>Utilization</th>
                     <th>IP Address</th>
                     <th>VLAN</th>
                     <th></th>
@@ -487,6 +494,24 @@ export default function DeviceDetailPage() {
                           ? <span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status}</span>
                           : <span className="tag-gray">—</span>}
                       </td>
+                      <td>
+                        {(() => {
+                          const u = utilization?.[iface.id]
+                          if (!u) return <span style={{ color: 'var(--text-light)', fontSize: 12 }}>—</span>
+                          const pct = Math.max(u.utilization_in, u.utilization_out)
+                          const color = pct >= 85 ? '#e74c3c' : pct >= 75 ? '#f39c12' : '#27ae60'
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ width: 48, height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.3s' }} />
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 600, color, fontFamily: 'DM Mono, monospace' }}>
+                                {pct.toFixed(1)}%
+                              </span>
+                            </div>
+                          )
+                        })()}
+                      </td>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{iface.ip_address || '—'}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{iface.vlan_id || '—'}</td>
                       <td>
@@ -495,7 +520,7 @@ export default function DeviceDetailPage() {
                     </tr>
                   ))}
                   {pagedIfs.length === 0 && (
-                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
                       {interfaces?.length === 0
                         ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
                         : 'No interfaces match the active filters'}

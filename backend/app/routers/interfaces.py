@@ -27,6 +27,45 @@ async def get_device_interfaces(
     return result.scalars().all()
 
 
+@router.get("/device/{device_id}/utilization")
+async def get_device_interfaces_utilization(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return the latest utilization for every interface of a device."""
+    # Subquery: latest metric timestamp per interface
+    latest_ts = (
+        select(
+            InterfaceMetric.interface_id,
+            sqlfunc.max(InterfaceMetric.timestamp).label("max_ts"),
+        )
+        .join(Interface, Interface.id == InterfaceMetric.interface_id)
+        .where(Interface.device_id == device_id)
+        .group_by(InterfaceMetric.interface_id)
+        .subquery()
+    )
+    # Join back to get the full metric row
+    result = await db.execute(
+        select(InterfaceMetric)
+        .join(
+            latest_ts,
+            (InterfaceMetric.interface_id == latest_ts.c.interface_id)
+            & (InterfaceMetric.timestamp == latest_ts.c.max_ts),
+        )
+    )
+    metrics = result.scalars().all()
+    return {
+        m.interface_id: {
+            "utilization_in": round(m.utilization_in or 0, 2),
+            "utilization_out": round(m.utilization_out or 0, 2),
+            "in_bps": m.in_bps or 0,
+            "out_bps": m.out_bps or 0,
+        }
+        for m in metrics
+    }
+
+
 @router.get("/wan/list")
 async def get_wan_interfaces(
     db: AsyncSession = Depends(get_db),

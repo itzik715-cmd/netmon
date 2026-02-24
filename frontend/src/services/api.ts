@@ -98,6 +98,7 @@ export const devicesApi = {
 // Interfaces
 export const interfacesApi = {
   byDevice: (deviceId: number) => api.get(`/interfaces/device/${deviceId}`),
+  utilization: (deviceId: number) => api.get(`/interfaces/device/${deviceId}/utilization`),
   get: (id: number) => api.get(`/interfaces/${id}`),
   metrics: (id: number, hours?: number) =>
     api.get(`/interfaces/${id}/metrics`, { params: { hours } }),
