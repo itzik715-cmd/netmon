@@ -1,9 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { devicesApi, alertsApi, blocksApi } from '../services/api'
+import { devicesApi, alertsApi, blocksApi, interfacesApi } from '../services/api'
 import { Link } from 'react-router-dom'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, format } from 'date-fns'
 import { AlertEvent, Device } from '../types'
-import { Server, CheckCircle, ShieldAlert, Ban, AlertTriangle, XCircle } from 'lucide-react'
+import { Server, CheckCircle, ShieldAlert, Ban, AlertTriangle, XCircle, Activity } from 'lucide-react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Legend, ReferenceLine,
+} from 'recharts'
 
 function statusTag(status: string) {
   const map: Record<string, string> = {
@@ -70,6 +74,12 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   })
 
+  const { data: wanData, isLoading: wanLoading } = useQuery({
+    queryKey: ['wan-metrics', 24],
+    queryFn: () => interfacesApi.wanMetrics(24).then((r) => r.data),
+    refetchInterval: 60_000,
+  })
+
   const downDevices = (devices as Device[] | undefined)?.filter((d) => d.status === 'down') || []
   const totalDevices = summary?.total_devices ?? 0
   const devicesUp = summary?.devices_up ?? 0
@@ -81,6 +91,31 @@ export default function DashboardPage() {
       deviceMap.set(d.id, d)
     }
   }
+
+  // WAN chart data
+  const wanP95In = wanData?.p95_in_bps || 0
+  const wanP95Out = wanData?.p95_out_bps || 0
+  const allInMbps = (wanData?.timeseries || []).map((m: any) => m.in_bps / 1_000_000)
+  const allOutMbps = (wanData?.timeseries || []).map((m: any) => m.out_bps / 1_000_000)
+  const maxMbps = Math.max(0, ...allInMbps, ...allOutMbps, wanP95In / 1_000_000, wanP95Out / 1_000_000)
+  const useGbps = maxMbps > 1024
+  const divisor = useGbps ? 1_000_000_000 : 1_000_000
+  const wanUnit = useGbps ? 'Gbps' : 'Mbps'
+  const wanP95 = Math.max(wanP95In, wanP95Out)
+  const wanP95Chart = +(wanP95 / divisor).toFixed(3)
+
+  const formatBps = (bps: number): string => {
+    if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
+    if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(2)} Mbps`
+    if (bps >= 1_000) return `${(bps / 1_000).toFixed(2)} Kbps`
+    return `${bps.toFixed(0)} bps`
+  }
+
+  const wanChartData = (wanData?.timeseries || []).map((m: any) => ({
+    time: format(new Date(m.timestamp), 'HH:mm'),
+    [`In (${wanUnit})`]: +(m.in_bps / divisor).toFixed(3),
+    [`Out (${wanUnit})`]: +(m.out_bps / divisor).toFixed(3),
+  }))
 
   return (
     <div className="content">
@@ -223,6 +258,49 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* WAN Throughput */}
+      <div className="card">
+        <div className="card-header">
+          <Activity size={15} />
+          <h3>Aggregate WAN Throughput — Last 24h</h3>
+          <Link to="/wan" className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}>
+            View WAN Dashboard
+          </Link>
+        </div>
+        <div className="card-body">
+          {wanLoading ? (
+            <div className="empty-state"><p>Loading...</p></div>
+          ) : wanChartData.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state__icon"><Activity size={48} /></div>
+              <div className="empty-state__title">No WAN data</div>
+              <div className="empty-state__description">Mark interfaces as WAN to see aggregate throughput here.</div>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={wanChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${wanUnit}`} width={80} />
+                <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }} />
+                <Legend />
+                <Line type="monotone" dataKey={`In (${wanUnit})`} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                <Line type="monotone" dataKey={`Out (${wanUnit})`} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                {wanP95 > 0 && (
+                  <ReferenceLine
+                    y={wanP95Chart}
+                    stroke="#e74c3c"
+                    strokeDasharray="6 4"
+                    strokeWidth={2}
+                    label={{ value: `95th: ${formatBps(wanP95)}`, position: 'insideTopRight', fill: '#e74c3c', fontSize: 12, fontWeight: 600 }}
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
