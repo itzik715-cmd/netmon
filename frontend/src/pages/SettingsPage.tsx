@@ -182,7 +182,7 @@ export default function SettingsPage() {
               {[
                 { title: 'Password Policy', items: ['Minimum length: 10 characters', 'Must include uppercase, lowercase, number, and special character', 'Hashed with bcrypt (cost factor 12)'] },
                 { title: 'Account Lockout', items: ['Locked after 5 failed login attempts', 'Lockout duration: 30 minutes', 'Administrators can manually unlock accounts'] },
-                { title: 'Session Security', items: ['JWT access tokens: 60 minute expiry', 'Refresh tokens: 7 day expiry', 'Security headers: HSTS, X-Frame-Options, CSP'] },
+                { title: 'Session Security', items: ['JWT access tokens: 60 minute expiry', 'Refresh tokens: 7 day expiry', 'Maximum session duration: 4 hours (readonly role exempt)', 'Security headers: HSTS, X-Frame-Options, CSP'] },
                 { title: 'API Security', items: ['RBAC enforced on all API endpoints', 'Rate limiting on login endpoint (10/minute)', 'All changes logged to audit trail'] },
               ].map(({ title, items }) => (
                 <div key={title} className="form-section">

@@ -12,7 +12,9 @@ interface AuthState {
   token: string | null
   refreshToken: string | null
   user: AuthUser | null
-  setAuth: (token: string, refreshToken: string, user: AuthUser) => void
+  sessionStart: string | null
+  sessionMaxSeconds: number | null
+  setAuth: (token: string, refreshToken: string, user: AuthUser, sessionStart?: string | null, sessionMaxSeconds?: number | null) => void
   updateUser: (updates: Partial<AuthUser>) => void
   logout: () => void
 }
@@ -23,12 +25,19 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshToken: null,
       user: null,
-      setAuth: (token, refreshToken, user) => set({ token, refreshToken, user }),
+      sessionStart: null,
+      sessionMaxSeconds: null,
+      setAuth: (token, refreshToken, user, sessionStart, sessionMaxSeconds) =>
+        set({
+          token, refreshToken, user,
+          ...(sessionStart !== undefined ? { sessionStart } : {}),
+          ...(sessionMaxSeconds !== undefined ? { sessionMaxSeconds } : {}),
+        }),
       updateUser: (updates) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...updates } : null,
         })),
-      logout: () => set({ token: null, refreshToken: null, user: null }),
+      logout: () => set({ token: null, refreshToken: null, user: null, sessionStart: null, sessionMaxSeconds: null }),
     }),
     {
       name: 'netmon-auth',
@@ -36,6 +45,8 @@ export const useAuthStore = create<AuthState>()(
         token: state.token,
         refreshToken: state.refreshToken,
         user: state.user,
+        sessionStart: state.sessionStart,
+        sessionMaxSeconds: state.sessionMaxSeconds,
       }),
     }
   )

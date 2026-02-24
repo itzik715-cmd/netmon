@@ -43,12 +43,15 @@ class Token(BaseModel):
     expires_in: int
     must_change_password: bool = False
     role: str
+    session_start: Optional[str] = None
+    session_max_seconds: Optional[int] = None
 
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
     role: Optional[str] = None
+    session_start: Optional[str] = None
 
 
 class DuoCallbackRequest(BaseModel):

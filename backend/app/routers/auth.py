@@ -19,7 +19,7 @@ from app.schemas.auth import (
     RefreshTokenRequest, LDAPConfigRequest, DuoCallbackRequest
 )
 from app.config import settings
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -99,15 +99,16 @@ async def login(
             )
 
     # No Duo — issue tokens directly
+    session_start = datetime.now(timezone.utc).isoformat()
     access_token = create_access_token({
         "sub": str(user.id),
         "username": user.username,
         "role": role_name,
     })
-    refresh_token = create_refresh_token({
-        "sub": str(user.id),
-        "username": user.username,
-    })
+    refresh_token = create_refresh_token(
+        {"sub": str(user.id), "username": user.username},
+        session_start=session_start,
+    )
 
     await log_audit(
         db, "login_success", user_id=user.id, username=user.username,
@@ -115,12 +116,16 @@ async def login(
         details=f"auth_source={auth_source}"
     )
 
+    session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
+
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         must_change_password=user.must_change_password,
         role=role_name,
+        session_start=session_start,
+        session_max_seconds=session_max,
     )
 
 
@@ -177,15 +182,16 @@ async def duo_callback(
         )
 
     # Issue tokens
+    session_start = datetime.now(timezone.utc).isoformat()
     access_token = create_access_token({
         "sub": str(user_data["user_id"]),
         "username": username,
         "role": user_data["role"],
     })
-    refresh_token_str = create_refresh_token({
-        "sub": str(user_data["user_id"]),
-        "username": username,
-    })
+    refresh_token_str = create_refresh_token(
+        {"sub": str(user_data["user_id"]), "username": username},
+        session_start=session_start,
+    )
 
     await log_audit(
         db, "login_success", user_id=user_data["user_id"],
@@ -193,12 +199,17 @@ async def duo_callback(
         details=f"auth_source={user_data['auth_source']}, mfa=duo"
     )
 
+    role_name = user_data["role"]
+    session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
+
     return Token(
         access_token=access_token,
         refresh_token=refresh_token_str,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         must_change_password=user_data["must_change_password"],
-        role=user_data["role"],
+        role=role_name,
+        session_start=session_start,
+        session_max_seconds=session_max,
     )
 
 
@@ -241,15 +252,33 @@ async def refresh_token(
     await db.refresh(user, ["role"])
     role_name = user.role.name if user.role else "readonly"
 
+    # Enforce session max duration (except readonly role)
+    session_start = token_data.session_start
+    if session_start and role_name != "readonly" and settings.SESSION_MAX_HOURS > 0:
+        try:
+            start_dt = datetime.fromisoformat(session_start)
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+            elapsed = datetime.now(timezone.utc) - start_dt
+            if elapsed > timedelta(hours=settings.SESSION_MAX_HOURS):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session expired. Please log in again.",
+                )
+        except ValueError:
+            pass  # Malformed timestamp — allow refresh to proceed
+
     new_access_token = create_access_token({
         "sub": str(user.id),
         "username": user.username,
         "role": role_name,
     })
-    new_refresh_token = create_refresh_token({
-        "sub": str(user.id),
-        "username": user.username,
-    })
+    new_refresh_token = create_refresh_token(
+        {"sub": str(user.id), "username": user.username},
+        session_start=session_start,
+    )
+
+    session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
 
     return Token(
         access_token=new_access_token,
@@ -257,6 +286,8 @@ async def refresh_token(
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         must_change_password=user.must_change_password,
         role=role_name,
+        session_start=session_start,
+        session_max_seconds=session_max,
     )
 
 

@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     LDAP_GROUP_READONLY: str = "CN=NetMon-ReadOnly"
     LDAP_LOCAL_FALLBACK: bool = True
 
+    # Session
+    SESSION_MAX_HOURS: int = 4  # Auto-logout after N hours (0 = disabled). Readonly role is exempt.
+
     # HTTPS
     HTTPS_ONLY: bool = False
 

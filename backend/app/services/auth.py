@@ -36,10 +36,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(data: dict) -> str:
+def create_refresh_token(data: dict, session_start: Optional[str] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({
+        "exp": expire,
+        "type": "refresh",
+        "session_start": session_start or datetime.now(timezone.utc).isoformat(),
+    })
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -49,9 +53,10 @@ def decode_token(token: str) -> Optional[TokenData]:
         user_id: int = payload.get("sub")
         username: str = payload.get("username")
         role: str = payload.get("role")
+        session_start: str = payload.get("session_start")
         if user_id is None:
             return None
-        return TokenData(user_id=int(user_id), username=username, role=role)
+        return TokenData(user_id=int(user_id), username=username, role=role, session_start=session_start)
     except JWTError:
         return None
 

@@ -30,9 +30,9 @@ export default function LoginPage() {
     setError('')
     try {
       const response = await authApi.duoCallback(duoCode, state)
-      const { access_token, refresh_token, role, must_change_password } = response.data
+      const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = response.data
 
-      setAuth(access_token, refresh_token, { id: 0, username: '', role, must_change_password })
+      setAuth(access_token, refresh_token, { id: 0, username: '', role, must_change_password }, session_start, session_max_seconds)
 
       const meResponse = await authApi.me()
       setAuth(access_token, refresh_token, {
@@ -40,7 +40,7 @@ export default function LoginPage() {
         username: meResponse.data.username,
         role: meResponse.data.role,
         must_change_password: meResponse.data.must_change_password,
-      })
+      }, session_start, session_max_seconds)
 
       if (must_change_password) {
         toast('Password change required on first login', { icon: '\u26A0\uFE0F' })
@@ -73,9 +73,9 @@ export default function LoginPage() {
       }
 
       // Normal flow (Duo not enabled)
-      const { access_token, refresh_token, role, must_change_password } = data
+      const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = data
 
-      setAuth(access_token, refresh_token, { id: 0, username, role, must_change_password })
+      setAuth(access_token, refresh_token, { id: 0, username, role, must_change_password }, session_start, session_max_seconds)
 
       const meResponse = await authApi.me()
       setAuth(access_token, refresh_token, {
@@ -83,7 +83,7 @@ export default function LoginPage() {
         username: meResponse.data.username,
         role: meResponse.data.role,
         must_change_password: meResponse.data.must_change_password,
-      })
+      }, session_start, session_max_seconds)
 
       if (must_change_password) {
         toast('Password change required on first login', { icon: '\u26A0\uFE0F' })

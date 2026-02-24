@@ -30,14 +30,14 @@ api.interceptors.response.use(
           const response = await axios.post('/api/auth/refresh', {
             refresh_token: refreshToken,
           })
-          const { access_token, refresh_token, role, must_change_password } = response.data
+          const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = response.data
           const currentUser = useAuthStore.getState().user
           if (currentUser) {
             useAuthStore.getState().setAuth(access_token, refresh_token, {
               ...currentUser,
               role,
               must_change_password,
-            })
+            }, session_start, session_max_seconds)
           }
           originalRequest.headers.Authorization = `Bearer ${access_token}`
           return api(originalRequest)
