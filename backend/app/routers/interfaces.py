@@ -101,6 +101,8 @@ async def get_wan_interfaces(
 @router.get("/wan/metrics")
 async def get_wan_metrics(
     hours: int = 24,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -119,14 +121,26 @@ async def get_wan_metrics(
     wan_ids = [row[0] for row in wan_ifaces]
     total_speed = sum((row[1] or 0) for row in wan_ifaces)
 
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    # Build time filter
+    if start:
+        since = datetime.fromisoformat(start)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        until = None
+        if end:
+            until = datetime.fromisoformat(end)
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        until = None
 
+    time_where = [InterfaceMetric.interface_id.in_(wan_ids), InterfaceMetric.timestamp >= since]
+    if until:
+        time_where.append(InterfaceMetric.timestamp <= until)
     result = await db.execute(
         select(InterfaceMetric)
-        .where(
-            InterfaceMetric.interface_id.in_(wan_ids),
-            InterfaceMetric.timestamp >= since,
-        )
+        .where(*time_where)
         .order_by(InterfaceMetric.timestamp.asc())
     )
     metrics = result.scalars().all()
@@ -198,17 +212,27 @@ async def get_interface(
 async def get_interface_metrics(
     interface_id: int,
     hours: int = 24,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Get historical metrics for an interface (default last 24h)."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    if start:
+        since = datetime.fromisoformat(start)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    time_where = [InterfaceMetric.interface_id == interface_id, InterfaceMetric.timestamp >= since]
+    if start and end:
+        until = datetime.fromisoformat(end)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        time_where.append(InterfaceMetric.timestamp <= until)
     result = await db.execute(
         select(InterfaceMetric)
-        .where(
-            InterfaceMetric.interface_id == interface_id,
-            InterfaceMetric.timestamp >= since,
-        )
+        .where(*time_where)
         .order_by(InterfaceMetric.timestamp.asc())
         .limit(2000)
     )

@@ -8,7 +8,7 @@ import {
 import {
   Search, Globe, Copy, ExternalLink, X, ArrowUpRight, ArrowDownLeft,
   Activity, HardDrive, BarChart3, Check, AlertTriangle, Clock,
-  Filter, Loader2,
+  Filter, Loader2, Calendar,
 } from 'lucide-react'
 
 const COLORS_OUT = ['#0284c7', '#38bdf8', '#7dd3fc', '#bae6fd', '#0369a1', '#075985', '#0c4a6e', '#0ea5e9']
@@ -31,6 +31,93 @@ const TIME_RANGES = [
 ]
 
 const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
+
+type TimeRange =
+  | { mode: 'preset'; hours: number }
+  | { mode: 'custom'; start: string; end: string; label: string }
+
+function timeParams(tr: TimeRange): Record<string, string | number> {
+  return tr.mode === 'preset'
+    ? { hours: tr.hours }
+    : { start: tr.start, end: tr.end }
+}
+
+function toLocalInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function formatRangeLabel(start: string, end: string): string {
+  const s = new Date(start)
+  const e = new Date(end)
+  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return `${fmt(s)} \u2013 ${fmt(e)}`
+}
+
+// -- Custom Range Picker -------------------------------------------------------
+function CustomRangePicker({
+  active,
+  onApply,
+  onClear,
+}: {
+  active: TimeRange
+  onApply: (start: string, end: string) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const now = new Date()
+  const ago24 = new Date(now.getTime() - 24 * 3600_000)
+  const [from, setFrom] = useState(toLocalInput(ago24))
+  const [to, setTo] = useState(toLocalInput(now))
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function apply() {
+    if (from && to) {
+      onApply(new Date(from).toISOString(), new Date(to).toISOString())
+      setOpen(false)
+    }
+  }
+
+  const isCustom = active.mode === 'custom'
+
+  return (
+    <div ref={ref} className="time-range-custom">
+      <button
+        className={`time-btn${isCustom ? ' active' : ''}`}
+        onClick={() => { if (isCustom) { onClear() } else { setOpen(!open) } }}
+        title={isCustom ? 'Click to clear custom range' : 'Select custom date range'}
+      >
+        <Calendar size={11} />
+        {isCustom ? (active as any).label : 'Custom'}
+      </button>
+      {open && (
+        <div className="time-range-popover">
+          <div className="time-range-popover__title">Custom Time Range</div>
+          <div className="time-range-popover__field">
+            <label className="form-label">From</label>
+            <input type="datetime-local" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div className="time-range-popover__field">
+            <label className="form-label">To</label>
+            <input type="datetime-local" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <div className="time-range-popover__actions">
+            <button className="btn btn-outline btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={apply}>Apply</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const PORT_NAMES: Record<number, string> = {
   20: 'FTP-Data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
@@ -271,11 +358,11 @@ function TrafficBalance({ sent, received }: { sent: number; received: number }) 
 
 // -- IP Profile card -----------------------------------------------------------
 function IpProfile({
-  ip, hours, selectedPeer, onSelectPeer, onClear, onNavigateIp,
+  ip, timeRangeParams, selectedPeer, onSelectPeer, onClear, onNavigateIp,
   displayedConversations,
 }: {
   ip: string
-  hours: number
+  timeRangeParams: Record<string, string | number>
   selectedPeer: string
   onSelectPeer: (peer: string) => void
   onClear: () => void
@@ -283,8 +370,8 @@ function IpProfile({
   displayedConversations: any[]
 }) {
   const { data: profile, isLoading } = useQuery({
-    queryKey: ['ip-profile', ip, hours],
-    queryFn: () => flowsApi.ipProfile(ip, hours).then((r) => r.data),
+    queryKey: ['ip-profile', ip, timeRangeParams],
+    queryFn: () => flowsApi.ipProfile(ip, timeRangeParams).then((r) => r.data),
     enabled: !!ip,
   })
 
@@ -519,11 +606,13 @@ function IpProfile({
 
 // -- main page -----------------------------------------------------------------
 export default function FlowsPage() {
-  const [hours, setHours]           = useState(1)
+  const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 1 })
   const [searchIp, setSearchIp]     = useState('')
   const [selectedPeer, setSelectedPeer] = useState('')
   // null = "all selected" (no filter sent); otherwise a Set of selected device IDs
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number> | null>(null)
+
+  const trParams = timeParams(timeRange)
 
   function handleSearchChange(ip: string) {
     addRecentIp(ip)
@@ -544,7 +633,7 @@ export default function FlowsPage() {
   // Reset selection when time range changes
   useEffect(() => {
     setSelectedDeviceIds(null)
-  }, [hours])
+  }, [timeRange])
 
   function toggleDevice(id: number) {
     const allIds = new Set(flowDevices.map((d) => d.id))
@@ -567,16 +656,16 @@ export default function FlowsPage() {
       : [...selectedDeviceIds].join(',')
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['flow-stats', hours, deviceIdsParam],
-    queryFn: () => flowsApi.stats({ hours, ...(deviceIdsParam ? { device_ids: deviceIdsParam } : {}) }).then((r) => r.data),
+    queryKey: ['flow-stats', trParams, deviceIdsParam],
+    queryFn: () => flowsApi.stats({ ...trParams, ...(deviceIdsParam ? { device_ids: deviceIdsParam } : {}) }).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
   const { data: conversations } = useQuery({
-    queryKey: ['flow-conversations', hours, searchIp, deviceIdsParam],
+    queryKey: ['flow-conversations', trParams, searchIp, deviceIdsParam],
     queryFn: () =>
       flowsApi.conversations({
-        hours,
+        ...trParams,
         limit: 100,
         ...(searchIp ? { ip: searchIp } : {}),
         ...(deviceIdsParam ? { device_ids: deviceIdsParam } : {}),
@@ -610,12 +699,17 @@ export default function FlowsPage() {
             {TIME_RANGES.map((r) => (
               <button
                 key={r.hours}
-                onClick={() => setHours(r.hours)}
-                className={`time-btn${hours === r.hours ? ' active' : ''}`}
+                onClick={() => setTimeRange({ mode: 'preset', hours: r.hours })}
+                className={`time-btn${timeRange.mode === 'preset' && timeRange.hours === r.hours ? ' active' : ''}`}
               >
                 {r.label}
               </button>
             ))}
+            <CustomRangePicker
+              active={timeRange}
+              onApply={(start, end) => setTimeRange({ mode: 'custom', start, end, label: formatRangeLabel(start, end) })}
+              onClear={() => setTimeRange({ mode: 'preset', hours: 1 })}
+            />
           </div>
         </div>
       </div>
@@ -657,7 +751,7 @@ export default function FlowsPage() {
       {searchIp && (
         <IpProfile
           ip={searchIp}
-          hours={hours}
+          timeRangeParams={trParams}
           selectedPeer={selectedPeer}
           onSelectPeer={setSelectedPeer}
           onClear={() => { setSearchIp(''); setSelectedPeer('') }}

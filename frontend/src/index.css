@@ -1067,7 +1067,7 @@ tbody tr:hover td { background: var(--primary-50); }
 /* ═══════════════════════════════════════════════════════════
    TIME RANGE
    ═══════════════════════════════════════════════════════════ */
-.time-range-bar { display: flex; gap: 4px; }
+.time-range-bar { display: flex; gap: 4px; align-items: center; }
 .time-btn {
   padding: 5px 12px; border-radius: var(--radius-sm);
   font-size: 12px; font-weight: 600;
@@ -1075,9 +1075,57 @@ tbody tr:hover td { background: var(--primary-50); }
   background: var(--surface-card); color: var(--text-muted);
   transition: all var(--transition-fast);
   font-family: var(--font-sans);
+  display: inline-flex; align-items: center; gap: 4px;
 }
 .time-btn:hover { border-color: var(--primary); color: var(--primary); }
 .time-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+.time-btn svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+/* Custom range picker */
+.time-range-custom {
+  position: relative;
+}
+
+.time-range-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 16px;
+  width: 280px;
+  animation: fadeIn var(--transition-fast);
+}
+
+.time-range-popover__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.time-range-popover__field {
+  margin-bottom: 10px;
+}
+.time-range-popover__field .form-label {
+  margin-bottom: 4px;
+}
+.time-range-popover__field .form-input {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.time-range-popover__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 
 
 /* ═══════════════════════════════════════════════════════════

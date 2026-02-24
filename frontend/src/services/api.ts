@@ -103,13 +103,13 @@ export const interfacesApi = {
   byDevice: (deviceId: number) => api.get(`/interfaces/device/${deviceId}`),
   utilization: (deviceId: number) => api.get(`/interfaces/device/${deviceId}/utilization`),
   get: (id: number) => api.get(`/interfaces/${id}`),
-  metrics: (id: number, hours?: number) =>
-    api.get(`/interfaces/${id}/metrics`, { params: { hours } }),
+  metrics: (id: number, params?: object) =>
+    api.get(`/interfaces/${id}/metrics`, { params }),
   latest: (id: number) => api.get(`/interfaces/${id}/latest`),
   toggleMonitor: (id: number) => api.patch(`/interfaces/${id}/toggle-monitor`),
   toggleWan: (id: number) => api.patch(`/interfaces/${id}/toggle-wan`),
   wanList: () => api.get('/interfaces/wan/list'),
-  wanMetrics: (hours?: number) => api.get('/interfaces/wan/metrics', { params: { hours } }),
+  wanMetrics: (params?: object) => api.get('/interfaces/wan/metrics', { params }),
 }
 
 // Alerts
@@ -129,7 +129,7 @@ export const alertsApi = {
 export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),
   conversations: (params?: object) => api.get('/flows/conversations', { params }),
-  ipProfile: (ip: string, hours: number) => api.get('/flows/ip-profile', { params: { ip, hours } }),
+  ipProfile: (ip: string, params?: object) => api.get('/flows/ip-profile', { params: { ip, ...params } }),
 }
 
 // Users

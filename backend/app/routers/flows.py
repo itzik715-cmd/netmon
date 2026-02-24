@@ -14,17 +14,36 @@ router = APIRouter(prefix="/api/flows", tags=["Flow Analysis"])
 PROTOCOL_MAP = {1: "ICMP", 6: "TCP", 17: "UDP", 47: "GRE", 89: "OSPF"}
 
 
+def _time_filter(model_ts, hours: int, start: Optional[str] = None, end: Optional[str] = None) -> list:
+    """Build time-range filter clauses.  If start/end provided, use them; otherwise fall back to hours."""
+    if start:
+        since = datetime.fromisoformat(start)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        filters = [model_ts >= since]
+        if end:
+            until = datetime.fromisoformat(end)
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            filters.append(model_ts <= until)
+        return filters
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    return [model_ts >= since]
+
+
 @router.get("/devices")
 async def get_flow_devices(
     hours: int = 1,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Return devices that have sent flow records in the given time window."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
     rows = (await db.execute(
         select(FlowRecord.device_id, func.count(FlowRecord.id).label("flow_count"))
-        .where(FlowRecord.timestamp >= since)
+        .where(*time_filters)
         .where(FlowRecord.device_id.isnot(None))
         .group_by(FlowRecord.device_id)
         .order_by(desc("flow_count"))
@@ -63,14 +82,15 @@ def _device_filter(device_ids_str: Optional[str], device_id: Optional[int]) -> l
 @router.get("/stats")
 async def get_flow_stats(
     hours: int = 1,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     device_id: Optional[int] = None,
     device_ids: Optional[str] = None,   # comma-separated device IDs
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    base_filter = [FlowRecord.timestamp >= since] + _device_filter(device_ids, device_id)
+    base_filter = _time_filter(FlowRecord.timestamp, hours, start, end) + _device_filter(device_ids, device_id)
 
     # Top talkers (src IP by bytes)
     talkers_q = await db.execute(
@@ -147,6 +167,8 @@ async def get_flow_stats(
 @router.get("/conversations")
 async def get_conversations(
     hours: int = 1,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     device_id: Optional[int] = None,
     device_ids: Optional[str] = None,  # comma-separated device IDs
     ip: Optional[str] = None,          # match either src OR dst
@@ -157,8 +179,8 @@ async def get_conversations(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    query = select(FlowRecord).where(FlowRecord.timestamp >= since)
+    time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
+    query = select(FlowRecord).where(*time_filters)
 
     for clause in _device_filter(device_ids, device_id):
         query = query.where(clause)
@@ -196,36 +218,37 @@ async def get_conversations(
 async def get_ip_profile(
     ip: str,
     hours: int = 1,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Return an activity summary for a single IP address."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    ip_filter = FlowRecord.timestamp >= since
+    time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
 
     # Bytes/flows when this IP is the source
     sent_row = (await db.execute(
         select(func.sum(FlowRecord.bytes), func.count(FlowRecord.id))
-        .where(ip_filter, FlowRecord.src_ip == ip)
+        .where(*time_filters, FlowRecord.src_ip == ip)
     )).first()
 
     # Bytes/flows when this IP is the destination
     recv_row = (await db.execute(
         select(func.sum(FlowRecord.bytes), func.count(FlowRecord.id))
-        .where(ip_filter, FlowRecord.dst_ip == ip)
+        .where(*time_filters, FlowRecord.dst_ip == ip)
     )).first()
 
     # Top peers — combine both directions, rank by total bytes
     as_src = (await db.execute(
         select(FlowRecord.dst_ip.label("peer"), func.sum(FlowRecord.bytes).label("bytes"))
-        .where(ip_filter, FlowRecord.src_ip == ip)
+        .where(*time_filters, FlowRecord.src_ip == ip)
         .group_by(FlowRecord.dst_ip)
         .order_by(desc("bytes"))
         .limit(10)
     )).all()
     as_dst = (await db.execute(
         select(FlowRecord.src_ip.label("peer"), func.sum(FlowRecord.bytes).label("bytes"))
-        .where(ip_filter, FlowRecord.dst_ip == ip)
+        .where(*time_filters, FlowRecord.dst_ip == ip)
         .group_by(FlowRecord.src_ip)
         .order_by(desc("bytes"))
         .limit(10)
@@ -246,7 +269,7 @@ async def get_ip_profile(
         select(FlowRecord.protocol_name,
                func.count(FlowRecord.id).label("count"),
                func.sum(FlowRecord.bytes).label("bytes"))
-        .where(ip_filter, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
+        .where(*time_filters, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
         .group_by(FlowRecord.protocol_name)
         .order_by(desc("bytes"))
     )).all()

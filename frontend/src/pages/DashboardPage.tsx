@@ -76,7 +76,7 @@ export default function DashboardPage() {
 
   const { data: wanData, isLoading: wanLoading } = useQuery({
     queryKey: ['wan-metrics', 24],
-    queryFn: () => interfacesApi.wanMetrics(24).then((r) => r.data),
+    queryFn: () => interfacesApi.wanMetrics({ hours: 24 }).then((r) => r.data),
     refetchInterval: 60_000,
   })
 

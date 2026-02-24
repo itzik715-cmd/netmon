@@ -5,6 +5,7 @@ import csv
 import io
 from datetime import datetime, timezone, timedelta
 
+from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,15 +123,28 @@ async def report_interfaces(
 @router.get("/alerts")
 async def report_alerts(
     hours: int = Query(168, description="Hours of history"),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Export alert events as CSV."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    if start:
+        cutoff = datetime.fromisoformat(start)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    time_filters = [AlertEvent.triggered_at >= cutoff]
+    if start and end:
+        until = datetime.fromisoformat(end)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        time_filters.append(AlertEvent.triggered_at <= until)
     result = await db.execute(
         select(AlertEvent, AlertRule)
         .join(AlertRule, AlertEvent.rule_id == AlertRule.id)
-        .where(AlertEvent.triggered_at >= cutoff)
+        .where(*time_filters)
         .order_by(AlertEvent.triggered_at.desc())
     )
     rows = [
@@ -153,15 +167,28 @@ async def report_alerts(
 @router.get("/flows")
 async def report_flows(
     hours: int = Query(24, description="Hours of history"),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     limit: int = Query(10000, le=50000),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Export flow records as CSV."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    if start:
+        cutoff = datetime.fromisoformat(start)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    time_filters = [FlowRecord.timestamp >= cutoff]
+    if start and end:
+        until = datetime.fromisoformat(end)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        time_filters.append(FlowRecord.timestamp <= until)
     result = await db.execute(
         select(FlowRecord)
-        .where(FlowRecord.timestamp >= cutoff)
+        .where(*time_filters)
         .order_by(FlowRecord.timestamp.desc())
         .limit(limit)
     )

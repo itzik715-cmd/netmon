@@ -37,7 +37,7 @@ export default function InterfaceDetailPage() {
 
   const { data: metrics, isLoading } = useQuery({
     queryKey: ['interface-metrics', ifId, hours],
-    queryFn: () => interfacesApi.metrics(ifId, hours).then((r) => r.data as InterfaceMetric[]),
+    queryFn: () => interfacesApi.metrics(ifId, { hours }).then((r) => r.data as InterfaceMetric[]),
     refetchInterval: 60_000,
   })
 
