@@ -343,22 +343,29 @@ log "Backend is healthy!"
 # Get server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
+# Extract auto-generated admin password from backend logs
+ADMIN_PASS=$($DOCKER_COMPOSE logs backend 2>/dev/null \
+  | grep -oP 'Password: \K\S+' | tail -1)
+if [ -z "$ADMIN_PASS" ]; then
+  ADMIN_PASS="(check logs: $DOCKER_COMPOSE logs backend | grep Password)"
+fi
+
 step "Installation Complete!"
 echo ""
-echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         NetMon Platform is Ready!                  ║${NC}"
-echo -e "${GREEN}╠════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║${NC} Web UI:      https://${SERVER_IP}                     ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC} API Docs:    https://${SERVER_IP}/api/docs            ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC} ${YELLOW}Note: browser will warn about self-signed cert${NC}     ${GREEN}║${NC}"
-echo -e "${GREEN}╠════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║${NC} Default Login:                                     ${GREEN}║${NC}"
-echo -e "${GREEN}║${NC}   Username: ${YELLOW}admin${NC}                               ${GREEN}    ║${NC}"
-echo -e "${GREEN}║${NC}   Password: ${YELLOW}admin${NC}                               ${GREEN}    ║${NC}"
-echo -e "${GREEN}║${NC}   ${RED}IMPORTANT: Change password on first login!${NC}     ${GREEN}║${NC}"
-echo -e "${GREEN}╠════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║${NC} NetFlow/sFlow: UDP port 2055 / 6343                ${GREEN}║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║         NetMon Platform is Ready!                      ║${NC}"
+echo -e "${GREEN}╠════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC} Web UI:      https://${SERVER_IP}                         ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC} API Docs:    https://${SERVER_IP}/api/docs                ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC} ${YELLOW}Note: browser will warn about self-signed cert${NC}         ${GREEN}║${NC}"
+echo -e "${GREEN}╠════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC} Default Login:                                          ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}   Username: ${YELLOW}admin${NC}                                       ${GREEN}║${NC}"
+echo -e "${GREEN}║${NC}   Password: ${YELLOW}${ADMIN_PASS}${NC}"
+echo -e "${GREEN}║${NC}   ${RED}IMPORTANT: Change password on first login!${NC}          ${GREEN}║${NC}"
+echo -e "${GREEN}╠════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║${NC} NetFlow/sFlow: UDP port 2055 / 6343                     ${GREEN}║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
 log "To view logs: $DOCKER_COMPOSE logs -f"
 log "To stop:      $DOCKER_COMPOSE down"
