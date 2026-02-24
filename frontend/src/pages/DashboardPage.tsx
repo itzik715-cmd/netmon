@@ -3,6 +3,7 @@ import { devicesApi, alertsApi, blocksApi } from '../services/api'
 import { Link } from 'react-router-dom'
 import { formatDistanceToNow } from 'date-fns'
 import { AlertEvent, Device } from '../types'
+import { Server, CheckCircle, ShieldAlert, Ban, AlertTriangle, XCircle } from 'lucide-react'
 
 function statusTag(status: string) {
   const map: Record<string, string> = {
@@ -30,6 +31,12 @@ function severityIconClass(severity: string) {
   if (severity === 'critical') return 'crit'
   if (severity === 'warning') return 'warn'
   return 'info'
+}
+
+function SeverityIcon({ severity }: { severity: string }) {
+  if (severity === 'critical') return <XCircle size={15} />
+  if (severity === 'warning') return <AlertTriangle size={15} />
+  return <ShieldAlert size={15} />
 }
 
 export default function DashboardPage() {
@@ -64,180 +71,139 @@ export default function DashboardPage() {
   })
 
   const downDevices = (devices as Device[] | undefined)?.filter((d) => d.status === 'down') || []
+  const totalDevices = summary?.total_devices ?? 0
+  const devicesUp = summary?.devices_up ?? 0
+  const onlinePercent = totalDevices > 0 ? Math.round((devicesUp / totalDevices) * 100) : 0
+
+  const deviceMap = new Map<number, Device>()
+  if (devices) {
+    for (const d of devices as Device[]) {
+      deviceMap.set(d.id, d)
+    }
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="content">
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
           <p>Network overview at a glance</p>
         </div>
-        <Link to="/devices" className="btn btn-primary">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          Add Device
-        </Link>
       </div>
 
       {/* Stat cards */}
       <div className="stats-grid">
-        <Link to="/devices" style={{ textDecoration: 'none' }}>
-          <div className="stat-card">
-            <div className="stat-icon blue">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
-            </div>
-            <div className="stat-body">
-              <div className="stat-label">Total Devices</div>
-              <div className="stat-value">{summary?.total_devices ?? '—'}</div>
-              <div className="stat-sub">configured</div>
-            </div>
+        <Link to="/devices" className="stat-card">
+          <div className="stat-icon blue">
+            <Server size={20} />
+          </div>
+          <div className="stat-body">
+            <div className="stat-label">Total Devices</div>
+            <div className="stat-value">{summary?.total_devices ?? '\u2014'}</div>
+            <div className="stat-sub">configured</div>
           </div>
         </Link>
 
         <div className="stat-card">
           <div className="stat-icon green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
+            <CheckCircle size={20} />
           </div>
           <div className="stat-body">
             <div className="stat-label">Online</div>
-            <div className="stat-value" style={{ color: 'var(--accent-green)' }}>{summary?.devices_up ?? '—'}</div>
-            <div className="stat-sub"><span className="stat-up">↑ reachable</span></div>
+            <div className="stat-value">{totalDevices > 0 ? `${onlinePercent}%` : '\u2014'}</div>
+            <div className="stat-sub"><span className="stat-up">{devicesUp} reachable</span></div>
           </div>
         </div>
 
-        <div className="stat-card">
-          <div className="stat-icon red">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-            </svg>
+        <Link to="/alerts" className="stat-card">
+          <div className="stat-icon orange">
+            <ShieldAlert size={20} />
           </div>
           <div className="stat-body">
-            <div className="stat-label">Offline / Issues</div>
-            <div className="stat-value" style={{ color: 'var(--accent-red)' }}>{summary?.devices_down ?? '—'}</div>
-            <div className="stat-sub"><span className="stat-down">↑ from yesterday</span></div>
-          </div>
-        </div>
-
-        <Link to="/alerts" style={{ textDecoration: 'none' }}>
-          <div className="stat-card">
-            <div className="stat-icon orange">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-            </div>
-            <div className="stat-body">
-              <div className="stat-label">Active Alerts</div>
-              <div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{alertSummary?.open ?? '—'}</div>
-              {alertSummary && (
-                <div className="stat-sub"><span className="stat-down">{alertSummary.critical} critical</span></div>
-              )}
-            </div>
+            <div className="stat-label">Active Alerts</div>
+            <div className="stat-value">{alertSummary?.open ?? '\u2014'}</div>
+            {alertSummary && (
+              <div className="stat-sub"><span className="stat-down">{alertSummary.critical} critical</span></div>
+            )}
           </div>
         </Link>
-        <Link to="/blocks" style={{ textDecoration: 'none' }}>
-          <div className="stat-card">
-            <div className="stat-icon red">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-              </svg>
-            </div>
-            <div className="stat-body">
-              <div className="stat-label">Active Blocks</div>
-              <div className="stat-value" style={{ color: 'var(--accent-red)' }}>{blocksSummary?.total ?? '—'}</div>
-              <div className="stat-sub">
-                {blocksSummary ? `${blocksSummary.null_route} null-route, ${blocksSummary.flowspec} flowspec` : 'null-route + flowspec'}
-              </div>
+
+        <Link to="/blocks" className="stat-card">
+          <div className="stat-icon red">
+            <Ban size={20} />
+          </div>
+          <div className="stat-body">
+            <div className="stat-label">Active Blocks</div>
+            <div className="stat-value">{blocksSummary?.total ?? '\u2014'}</div>
+            <div className="stat-sub">
+              {blocksSummary ? `${blocksSummary.null_route} null-route, ${blocksSummary.flowspec} flowspec` : 'null-route + flowspec'}
             </div>
           </div>
         </Link>
       </div>
 
+      {/* Two-column row */}
       <div className="grid-3-1">
         {/* Down Devices */}
         <div className="card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-            </svg>
+            <XCircle size={15} />
             <h3>Down Devices</h3>
-            <Link to="/devices" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
-              View all →
-            </Link>
           </div>
-          <div className="card-body" style={{ padding: 0 }}>
+          <div className="card-body">
             {downDevices.length === 0 ? (
-              <div className="empty-state" style={{ padding: '32px 24px' }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 36, height: 36 }}>
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-                </svg>
-                <p>All devices are online</p>
+              <div className="empty-state">
+                <div className="empty-state__icon">
+                  <CheckCircle size={48} />
+                </div>
+                <div className="empty-state__title">All devices online</div>
+                <div className="empty-state__description">Every monitored device is currently reachable.</div>
               </div>
             ) : (
-              <div>
-                {downDevices.slice(0, 6).map((device) => (
-                  <Link
-                    key={device.id}
-                    to={`/devices/${device.id}`}
-                    style={{ textDecoration: 'none' }}
-                  >
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '11px 18px', borderBottom: '1px solid #f1f5f9',
-                    }}
-                      onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = '#fafbff' }}
-                      onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = 'none' }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-main)' }}>{device.hostname}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>{device.ip_address}</div>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                        {statusTag(device.status)}
-                        {device.last_seen && (
-                          <div style={{ fontSize: 11, color: 'var(--text-light)' }}>
-                            {formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
+              downDevices.slice(0, 6).map((device) => (
+                <Link
+                  key={device.id}
+                  to={`/devices/${device.id}`}
+                  className="alert-item"
+                >
+                  <div className="alert-icon crit">
+                    <XCircle size={15} />
+                  </div>
+                  <div className="alert-text">
+                    <div className="alert-title">{device.hostname}</div>
+                    <div className="alert-desc mono">{device.ip_address}</div>
+                  </div>
+                  <div className="alert-time">
+                    {device.last_seen
+                      ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })
+                      : 'Never seen'}
+                  </div>
+                </Link>
+              ))
             )}
           </div>
         </div>
 
-        {/* Recent Alerts */}
+        {/* Active Alerts */}
         <div className="card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-            </svg>
+            <AlertTriangle size={15} />
             <h3>Active Alerts</h3>
-            <span className="tag tag-red" style={{ marginLeft: 'auto' }}>{alertSummary?.open ?? 0} Open</span>
           </div>
-          <div className="card-body" style={{ padding: '12px 16px' }}>
+          <div className="card-body">
             {!alertEvents || alertEvents.length === 0 ? (
-              <div className="empty-state" style={{ padding: '24px 0' }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 32, height: 32 }}>
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                </svg>
-                <p>No active alerts</p>
+              <div className="empty-state">
+                <div className="empty-state__icon">
+                  <CheckCircle size={48} />
+                </div>
+                <div className="empty-state__title">No active alerts</div>
+                <div className="empty-state__description">All systems are operating normally.</div>
               </div>
             ) : (
               alertEvents.slice(0, 5).map((event: AlertEvent) => (
                 <div key={event.id} className="alert-item">
                   <div className={`alert-icon ${severityIconClass(event.severity)}`}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
+                    <SeverityIcon severity={event.severity} />
                   </div>
                   <div className="alert-text">
                     <div className="alert-title">{severityTag(event.severity)} {event.message?.slice(0, 40)}</div>
@@ -249,6 +215,13 @@ export default function DashboardPage() {
                 </div>
               ))
             )}
+            {alertEvents && alertEvents.length > 0 && (
+              <div className="card__footer">
+                <Link to="/alerts" className="btn btn-outline btn-sm">
+                  View all alerts
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -257,14 +230,9 @@ export default function DashboardPage() {
       {blocksSummary && blocksSummary.total > 0 && (
         <div className="card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-            </svg>
+            <Ban size={15} />
             <h3>Active Blocks</h3>
-            <span className="tag-red" style={{ marginLeft: 'auto' }}>{blocksSummary.total} Active</span>
-            <Link to="/blocks" style={{ marginLeft: 12, fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
-              Manage →
-            </Link>
+            <span className="tag-red">{blocksSummary.total} Active</span>
           </div>
           <div className="table-wrap">
             <table>
@@ -277,93 +245,28 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {blocksSummary.recent.map((b: any) => (
-                  <tr key={b.id}>
-                    <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{b.prefix}</td>
-                    <td>
-                      {b.block_type === 'null_route'
-                        ? <span className="tag-orange">Null Route</span>
-                        : <span className="tag-blue">FlowSpec</span>}
-                    </td>
-                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>Device #{b.device_id}</td>
-                    <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
-                      {b.created_at ? formatDistanceToNow(new Date(b.created_at), { addSuffix: true }) : '—'}
-                    </td>
-                  </tr>
-                ))}
+                {blocksSummary.recent.map((b: any) => {
+                  const dev = deviceMap.get(b.device_id)
+                  return (
+                    <tr key={b.id}>
+                      <td className="mono">{b.prefix}</td>
+                      <td>
+                        {b.block_type === 'null_route'
+                          ? <span className="tag-orange">Null Route</span>
+                          : <span className="tag-blue">FlowSpec</span>}
+                      </td>
+                      <td>{dev ? dev.hostname : `Device #${b.device_id}`}</td>
+                      <td className="alert-time">
+                        {b.created_at ? formatDistanceToNow(new Date(b.created_at), { addSuffix: true }) : '\u2014'}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         </div>
       )}
-
-      {/* Device Table */}
-      <div className="card">
-        <div className="card-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          <h3>All Devices</h3>
-          <Link to="/devices" className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}>
-            Manage Devices
-          </Link>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>IP Address</th>
-                <th>Type</th>
-                <th>Location</th>
-                <th>Status</th>
-                <th>Interfaces</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(devices as Device[] | undefined)?.map((device) => (
-                <tr key={device.id}>
-                  <td>
-                    <div className="device-name">
-                      <div className="device-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="2" y="3" width="20" height="14" rx="2"/>
-                        </svg>
-                      </div>
-                      <Link to={`/devices/${device.id}`} style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
-                        {device.hostname}
-                      </Link>
-                    </div>
-                    {device.vendor && (
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 36 }}>{device.vendor} {device.model}</div>
-                    )}
-                  </td>
-                  <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{device.ip_address}</td>
-                  <td>
-                    {device.device_type && <span className="tag-blue">{device.device_type}</span>}
-                  </td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{device.location?.name || '—'}</td>
-                  <td>{statusTag(device.status)}</td>
-                  <td style={{ color: 'var(--text-muted)' }}>{device.interface_count ?? 0}</td>
-                  <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
-                    {device.last_seen
-                      ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })
-                      : 'Never'}
-                  </td>
-                </tr>
-              ))}
-              {(!devices || (devices as Device[]).length === 0) && (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
-                    No devices configured. <Link to="/devices" style={{ color: 'var(--primary)' }}>Add your first device</Link>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   )
 }

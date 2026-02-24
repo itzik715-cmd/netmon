@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Shield, Eye, EyeOff, Loader2, Check, Circle } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -60,28 +60,28 @@ export default function ChangePasswordPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <div className="auth-logo-icon" style={{ background: 'var(--accent-orange)' }}>
+          <div className="auth-logo-icon auth-logo-icon--warning">
             <Shield size={28} color="white" />
           </div>
-          <h1>Change Password</h1>
+          <h1 className="auth-title">Change Password</h1>
           {isMustChange && (
-            <p style={{ color: 'var(--accent-orange)' }}>
+            <p className="auth-subtitle auth-subtitle--warning">
               You must change your password before accessing the system
             </p>
           )}
         </div>
 
         {error && (
-          <div className="alert-error" style={{ marginBottom: 16 }}>{error}</div>
+          <div className="alert-error">{error}</div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form onSubmit={handleSubmit}>
           {!isMustChange && (
-            <div>
-              <label className="label">Current Password</label>
+            <div className="form-field">
+              <label className="form-label">Current Password</label>
               <input
                 type="password"
-                className="input"
+                className="form-input"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required={!isMustChange}
@@ -89,21 +89,20 @@ export default function ChangePasswordPage() {
             </div>
           )}
 
-          <div>
-            <label className="label">New Password</label>
-            <div style={{ position: 'relative' }}>
+          <div className="form-field">
+            <label className="form-label">New Password</label>
+            <div className="form-input-wrap">
               <input
                 type={showNew ? 'text' : 'password'}
-                className="input"
+                className="form-input"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
-                style={{ paddingRight: 40 }}
               />
               <button
                 type="button"
+                className="btn--ghost btn--icon btn--sm form-input-toggle"
                 onClick={() => setShowNew(!showNew)}
-                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)', display: 'flex', alignItems: 'center' }}
               >
                 {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
@@ -111,46 +110,47 @@ export default function ChangePasswordPage() {
           </div>
 
           {newPassword.length > 0 && (
-            <div style={{ padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {RULES.map((rule) => {
-                const passes = rule.test(newPassword)
-                return (
-                  <div key={rule.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                    <span style={{ color: passes ? 'var(--accent-green)' : 'var(--text-light)', fontSize: 14, lineHeight: 1 }}>
-                      {passes ? '✓' : '○'}
-                    </span>
-                    <span style={{ color: passes ? 'var(--accent-green)' : 'var(--text-muted)' }}>
-                      {rule.label}
-                    </span>
-                  </div>
-                )
-              })}
+            <div className="form-field">
+              <div className="password-rules">
+                {RULES.map((rule) => {
+                  const passes = rule.test(newPassword)
+                  return (
+                    <div key={rule.label} className={`password-rule ${passes ? 'password-rule--pass' : ''}`}>
+                      <span className="password-rule__icon">
+                        {passes ? <Check size={14} /> : <Circle size={14} />}
+                      </span>
+                      <span>{rule.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
 
-          <div>
-            <label className="label">Confirm New Password</label>
+          <div className="form-field">
+            <label className="form-label">Confirm New Password</label>
             <input
               type="password"
-              className="input"
+              className="form-input"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
             />
             {confirmPassword && !passwordsMatch && (
-              <p style={{ color: 'var(--accent-red)', fontSize: 11, marginTop: 4 }}>Passwords do not match</p>
+              <p className="form-error">Passwords do not match</p>
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !allRulesPass || !passwordsMatch}
-            className="btn btn-primary"
-            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
-          >
-            {loading && <Loader2 size={14} className="animate-spin" />}
-            Change Password
-          </button>
+          <div className="form-field">
+            <button
+              type="submit"
+              disabled={loading || !allRulesPass || !passwordsMatch}
+              className="btn btn-primary btn--full"
+            >
+              {loading && <Loader2 size={14} className="animate-spin" />}
+              Change Password
+            </button>
+          </div>
         </form>
       </div>
     </div>

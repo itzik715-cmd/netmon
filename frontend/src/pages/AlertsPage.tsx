@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { alertsApi } from '../services/api'
 import { AlertEvent, AlertRule } from '../types'
-import { CheckCircle, XCircle, Trash2 } from 'lucide-react'
+import { ShieldAlert, Plus, Check, XCircle, Trash2, Loader2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
@@ -57,15 +57,15 @@ export default function AlertsPage() {
   })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="content">
       <div className="page-header">
         <div>
-          <h1>Alerts</h1>
+          <h1><ShieldAlert size={20} /> Alerts</h1>
           <p>Monitor and manage alert events and rules</p>
         </div>
         {isOperator && tab === 'rules' && (
           <button onClick={() => setShowAddRule(true)} className="btn btn-primary btn-sm">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 13, height: 13 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <Plus size={13} />
             Add Rule
           </button>
         )}
@@ -94,24 +94,38 @@ export default function AlertsPage() {
                     <tr key={event.id}>
                       <td>{severityTag(event.severity)}</td>
                       <td>{statusTag(event.status)}</td>
-                      <td style={{ maxWidth: 280 }}><p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{event.message}</p></td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{event.metric_value?.toFixed(2)} / {event.threshold_value?.toFixed(2)}</td>
-                      <td style={{ fontSize: 11, color: 'var(--text-light)' }}>{formatDistanceToNow(new Date(event.triggered_at), { addSuffix: true })}</td>
+                      <td><p className="truncate">{event.message}</p></td>
+                      <td className="mono">{event.metric_value?.toFixed(2)} / {event.threshold_value?.toFixed(2)}</td>
+                      <td>{formatDistanceToNow(new Date(event.triggered_at), { addSuffix: true })}</td>
                       <td>
                         {isOperator && event.status === 'open' && (
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button onClick={() => ackMutation.mutate(event.id)} style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-orange)', display: 'flex' }} title="Acknowledge"><CheckCircle size={13} /></button>
-                            <button onClick={() => resolveMutation.mutate(event.id)} style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-green)', display: 'flex' }} title="Resolve"><XCircle size={13} /></button>
+                          <div className="card__actions">
+                            <button onClick={() => ackMutation.mutate(event.id)} className="btn btn-outline btn--icon btn-sm" title="Acknowledge">
+                              {ackMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                            </button>
+                            <button onClick={() => resolveMutation.mutate(event.id)} className="btn btn-outline btn--icon btn-sm" title="Resolve">
+                              {resolveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                            </button>
                           </div>
                         )}
                         {isOperator && event.status === 'acknowledged' && (
-                          <button onClick={() => resolveMutation.mutate(event.id)} style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-green)', display: 'flex' }} title="Resolve"><XCircle size={13} /></button>
+                          <button onClick={() => resolveMutation.mutate(event.id)} className="btn btn-outline btn--icon btn-sm" title="Resolve">
+                            {resolveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                          </button>
                         )}
                       </td>
                     </tr>
                   ))}
                   {(!events || events.length === 0) && (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>No alerts found</td></tr>
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="empty-state">
+                          <div className="empty-state__icon"><ShieldAlert /></div>
+                          <div className="empty-state__title">No alerts found</div>
+                          <div className="empty-state__description">No alert events match the current filter.</div>
+                        </div>
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -130,16 +144,18 @@ export default function AlertsPage() {
               <tbody>
                 {(rules || []).map((rule) => (
                   <tr key={rule.id}>
-                    <td style={{ fontWeight: 600 }}>{rule.name}</td>
-                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{rule.metric}</td>
-                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{rule.condition}</td>
-                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{rule.threshold}</td>
+                    <td><strong>{rule.name}</strong></td>
+                    <td className="mono">{rule.metric}</td>
+                    <td className="mono">{rule.condition}</td>
+                    <td className="mono">{rule.threshold}</td>
                     <td>{severityTag(rule.severity)}</td>
                     <td>
                       {isOperator ? (
-                        <button onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
-                          style={{ position: 'relative', display: 'inline-flex', height: 20, width: 36, borderRadius: 10, cursor: 'pointer', border: 'none', background: rule.is_active ? 'var(--primary)' : '#cbd5e1', transition: 'background 0.2s' }}>
-                          <span style={{ position: 'absolute', top: 2, left: rule.is_active ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.2s' }} />
+                        <button
+                          onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
+                          className={`toggle${rule.is_active ? ' toggle--active' : ''}`}
+                        >
+                          <span className="toggle__knob" />
                         </button>
                       ) : (
                         <span className={rule.is_active ? 'tag-green' : 'tag-gray'}>{rule.is_active ? 'Active' : 'Off'}</span>
@@ -147,8 +163,11 @@ export default function AlertsPage() {
                     </td>
                     <td>
                       {user?.role === 'admin' && (
-                        <button onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMutation.mutate(rule.id) }}
-                          style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-red)', display: 'flex' }}>
+                        <button
+                          onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMutation.mutate(rule.id) }}
+                          className="btn btn-outline btn--icon btn-sm btn-danger"
+                          title="Delete rule"
+                        >
                           <Trash2 size={13} />
                         </button>
                       )}
@@ -156,7 +175,15 @@ export default function AlertsPage() {
                   </tr>
                 ))}
                 {(!rules || rules.length === 0) && (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>No alert rules configured</td></tr>
+                  <tr>
+                    <td colSpan={7}>
+                      <div className="empty-state">
+                        <div className="empty-state__icon"><ShieldAlert /></div>
+                        <div className="empty-state__title">No alert rules configured</div>
+                        <div className="empty-state__description">Create a rule to start monitoring.</div>
+                      </div>
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

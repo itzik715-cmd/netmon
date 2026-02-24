@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { blocksApi, devicesApi } from '../services/api'
 import { DeviceBlock, Device } from '../types'
 import { formatDistanceToNow } from 'date-fns'
-import { Shield, RefreshCw, Trash2, Plus, Loader2 } from 'lucide-react'
+import { Ban, Plus, Trash2, RefreshCw, Loader2, Shield } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 function blockTypeBadge(type: string) {
-  if (type === 'null_route') return <span className="tag-orange">Null Route</span>
-  if (type === 'flowspec')   return <span className="tag-blue">FlowSpec</span>
+  if (type === 'null_route') return <span className="tag-blue">Null Route</span>
+  if (type === 'flowspec')   return <span className="tag-orange">FlowSpec</span>
   return <span className="tag-gray">{type}</span>
 }
 
@@ -44,53 +44,49 @@ function AddBlockModal({
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content" style={{ maxWidth: 480 }}>
+      <div className="modal-content">
         <div className="modal-header">
           <h3>Apply Block</h3>
-          <button onClick={onClose} className="modal-close">✕</button>
+          <button onClick={onClose} className="modal-close">&#10005;</button>
         </div>
         <div className="modal-body">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label className="label">Device *</label>
-              <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} required>
-                <option value="">Select device...</option>
-                {eligible.map((d) => (
-                  <option key={d.id} value={d.id}>{d.hostname} ({d.ip_address})</option>
-                ))}
-              </select>
-              {eligible.length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--accent-orange)', marginTop: 4 }}>
-                  No devices with eAPI credentials. Add credentials in device settings.
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="label">Prefix *</label>
-              <input
-                className="input"
-                value={prefix}
-                onChange={(e) => setPrefix(e.target.value)}
-                placeholder="10.0.0.0/24"
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Block Type *</label>
-              <select className="select" value={blockType} onChange={(e) => setBlockType(e.target.value)}>
-                <option value="null_route">Null Route</option>
-                <option value="flowspec">FlowSpec (record only)</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Description</label>
-              <input
-                className="input"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional reason..."
-              />
-            </div>
+          <div className="form-field">
+            <label className="form-label">Device *</label>
+            <select className="form-select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} required>
+              <option value="">Select device...</option>
+              {eligible.map((d) => (
+                <option key={d.id} value={d.id}>{d.hostname} ({d.ip_address})</option>
+              ))}
+            </select>
+            {eligible.length === 0 && (
+              <p className="tag-orange">No devices with eAPI credentials. Add credentials in device settings.</p>
+            )}
+          </div>
+          <div className="form-field">
+            <label className="form-label">Prefix *</label>
+            <input
+              className="form-input"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder="10.0.0.0/24"
+              required
+            />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Block Type *</label>
+            <select className="form-select" value={blockType} onChange={(e) => setBlockType(e.target.value)}>
+              <option value="null_route">Null Route</option>
+              <option value="flowspec">FlowSpec (record only)</option>
+            </select>
+          </div>
+          <div className="form-field">
+            <label className="form-label">Description</label>
+            <input
+              className="form-input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional reason..."
+            />
           </div>
         </div>
         <div className="modal-footer">
@@ -162,10 +158,10 @@ export default function BlocksPage() {
   const devicesWithBlocks = [...new Set(blocks.map((b) => b.device_id))]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="content">
       <div className="page-header">
         <div>
-          <h1>Active Blocks</h1>
+          <h1><Ban size={20} /> Active Blocks</h1>
           <p>Null-route and FlowSpec blocks across all Arista devices</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn btn-primary">
@@ -193,7 +189,7 @@ export default function BlocksPage() {
           <div className="stat-body">
             <div className="stat-label">Null Routes</div>
             <div className="stat-value">{summary?.null_route ?? '—'}</div>
-            <div className="stat-sub">ip route … Null0</div>
+            <div className="stat-sub">ip route ... Null0</div>
           </div>
         </div>
         <div className="stat-card">
@@ -209,13 +205,12 @@ export default function BlocksPage() {
       </div>
 
       <div className="card">
-        <div className="card-header">
+        <div className="card__header">
           <Shield size={16} />
           <h3>Active Blocks</h3>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <div className="card__actions">
             <select
-              className="select"
-              style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }}
+              className="form-select btn-sm"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
             >
@@ -255,44 +250,47 @@ export default function BlocksPage() {
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 32 }}>
-                    <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto' }} />
+                  <td colSpan={8}>
+                    <div className="empty-state">
+                      <Loader2 size={20} className="animate-spin" />
+                    </div>
                   </td>
                 </tr>
               )}
               {!isLoading && blocks.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
-                    No active blocks. Click "Apply Block" to add one.
+                  <td colSpan={8}>
+                    <div className="empty-state">
+                      <div className="empty-state__icon"><Ban /></div>
+                      <div className="empty-state__title">No active blocks</div>
+                      <div className="empty-state__description">Click "Apply Block" to add one.</div>
+                    </div>
                   </td>
                 </tr>
               )}
               {blocks.map((block) => (
                 <tr key={block.id}>
-                  <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{block.prefix}</td>
+                  <td><strong className="mono">{block.prefix}</strong></td>
                   <td>{blockTypeBadge(block.block_type)}</td>
-                  <td style={{ fontSize: 12 }}>
+                  <td>
                     {deviceMap[block.device_id]?.hostname || `#${block.device_id}`}
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
-                      {deviceMap[block.device_id]?.ip_address}
-                    </div>
+                    <div className="mono">{deviceMap[block.device_id]?.ip_address}</div>
                   </td>
-                  <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{block.description || '—'}</td>
-                  <td style={{ fontSize: 12 }}>{block.created_by || '—'}</td>
-                  <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
+                  <td>{block.description || '—'}</td>
+                  <td>{block.created_by || '—'}</td>
+                  <td>
                     {block.created_at
                       ? formatDistanceToNow(new Date(block.created_at), { addSuffix: true })
                       : '—'}
                   </td>
-                  <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
+                  <td>
                     {block.synced_at
                       ? formatDistanceToNow(new Date(block.synced_at), { addSuffix: true })
                       : '—'}
                   </td>
                   <td>
                     <button
-                      className="btn btn-outline btn-sm"
-                      style={{ color: 'var(--accent-red)', borderColor: 'var(--accent-red)' }}
+                      className="btn btn-danger btn--icon btn-sm"
                       onClick={() => {
                         if (confirm(`Remove block for ${block.prefix}?`)) {
                           deleteMutation.mutate(block.id)

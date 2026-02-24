@@ -43,47 +43,48 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content" style={{ maxWidth: 480 }}>
+      <div className="modal-content modal-content--sm">
         <div className="modal-header">
           <h3>Create User</h3>
           <button onClick={onClose} className="modal-close"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label className="label">Username *</label>
-              <input className="input" value={form.username} onChange={set('username')} required
-                pattern="[a-zA-Z0-9_.\-]{3,100}" placeholder="username" />
+          <div className="modal-body">
+            <div className="form-stack">
+              <div className="form-field">
+                <label className="form-label">Username *</label>
+                <input className="form-input" value={form.username} onChange={set('username')} required
+                  pattern="[a-zA-Z0-9_.\-]{3,100}" placeholder="username" />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Email *</label>
+                <input className="form-input" type="email" value={form.email} onChange={set('email')} required />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Initial Password *</label>
+                <input className="form-input" type="password" value={form.password} onChange={set('password')} required minLength={6} />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Role *</label>
+                <select className="form-select" value={form.role_id} onChange={set('role_id')} required>
+                  <option value="">Select role...</option>
+                  {(roles || []).map((r) => (
+                    <option key={r.id} value={r.id}>{r.name} — {r.description}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={form.must_change_password}
+                  onChange={(e) => setForm((p) => ({ ...p, must_change_password: e.target.checked }))}
+                />
+                <span className="checkbox-row__text">
+                  Force password change on first login
+                </span>
+              </label>
             </div>
-            <div>
-              <label className="label">Email *</label>
-              <input className="input" type="email" value={form.email} onChange={set('email')} required />
-            </div>
-            <div>
-              <label className="label">Initial Password *</label>
-              <input className="input" type="password" value={form.password} onChange={set('password')} required minLength={6} />
-            </div>
-            <div>
-              <label className="label">Role *</label>
-              <select className="select" value={form.role_id} onChange={set('role_id')} required>
-                <option value="">Select role...</option>
-                {(roles || []).map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} — {r.description}</option>
-                ))}
-              </select>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={form.must_change_password}
-                onChange={(e) => setForm((p) => ({ ...p, must_change_password: e.target.checked }))}
-                style={{ width: 14, height: 14 }}
-              />
-              <span style={{ fontSize: 13, color: 'var(--text-main)' }}>
-                Force password change on first login
-              </span>
-            </label>
           </div>
 
           <div className="modal-footer">

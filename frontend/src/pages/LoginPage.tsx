@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Monitor, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { authApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -39,7 +39,7 @@ export default function LoginPage() {
       })
 
       if (must_change_password) {
-        toast('Password change required on first login', { icon: '⚠️' })
+        toast('Password change required on first login', { icon: '\u26A0\uFE0F' })
         navigate('/change-password')
       } else {
         toast.success(`Welcome back, ${username}!`)
@@ -58,26 +58,22 @@ export default function LoginPage() {
       <div className="auth-card">
         <div className="auth-logo">
           <div className="auth-logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 28, height: 28, color: 'white' }}>
-              <rect x="2" y="3" width="20" height="14" rx="2"/>
-              <line x1="8" y1="21" x2="16" y2="21"/>
-              <line x1="12" y1="17" x2="12" y2="21"/>
-            </svg>
+            <Monitor size={28} color="white" />
           </div>
-          <h1>NMP</h1>
-          <p>Network Monitoring Platform</p>
+          <h1 className="auth-title">NMP</h1>
+          <p className="auth-subtitle">Network Monitoring Platform</p>
         </div>
 
         {error && (
-          <div className="alert-error" style={{ marginBottom: 16 }}>{error}</div>
+          <div className="alert-error">{error}</div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label className="label">Username</label>
+        <form onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label className="form-label">Username</label>
             <input
               type="text"
-              className="input"
+              className="form-input"
               placeholder="Enter username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -87,43 +83,41 @@ export default function LoginPage() {
             />
           </div>
 
-          <div>
-            <label className="label">Password</label>
-            <div style={{ position: 'relative' }}>
+          <div className="form-field">
+            <label className="form-label">Password</label>
+            <div className="form-input-wrap">
               <input
                 type={showPassword ? 'text' : 'password'}
-                className="input"
+                className="form-input"
                 placeholder="Enter password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                style={{ paddingRight: 40 }}
               />
               <button
                 type="button"
+                className="btn--ghost btn--icon btn--sm form-input-toggle"
                 onClick={() => setShowPassword(!showPassword)}
-                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)', display: 'flex', alignItems: 'center' }}
               >
                 {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !username || !password}
-            className="btn btn-primary"
-            style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
-          >
-            {loading && <Loader2 size={14} className="animate-spin" />}
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <div className="form-field">
+            <button
+              type="submit"
+              disabled={loading || !username || !password}
+              className="btn btn-primary btn--full"
+            >
+              {loading && <Loader2 size={14} className="animate-spin" />}
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
         </form>
 
-        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-light)', marginTop: 20 }}>
-          Secure Network Monitoring — NMP
-        </p>
+        <p className="auth-subtitle">Secure Network Monitoring — NMP</p>
       </div>
     </div>
   )

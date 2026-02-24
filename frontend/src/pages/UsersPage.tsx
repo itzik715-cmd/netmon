@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi } from '../services/api'
 import { User, Role } from '../types'
-import { RefreshCw, Unlock, Trash2 } from 'lucide-react'
+import { Users, Plus, Trash2, Key, Unlock, Loader2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import AddUserModal from '../components/forms/AddUserModal'
@@ -39,21 +39,24 @@ export default function UsersPage() {
   })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="content">
       <div className="page-header">
         <div>
-          <h1>User Management</h1>
+          <h1><Users size={20} /> User Management</h1>
           <p>{users?.length || 0} active users</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 13, height: 13 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <Plus size={13} />
           Add User
         </button>
       </div>
 
       <div className="card">
         {isLoading ? (
-          <div className="empty-state card-body"><p>Loading users...</p></div>
+          <div className="empty-state card-body">
+            <Loader2 size={20} className="animate-spin" />
+            <p>Loading users...</p>
+          </div>
         ) : (
           <div className="table-wrap">
             <table>
@@ -63,11 +66,11 @@ export default function UsersPage() {
               <tbody>
                 {(users || []).map((user) => (
                   <tr key={user.id}>
-                    <td style={{ fontWeight: 600 }}>
-                      {user.username}
-                      {user.must_change_password && <span className="tag-orange" style={{ marginLeft: 8, fontSize: 10 }}>pwd change</span>}
+                    <td>
+                      <strong>{user.username}</strong>
+                      {user.must_change_password && <span className="tag-orange">pwd change</span>}
                     </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{user.email}</td>
+                    <td>{user.email}</td>
                     <td>{roleBadge(user.role.name)}</td>
                     <td>{authBadge(user.auth_source)}</td>
                     <td>
@@ -78,26 +81,23 @@ export default function UsersPage() {
                           : <span className="tag-gray">Inactive</span>
                       }
                     </td>
-                    <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
+                    <td>
                       {user.last_login ? formatDistanceToNow(new Date(user.last_login), { addSuffix: true }) : 'Never'}
                     </td>
                     <td>
-                      <span style={{ color: user.failed_attempts > 0 ? 'var(--accent-orange)' : 'var(--text-muted)' }}>{user.failed_attempts}</span>
+                      <span className={user.failed_attempts > 0 ? 'tag-orange' : 'tag-gray'}>{user.failed_attempts}</span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <button onClick={() => resetPwMutation.mutate(user.id)} title="Force password reset"
-                          style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-orange)', display: 'flex' }}>
-                          <RefreshCw size={13} />
+                      <div className="card__actions">
+                        <button onClick={() => resetPwMutation.mutate(user.id)} title="Force password reset" className="btn btn-outline btn--icon btn-sm">
+                          <Key size={13} />
                         </button>
                         {user.account_locked && (
-                          <button onClick={() => unlockMutation.mutate(user.id)} title="Unlock account"
-                            style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-green)', display: 'flex' }}>
+                          <button onClick={() => unlockMutation.mutate(user.id)} title="Unlock account" className="btn btn-outline btn--icon btn-sm">
                             <Unlock size={13} />
                           </button>
                         )}
-                        <button onClick={() => { if (confirm(`Deactivate user ${user.username}?`)) deleteMutation.mutate(user.id) }} title="Deactivate user"
-                          style={{ padding: '4px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--accent-red)', display: 'flex' }}>
+                        <button onClick={() => { if (confirm(`Deactivate user ${user.username}?`)) deleteMutation.mutate(user.id) }} title="Deactivate user" className="btn btn-danger btn--icon btn-sm">
                           <Trash2 size={13} />
                         </button>
                       </div>

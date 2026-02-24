@@ -7,6 +7,7 @@ import {
   Legend, ReferenceLine,
 } from 'recharts'
 import { format } from 'date-fns'
+import { Globe, Activity } from 'lucide-react'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -65,9 +66,9 @@ export default function WanDashboardPage() {
   const timeLabel = hours <= 24 ? `${hours}h` : `${hours / 24}d`
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: 'DM Mono, monospace' }}>WAN Dashboard</h1>
+    <div className="flex-col-gap">
+      <div className="page-header">
+        <h1>WAN Dashboard</h1>
         <div className="time-range-bar">
           {TIME_RANGES.map((r) => (
             <button key={r.hours} onClick={() => setHours(r.hours)} className={`time-btn${hours === r.hours ? ' active' : ''}`}>
@@ -78,23 +79,32 @@ export default function WanDashboardPage() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <div className="info-card">
-          <div className="stat-label">WAN Interfaces</div>
-          <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--primary)', marginTop: 4 }}>
-            {wanData?.wan_count ?? 0}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-icon blue">
+            <Globe size={20} />
+          </div>
+          <div className="stat-body">
+            <div className="stat-label">WAN Interfaces</div>
+            <div className="stat-value">{wanData?.wan_count ?? 0}</div>
           </div>
         </div>
-        <div className="info-card">
-          <div className="stat-label">Total WAN Capacity</div>
-          <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-main)', marginTop: 4 }}>
-            {formatBps(wanData?.total_speed_bps ?? 0)}
+        <div className="stat-card">
+          <div className="stat-icon green">
+            <Activity size={20} />
+          </div>
+          <div className="stat-body">
+            <div className="stat-label">Total WAN Capacity</div>
+            <div className="stat-value">{formatBps(wanData?.total_speed_bps ?? 0)}</div>
           </div>
         </div>
-        <div className="info-card">
-          <div className="stat-label">95th Percentile ({timeLabel})</div>
-          <div style={{ fontWeight: 700, fontSize: 18, color: '#e74c3c', marginTop: 4 }}>
-            {formatBps(p95)}
+        <div className="stat-card">
+          <div className="stat-icon red">
+            <Activity size={20} />
+          </div>
+          <div className="stat-body">
+            <div className="stat-label">95th Percentile ({timeLabel})</div>
+            <div className="stat-value">{formatBps(p95)}</div>
           </div>
         </div>
       </div>
@@ -102,42 +112,39 @@ export default function WanDashboardPage() {
       {/* WAN Interface list */}
       <div className="card">
         <div className="card-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
-            <path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-          </svg>
+          <Globe size={15} />
           <h3>WAN Interfaces</h3>
         </div>
-        <div className="card-body" style={{ padding: 0 }}>
+        <div className="table-wrap">
           {!wanList?.length ? (
-            <div className="empty-state" style={{ padding: 30 }}>
+            <div className="empty-state">
               <p>No interfaces marked as WAN. Go to an interface detail page and check the WAN checkbox.</p>
             </div>
           ) : (
-            <table className="data-table" style={{ width: '100%' }}>
-              <thead>
-                <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {wanList.map((w: any) => (
-                  <tr key={w.id}>
-                    <td>
-                      <Link to={`/interfaces/${w.id}`} style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
-                        {w.name}
-                      </Link>
-                      {w.alias && <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontSize: 12 }}>{w.alias}</span>}
-                    </td>
-                    <td>{w.device_hostname || `Device #${w.device_id}`}</td>
-                    <td>{w.speed ? formatBps(w.speed) : '-'}</td>
-                    <td>
-                      <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
-                        {w.oper_status || 'unknown'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <table>
+                <thead>
+                  <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {wanList.map((w: any) => (
+                    <tr key={w.id}>
+                      <td>
+                        <Link to={`/interfaces/${w.id}`} className="link-primary font-semibold">
+                          {w.name}
+                        </Link>
+                        {w.alias && <span className="text-muted text-sm ml-2">{w.alias}</span>}
+                      </td>
+                      <td>{w.device_hostname || `Device #${w.device_id}`}</td>
+                      <td>{w.speed ? formatBps(w.speed) : '-'}</td>
+                      <td>
+                        <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
+                          {w.oper_status || 'unknown'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
           )}
         </div>
       </div>
@@ -145,14 +152,14 @@ export default function WanDashboardPage() {
       {/* Throughput graph with 95th percentile */}
       <div className="card">
         <div className="card-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+          <Activity size={15} />
           <h3>Aggregate WAN Throughput — Last {timeLabel}</h3>
         </div>
         <div className="card-body">
           {isLoading ? (
-            <div className="empty-state" style={{ height: 200 }}><p>Loading...</p></div>
+            <div className="empty-state"><p>Loading...</p></div>
           ) : chartData.length === 0 ? (
-            <div className="empty-state" style={{ height: 200 }}><p>No data available</p></div>
+            <div className="empty-state"><p>No data available</p></div>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>

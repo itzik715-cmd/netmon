@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { topologyApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, Network } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -256,30 +256,30 @@ export default function TopologyPage() {
   const LABEL_Y = NODE_R + 16
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+    <div className="flex-col-gap" style={{ height: '100%' }}>
       {/* Header */}
       <div className="page-header">
         <div>
           <h1>Network Topology</h1>
           <p>Live view of device connectivity — drag nodes to rearrange</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex-row-gap">
           <div className="search-bar">
             <Search size={13} />
             <input placeholder="Search devices..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
           <button
-            className="btn btn-outline"
+            className="btn btn-outline btn--icon"
             onClick={() => setZoom(z => Math.min(3, z + 0.2))}
             title="Zoom in"
           ><ZoomIn size={14} /></button>
           <button
-            className="btn btn-outline"
+            className="btn btn-outline btn--icon"
             onClick={() => setZoom(z => Math.max(0.2, z - 0.2))}
             title="Zoom out"
           ><ZoomOut size={14} /></button>
           <button
-            className="btn btn-outline"
+            className="btn btn-outline btn--icon"
             onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
             title="Reset view"
           ><Maximize2 size={14} /></button>
@@ -299,16 +299,16 @@ export default function TopologyPage() {
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+      <div className="flex-row-gap-lg text-xs text-muted">
         {[['up', '#27ae60', 'Online'], ['down', '#e74c3c', 'Offline'], ['degraded', '#f39c12', 'Degraded'], ['unknown', '#94a3b8', 'Unknown']].map(([s, c, l]) => (
-          <span key={s} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: c as string, display: 'inline-block' }} />
+          <span key={s} className="flex-row-gap-sm">
+            <span className="status-dot" style={{ background: c as string }} />
             {l}
           </span>
         ))}
-        <span style={{ marginLeft: 12 }}>— LLDP link</span>
-        <span style={{ color: '#a78bfa' }}>— Manual link</span>
-        <span style={{ marginLeft: 12, color: 'var(--text-light)' }}>{nodes.length} devices · {edges.length} links</span>
+        <span className="ml-2">— LLDP link</span>
+        <span className="tag-blue">— Manual link</span>
+        <span className="ml-auto text-light">{nodes.length} devices · {edges.length} links</span>
       </div>
 
       {/* SVG Topology */}
@@ -326,7 +326,7 @@ export default function TopologyPage() {
         )}
         {!isLoading && nodes.length === 0 && (
           <div className="empty-state" style={{ position: 'absolute', inset: 0 }}>
-            <p>No devices found. <a href="/devices" style={{ color: 'var(--primary)' }}>Add devices</a> and run LLDP discovery.</p>
+            <p>No devices found. <a href="/devices" className="link-primary">Add devices</a> and run LLDP discovery.</p>
           </div>
         )}
         <svg
@@ -384,7 +384,7 @@ export default function TopologyPage() {
                       x={(s.x + t.x) / 2} y={(s.y + t.y) / 2 - 4}
                       textAnchor="middle" fontSize={9} fill="#94a3b8"
                     >
-                      {[edge.source_if, edge.target_if].filter(Boolean).join(' ↔ ')}
+                      {[edge.source_if, edge.target_if].filter(Boolean).join(' \u2194 ')}
                     </text>
                   )}
                 </g>
@@ -459,7 +459,7 @@ export default function TopologyPage() {
                     fill="var(--text-main)"
                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                   >
-                    {node.hostname.length > 18 ? node.hostname.slice(0, 16) + '…' : node.hostname}
+                    {node.hostname.length > 18 ? node.hostname.slice(0, 16) + '\u2026' : node.hostname}
                   </text>
                   <text
                     y={LABEL_Y + 13}
@@ -495,21 +495,15 @@ export default function TopologyPage() {
             <Search size={14} />
             <h3>Search Results ({filtered.length})</h3>
           </div>
-          <div style={{ padding: '8px 16px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="card-body flex-row-gap" style={{ flexWrap: 'wrap' }}>
             {filtered.map(n => (
               <a
                 key={n.id}
                 href={`/devices/${n.id}`}
-                style={{
-                  padding: '4px 10px', background: 'var(--primary-light)',
-                  color: 'var(--primary)', borderRadius: 6, fontSize: 12,
-                  fontWeight: 600, textDecoration: 'none',
-                }}
+                className="filter-chip active"
               >
                 {n.hostname}
-                <span style={{ marginLeft: 6, opacity: 0.6, fontFamily: 'DM Mono, monospace', fontSize: 10 }}>
-                  {n.ip_address}
-                </span>
+                <span className="mono text-xs ml-2">{n.ip_address}</span>
               </a>
             ))}
           </div>

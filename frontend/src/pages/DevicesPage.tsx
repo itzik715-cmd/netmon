@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Search, Settings, Trash2, Wifi } from 'lucide-react'
+import { Plus, RefreshCw, Search, Server, Settings, Trash2, Wifi } from 'lucide-react'
 import { devicesApi } from '../services/api'
 import { Device } from '../types'
 import { formatDistanceToNow } from 'date-fns'
@@ -62,13 +62,13 @@ export default function DevicesPage() {
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="flex-col-gap">
       <div className="page-header">
         <div>
           <h1>Devices</h1>
           <p>{devices?.length || 0} devices configured</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex-row-gap">
           <button onClick={() => refetch()} className="btn btn-outline btn-sm">
             <RefreshCw size={13} />
             Refresh
@@ -81,9 +81,7 @@ export default function DevicesPage() {
           )}
           {isOperator && (
             <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-sm">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 13, height: 13 }}>
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
+              <Plus size={13} />
               Add Device
             </button>
           )}
@@ -91,12 +89,9 @@ export default function DevicesPage() {
       </div>
 
       {/* Search */}
-      <div className="search-bar" style={{ height: 38, maxWidth: 400 }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
+      <div className="search-bar">
+        <Search size={13} />
         <input
-          style={{ width: '100%' }}
           placeholder="Search by hostname, IP, or vendor..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -132,63 +127,50 @@ export default function DevicesPage() {
                       <td>
                         <div className="device-name">
                           <div className="device-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <rect x="2" y="3" width="20" height="14" rx="2"/>
-                            </svg>
+                            <Server size={14} />
                           </div>
-                          <Link to={`/devices/${device.id}`} style={{ color: 'var(--primary)', textDecoration: 'none' }}>
+                          <Link to={`/devices/${device.id}`} className="link-primary">
                             {device.hostname}
                           </Link>
                         </div>
                       </td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{device.ip_address}</td>
+                      <td className="mono text-sm">{device.ip_address}</td>
                       <td>
                         {device.device_type && <span className="tag-blue">{device.device_type}</span>}
                       </td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                      <td className="text-muted text-sm">
                         {[device.vendor, device.model].filter(Boolean).join(' ') || '—'}
                       </td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{device.location?.name || '—'}</td>
+                      <td className="text-muted text-sm">{device.location?.name || '—'}</td>
                       <td>{statusTag(device.status)}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{device.interface_count ?? 0}</td>
+                      <td className="text-muted">{device.interface_count ?? 0}</td>
                       <td>
                         {device.cpu_usage != null ? (
-                          <span style={{
-                            fontFamily: 'DM Mono, monospace', fontSize: 12,
-                            color: device.cpu_usage > 80 ? 'var(--accent-red)' : 'var(--text-main)',
-                          }}>
+                          <span className={`mono text-sm ${device.cpu_usage > 80 ? 'metric-value--danger' : ''}`}>
                             {device.cpu_usage.toFixed(1)}%
                           </span>
                         ) : '—'}
                       </td>
-                      <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
+                      <td className="text-xs text-light">
                         {device.last_seen
                           ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true })
                           : 'Never'}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div className="flex-row-gap-sm">
                           <Link to={`/devices/${device.id}`} className="btn btn-outline btn-sm">View</Link>
                           {isOperator && (
                             <>
                               <button
                                 onClick={() => pollMutation.mutate(device.id)}
-                                style={{
-                                  padding: '4px 6px', background: 'none', border: '1px solid var(--border)',
-                                  borderRadius: 6, cursor: 'pointer', color: 'var(--text-muted)',
-                                  display: 'flex', alignItems: 'center',
-                                }}
+                                className="btn btn-outline btn--icon btn--sm"
                                 title="Poll now"
                               >
                                 <RefreshCw size={12} />
                               </button>
-                                  <button
+                              <button
                                 onClick={() => setEditDevice(device)}
-                                style={{
-                                  padding: '4px 6px', background: 'none', border: '1px solid var(--border)',
-                                  borderRadius: 6, cursor: 'pointer', color: 'var(--text-muted)',
-                                  display: 'flex', alignItems: 'center',
-                                }}
+                                className="btn btn-outline btn--icon btn--sm"
                                 title="Edit settings"
                               >
                                 <Settings size={12} />
@@ -200,11 +182,7 @@ export default function DevicesPage() {
                                       deleteMutation.mutate(device.id)
                                     }
                                   }}
-                                  style={{
-                                    padding: '4px 6px', background: 'none', border: '1px solid var(--border)',
-                                    borderRadius: 6, cursor: 'pointer', color: 'var(--accent-red)',
-                                    display: 'flex', alignItems: 'center',
-                                  }}
+                                  className="btn btn-danger btn--icon btn--sm"
                                   title="Delete"
                                 >
                                   <Trash2 size={12} />
@@ -218,7 +196,7 @@ export default function DevicesPage() {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={10} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
+                      <td colSpan={10} className="empty-table-cell">
                         {search ? 'No devices match your search' : 'No devices configured'}
                       </td>
                     </tr>

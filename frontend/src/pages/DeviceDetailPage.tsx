@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, interfacesApi, topologyApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { ArrowLeft, RefreshCw, Search, Map, BarChart2, Settings } from 'lucide-react'
+import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings } from 'lucide-react'
 import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState, useRef, useEffect } from 'react'
@@ -41,20 +41,9 @@ function protoBadge(proto?: string) {
   return <span className={map[p] || 'tag-gray'}>{p}</span>
 }
 
-// Funnel icon for column filter
-function FunnelIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'}
-      stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  )
-}
-
 // Column header with an Excel-style filter dropdown
 function FilterTh({
   label, filterKey, openFilter, setOpenFilter, active, children,
-  style,
 }: {
   label: string
   filterKey: string
@@ -62,7 +51,6 @@ function FilterTh({
   setOpenFilter: (k: string | null) => void
   active: boolean
   children: React.ReactNode
-  style?: React.CSSProperties
 }) {
   const isOpen = openFilter === filterKey
   const thRef = useRef<HTMLTableCellElement>(null)
@@ -79,30 +67,19 @@ function FilterTh({
   }, [isOpen, setOpenFilter])
 
   return (
-    <th ref={thRef} style={{ position: 'relative', whiteSpace: 'nowrap', ...style }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <th ref={thRef} className="filter-th">
+      <div className="flex-row-gap-sm">
         {label}
         <button
           onClick={() => setOpenFilter(isOpen ? null : filterKey)}
           title={`Filter ${label}`}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px',
-            color: active ? 'var(--primary)' : 'var(--text-light)',
-            display: 'flex', alignItems: 'center', borderRadius: 3,
-            lineHeight: 1,
-          }}
+          className={`filter-th__trigger ${active ? 'filter-th__trigger--active' : ''}`}
         >
-          <FunnelIcon active={active} />
+          <Filter size={11} />
         </button>
       </div>
       {isOpen && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 200,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: 10, minWidth: 140,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-          marginTop: 4,
-        }}>
+        <div className="filter-th__dropdown">
           {children}
         </div>
       )}
@@ -120,19 +97,14 @@ function StatusFilterPanel({
     { val: 'down', label: 'Down', cls: 'tag-red' },
   ]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div className="filter-panel">
       {opts.map((o) => (
         <button
           key={o.val}
           onClick={() => { onChange(o.val); onClose() }}
-          style={{
-            background: value === o.val ? 'var(--primary-dim, rgba(59,130,246,0.12))' : 'none',
-            border: value === o.val ? '1px solid var(--primary)' : '1px solid transparent',
-            borderRadius: 6, cursor: 'pointer', textAlign: 'left',
-            padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6,
-          }}
+          className={`filter-panel__btn ${value === o.val ? 'filter-panel__btn--active' : ''}`}
         >
-          <span className={o.cls} style={{ fontSize: 11, padding: '1px 6px' }}>{o.label}</span>
+          <span className={o.cls}>{o.label}</span>
         </button>
       ))}
     </div>
@@ -149,21 +121,15 @@ function TextFilterPanel({
         autoFocus
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder || 'Filter…'}
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          padding: '5px 8px', fontSize: 12,
-          border: '1px solid var(--border)', borderRadius: 6,
-          background: 'var(--bg)', color: 'var(--text-main)',
-          outline: 'none',
-        }}
+        placeholder={placeholder || 'Filter\u2026'}
+        className="filter-input"
       />
       {value && (
         <button
           onClick={() => onChange('')}
-          style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          className="filter-clear"
         >
-          ✕ Clear
+          \u2715 Clear
         </button>
       )}
     </div>
@@ -282,20 +248,20 @@ export default function DeviceDetailPage() {
 
   return (
     <>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="flex-col-gap">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <Link to="/devices" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', textDecoration: 'none' }}>
+      <div className="detail-header">
+        <Link to="/devices" className="back-btn">
           <ArrowLeft size={16} />
         </Link>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)' }}>{device.hostname}</h1>
+        <div className="flex-1">
+          <div className="flex-row-gap">
+            <h1>{device.hostname}</h1>
             {statusTag(device.status)}
           </div>
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{device.ip_address}</div>
+          <div className="mono">{device.ip_address}</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex-row-gap">
           {tab === 'interfaces' && (
             <button onClick={() => discoverMutation.mutate()} className="btn btn-outline btn-sm">
               <Search size={13} /> Discover Interfaces
@@ -316,20 +282,20 @@ export default function DeviceDetailPage() {
       </div>
 
       {/* Info grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      <div className="stats-grid">
         {[
           { label: 'Vendor / Model', value: [device.vendor, device.model].filter(Boolean).join(' ') || '—' },
-          { label: 'OS Version', value: device.os_version ? device.os_version.substring(0, 60) + (device.os_version.length > 60 ? '…' : '') : '—' },
+          { label: 'OS Version', value: device.os_version ? device.os_version.substring(0, 60) + (device.os_version.length > 60 ? '\u2026' : '') : '—' },
           { label: 'Uptime', value: device.uptime ? formatUptime(device.uptime) : '—' },
           { label: 'Location', value: device.location?.name || '—' },
-          ...(device.cpu_usage != null ? [{ label: 'CPU Usage', value: `${device.cpu_usage.toFixed(1)}%`, color: device.cpu_usage > 80 ? 'var(--accent-red)' : 'var(--accent-green)' }] : []),
-          ...(device.memory_usage != null ? [{ label: 'Memory Usage', value: `${device.memory_usage.toFixed(1)}%`, color: device.memory_usage > 80 ? 'var(--accent-red)' : 'var(--accent-green)' }] : []),
+          ...(device.cpu_usage != null ? [{ label: 'CPU Usage', value: `${device.cpu_usage.toFixed(1)}%`, color: device.cpu_usage > 80 ? 'danger' : 'success' }] : []),
+          ...(device.memory_usage != null ? [{ label: 'Memory Usage', value: `${device.memory_usage.toFixed(1)}%`, color: device.memory_usage > 80 ? 'danger' : 'success' }] : []),
           { label: 'Device Type', value: device.device_type || '—' },
           { label: 'Last Seen', value: device.last_seen ? formatDistanceToNow(new Date(device.last_seen), { addSuffix: true }) : 'Never' },
         ].map((item: any, i) => (
           <div key={i} className="info-card">
             <div className="stat-label">{item.label}</div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: item.color || 'var(--text-main)', marginTop: 4 }}>{item.value}</div>
+            <div className={`stat-value-sm ${item.color === 'danger' ? 'stat-value-sm--danger' : item.color === 'success' ? 'stat-value-sm--success' : ''}`}>{item.value}</div>
           </div>
         ))}
       </div>
@@ -340,12 +306,12 @@ export default function DeviceDetailPage() {
           Interfaces ({interfaces?.length || 0})
         </button>
         <button className={`tab-btn${tab === 'routes' ? ' active' : ''}`} onClick={() => setTab('routes')}>
-          <Map size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+          <Map size={13} />
           Routing Table {routes ? `(${routes.length})` : ''}
-          {!isL3 && <span className="tag-gray" style={{ marginLeft: 6, fontSize: 10 }}>L3 only</span>}
+          {!isL3 && <span className="tag-gray ml-2 text-xs">L3 only</span>}
         </button>
         <button className={`tab-btn${tab === 'metrics' ? ' active' : ''}`} onClick={() => setTab('metrics')}>
-          <BarChart2 size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+          <BarChart2 size={13} />
           Performance
         </button>
       </div>
@@ -354,35 +320,29 @@ export default function DeviceDetailPage() {
       {tab === 'interfaces' && (
         <div className="card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
+            <Activity size={15} />
             <h3>Interfaces</h3>
             {activeFilterCount > 0 && (
-              <span className="tag-blue" style={{ fontSize: 11, marginLeft: 4 }}>
+              <span className="tag-blue text-xs">
                 {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
               </span>
             )}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="card__actions">
               {activeFilterCount > 0 && (
                 <button
                   onClick={() => { setFilterAdmin(''); setFilterOper(''); setFilterAlias(''); setFilterSpeed('') }}
                   className="btn btn-outline btn-sm"
-                  style={{ fontSize: 11, padding: '2px 8px' }}
                 >
-                  ✕ Clear filters
+                  \u2715 Clear filters
                 </button>
               )}
               {/* Text search */}
-              <div className="search-bar" style={{ height: 30 }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
+              <div className="search-bar">
+                <Search size={13} />
                 <input
-                  placeholder="Search name / alias…"
+                  placeholder="Search name / alias\u2026"
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-                  style={{ width: 190 }}
                 />
               </div>
             </div>
@@ -407,7 +367,7 @@ export default function DeviceDetailPage() {
                       <TextFilterPanel
                         value={filterAlias}
                         onChange={(v) => { setFilterAlias(v); setPage(1) }}
-                        placeholder="Search description…"
+                        placeholder="Search description\u2026"
                       />
                     </FilterTh>
 
@@ -419,7 +379,7 @@ export default function DeviceDetailPage() {
                       setOpenFilter={(k) => { setOpenFilter(k); setPage(1) }}
                       active={!!filterSpeed}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div className="filter-panel">
                         {([
                           { val: '', label: 'All' },
                           { val: 'with', label: 'Has speed' },
@@ -428,12 +388,7 @@ export default function DeviceDetailPage() {
                           <button
                             key={o.val}
                             onClick={() => { setFilterSpeed(o.val); setOpenFilter(null); setPage(1) }}
-                            style={{
-                              background: filterSpeed === o.val ? 'var(--primary-dim, rgba(59,130,246,0.12))' : 'none',
-                              border: filterSpeed === o.val ? '1px solid var(--primary)' : '1px solid transparent',
-                              borderRadius: 6, cursor: 'pointer', textAlign: 'left',
-                              padding: '4px 8px', fontSize: 12, color: 'var(--text-main)',
-                            }}
+                            className={`filter-panel__btn ${filterSpeed === o.val ? 'filter-panel__btn--active' : ''}`}
                           >
                             {o.label}
                           </button>
@@ -478,55 +433,57 @@ export default function DeviceDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedIfs.map((iface) => (
-                    <tr key={iface.id}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Link to={`/interfaces/${iface.id}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 600 }}>
-                            {iface.name}
-                          </Link>
-                          {iface.is_uplink && <span className="tag-orange" style={{ fontSize: 10 }}>uplink</span>}
-                        </div>
-                      </td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.alias || iface.description || '—'}</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{iface.speed ? formatBps(iface.speed) : '—'}</td>
-                      <td>
-                        {iface.admin_status
-                          ? <span className={iface.admin_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.admin_status}</span>
-                          : <span className="tag-gray">—</span>}
-                      </td>
-                      <td>
-                        {iface.oper_status
-                          ? <span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status}</span>
-                          : <span className="tag-gray">—</span>}
-                      </td>
-                      <td>
-                        {(() => {
-                          const u = utilization?.[iface.id]
-                          if (!u) return <span style={{ color: 'var(--text-light)', fontSize: 12 }}>—</span>
-                          const pct = Math.max(u.utilization_in, u.utilization_out)
-                          const color = pct >= 85 ? '#e74c3c' : pct >= 75 ? '#f39c12' : '#27ae60'
-                          return (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <div style={{ width: 48, height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.3s' }} />
+                  {pagedIfs.map((iface) => {
+                    const u = utilization?.[iface.id]
+                    const pct = u ? Math.max(u.utilization_in, u.utilization_out) : null
+                    const utilColor = pct != null ? (pct >= 85 ? 'red' : pct >= 75 ? 'orange' : 'green') : null
+                    return (
+                      <tr key={iface.id}>
+                        <td>
+                          <div className="flex-row-gap">
+                            <Link to={`/interfaces/${iface.id}`} className="mono text-sm link-primary font-semibold">
+                              {iface.name}
+                            </Link>
+                            {iface.is_uplink && <span className="tag-orange text-xs">uplink</span>}
+                          </div>
+                        </td>
+                        <td className="text-muted text-sm">{iface.alias || iface.description || '—'}</td>
+                        <td className="text-muted text-sm">{iface.speed ? formatBps(iface.speed) : '—'}</td>
+                        <td>
+                          {iface.admin_status
+                            ? <span className={iface.admin_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.admin_status}</span>
+                            : <span className="tag-gray">—</span>}
+                        </td>
+                        <td>
+                          {iface.oper_status
+                            ? <span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status}</span>
+                            : <span className="tag-gray">—</span>}
+                        </td>
+                        <td>
+                          {pct != null && utilColor != null ? (
+                            <div className="util-bar">
+                              <div className="util-bar__track">
+                                <div
+                                  className={`util-bar__fill util-bar__fill--${utilColor}`}
+                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                />
                               </div>
-                              <span style={{ fontSize: 12, fontWeight: 600, color, fontFamily: 'DM Mono, monospace' }}>
+                              <span className={`util-bar__value ${utilColor === 'red' ? 'metric-value--danger' : utilColor === 'orange' ? 'metric-value--warning' : 'metric-value--success'}`}>
                                 {pct.toFixed(1)}%
                               </span>
                             </div>
-                          )
-                        })()}
-                      </td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{iface.ip_address || '—'}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{iface.vlan_id || '—'}</td>
-                      <td>
-                        <Link to={`/interfaces/${iface.id}`} className="btn btn-outline btn-sm">Graphs →</Link>
-                      </td>
-                    </tr>
-                  ))}
+                          ) : <span className="text-light text-sm">—</span>}
+                        </td>
+                        <td className="mono text-sm text-muted">{iface.ip_address || '—'}</td>
+                        <td className="text-muted">{iface.vlan_id || '—'}</td>
+                        <td>
+                          <Link to={`/interfaces/${iface.id}`} className="btn btn-outline btn-sm">Graphs \u2192</Link>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   {pagedIfs.length === 0 && (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
+                    <tr><td colSpan={9} className="empty-table-cell">
                       {interfaces?.length === 0
                         ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
                         : 'No interfaces match the active filters'}
@@ -538,44 +495,41 @@ export default function DeviceDetailPage() {
           )}
           {/* Pagination footer */}
           {!ifLoading && filteredIfs.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            <div className="pagination-footer">
+              <div className="flex-row-gap">
+                <span className="pagination-info">
                   Showing {Math.min((safePage - 1) * pageSize + 1, filteredIfs.length)}–{Math.min(safePage * pageSize, filteredIfs.length)} of {filteredIfs.length}
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div className="flex-row-gap-sm">
                   {[25, 50, 100, 200].map((n) => (
                     <button
                       key={n}
                       onClick={() => { setPageSize(n); setPage(1) }}
                       className={`btn btn-sm ${pageSize === n ? 'btn-primary' : 'btn-outline'}`}
-                      style={{ minWidth: 38, padding: '2px 8px', fontSize: 12 }}
                     >
                       {n}
                     </button>
                   ))}
-                  <span style={{ fontSize: 11, color: 'var(--text-light)', marginLeft: 2 }}>per page</span>
+                  <span className="per-page-label">per page</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="pagination-controls">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={safePage === 1}
                   className="btn btn-outline btn-sm"
-                  style={{ padding: '2px 10px' }}
                 >
-                  ‹ Prev
+                  \u2039 Prev
                 </button>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 70, textAlign: 'center' }}>
+                <span className="pagination-page-info">
                   Page {safePage} / {totalPages}
                 </span>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={safePage === totalPages}
                   className="btn btn-outline btn-sm"
-                  style={{ padding: '2px 10px' }}
                 >
-                  Next ›
+                  Next \u203a
                 </button>
               </div>
             </div>
@@ -590,7 +544,7 @@ export default function DeviceDetailPage() {
             <Map size={15} />
             <h3>Routing Table</h3>
             {!isL3 && (
-              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+              <span className="text-xs text-muted ml-2">
                 Set device layer to L3 or L2/L3 to enable route discovery
               </span>
             )}
@@ -606,22 +560,22 @@ export default function DeviceDetailPage() {
                 <tbody>
                   {(routes || []).map((route) => (
                     <tr key={route.id}>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 600 }}>
+                      <td className="mono text-sm font-semibold">
                         {route.destination}
                       </td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>
+                      <td className="mono text-sm text-muted">
                         {route.prefix_len != null ? `/${route.prefix_len}` : route.mask || '—'}
                       </td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>
+                      <td className="mono text-sm text-muted">
                         {route.next_hop || '—'}
                       </td>
                       <td>{protoBadge(route.protocol)}</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{route.metric ?? '—'}</td>
+                      <td className="text-muted text-sm">{route.metric ?? '—'}</td>
                     </tr>
                   ))}
                   {(!routes || routes.length === 0) && (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-light)' }}>
+                      <td colSpan={5} className="empty-table-cell">
                         No routes discovered yet.{' '}
                         {isL3 ? 'Click "Discover Routes" to fetch the routing table via SNMP.' : 'Configure this device as L3 first.'}
                       </td>
@@ -636,9 +590,9 @@ export default function DeviceDetailPage() {
 
       {/* Metrics / Performance tab */}
       {tab === 'metrics' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Time range:</span>
+        <div className="flex-col-gap">
+          <div className="flex-row-gap">
+            <span className="text-sm text-muted">Time range:</span>
             {[
               { label: '1h', value: 1 },
               { label: '6h', value: 6 },
@@ -659,9 +613,9 @@ export default function DeviceDetailPage() {
             <div className="empty-state"><p>Loading metrics...</p></div>
           ) : !metricsData || metricsData.length === 0 ? (
             <div className="empty-state">
-              <BarChart2 size={32} style={{ color: 'var(--text-light)', marginBottom: 8 }} />
-              <p style={{ color: 'var(--text-muted)' }}>No performance data yet.</p>
-              <p style={{ fontSize: 12, color: 'var(--text-light)' }}>
+              <div className="empty-state__icon"><BarChart2 size={32} /></div>
+              <p className="empty-state__title">No performance data yet.</p>
+              <p className="empty-state__description">
                 CPU and memory metrics are collected during each poll cycle. Check that SNMP polling is active.
               </p>
             </div>
@@ -680,11 +634,11 @@ export default function DeviceDetailPage() {
                     <div className="card-header">
                       <BarChart2 size={15} />
                       <h3>CPU Utilization</h3>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span className="card-header__sub">
                         Current: {device.cpu_usage != null ? `${device.cpu_usage.toFixed(1)}%` : '—'}
                       </span>
                     </div>
-                    <div className="card-body" style={{ paddingTop: 8 }}>
+                    <div className="card-body">
                       <ResponsiveContainer width="100%" height={220}>
                         <LineChart data={chartData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -705,11 +659,11 @@ export default function DeviceDetailPage() {
                     <div className="card-header">
                       <BarChart2 size={15} />
                       <h3>Memory Utilization</h3>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span className="card-header__sub">
                         Current: {device.memory_usage != null ? `${device.memory_usage.toFixed(1)}%` : '—'}
                       </span>
                     </div>
-                    <div className="card-body" style={{ paddingTop: 8 }}>
+                    <div className="card-body">
                       <ResponsiveContainer width="100%" height={220}>
                         <LineChart data={chartData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -735,19 +689,19 @@ export default function DeviceDetailPage() {
                       <tbody>
                         {metricsData.slice(0, 20).map((m: any, i: number) => (
                           <tr key={i}>
-                            <td style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
+                            <td className="mono text-sm text-muted">
                               {new Date(m.timestamp).toLocaleString()}
                             </td>
                             <td>
                               {m.cpu_usage != null ? (
-                                <span style={{ color: m.cpu_usage > 80 ? 'var(--accent-red)' : m.cpu_usage > 60 ? 'var(--accent-orange)' : 'var(--accent-green)', fontWeight: 600, fontSize: 13 }}>
+                                <span className={`metric-value ${m.cpu_usage > 80 ? 'metric-value--danger' : m.cpu_usage > 60 ? 'metric-value--warning' : 'metric-value--success'}`}>
                                   {m.cpu_usage.toFixed(1)}%
                                 </span>
                               ) : '—'}
                             </td>
                             <td>
                               {m.memory_usage != null ? (
-                                <span style={{ color: m.memory_usage > 80 ? 'var(--accent-red)' : m.memory_usage > 60 ? 'var(--accent-orange)' : 'var(--accent-green)', fontWeight: 600, fontSize: 13 }}>
+                                <span className={`metric-value ${m.memory_usage > 80 ? 'metric-value--danger' : m.memory_usage > 60 ? 'metric-value--warning' : 'metric-value--success'}`}>
                                   {m.memory_usage.toFixed(1)}%
                                 </span>
                               ) : '—'}

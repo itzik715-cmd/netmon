@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { settingsApi, authApi } from '../services/api'
-import { Shield, TestTube, Loader2 } from 'lucide-react'
+import { Settings, Shield, TestTube, Loader2, Monitor, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type Tab = 'ldap' | 'security'
@@ -60,15 +60,15 @@ export default function SettingsPage() {
   }
 
   const field = (label: string, key: keyof typeof ldapConfig, type = 'text') => (
-    <div>
-      <label className="label">{label}</label>
-      <input type={type} className="input" value={ldapConfig[key] as string}
+    <div className="form-field">
+      <label className="form-label">{label}</label>
+      <input type={type} className="form-input" value={ldapConfig[key] as string}
         onChange={(e) => setLdapConfig((p) => ({ ...p, [key]: e.target.value }))} />
     </div>
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="flex-col-gap">
       <div className="page-header">
         <div>
           <h1>System Settings</h1>
@@ -81,48 +81,46 @@ export default function SettingsPage() {
           LDAP / Active Directory
         </button>
         <button className={`tab-btn${tab === 'security' ? ' active' : ''}`} onClick={() => setTab('security')}>
-          <Shield size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 5 }} />
+          <Shield size={13} />
           Security
         </button>
       </div>
 
       {tab === 'ldap' && (
-        <div className="card" style={{ maxWidth: 680 }}>
+        <div className="card settings-card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-            </svg>
+            <Monitor size={15} />
             <h3>LDAP / Active Directory Integration</h3>
           </div>
           <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="flex-col-gap">
               {/* Enable toggle */}
               <div className="toggle-row">
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-main)' }}>Enable LDAP Authentication</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Allow users to authenticate via Active Directory</div>
+                  <div className="toggle-row__title">Enable LDAP Authentication</div>
+                  <div className="toggle-row__description">Allow users to authenticate via Active Directory</div>
                 </div>
                 <button
+                  className={`toggle ${ldapConfig.enabled ? 'toggle--active' : ''}`}
                   onClick={() => setLdapConfig((p) => ({ ...p, enabled: !p.enabled }))}
-                  style={{ position: 'relative', display: 'inline-flex', height: 22, width: 42, borderRadius: 11, cursor: 'pointer', border: 'none', background: ldapConfig.enabled ? 'var(--primary)' : '#cbd5e1', transition: 'background 0.2s', flexShrink: 0 }}
                 >
-                  <span style={{ position: 'absolute', top: 3, left: ldapConfig.enabled ? 22 : 3, width: 16, height: 16, borderRadius: '50%', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.2s' }} />
+                  <span className="toggle__knob" />
                 </button>
               </div>
 
               {ldapConfig.enabled && (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
+                  <div className="grid-server-port">
                     {field('LDAP Server (IP or FQDN)', 'server')}
-                    <div>
-                      <label className="label">Port</label>
-                      <input type="number" className="input" value={ldapConfig.port} onChange={(e) => setLdapConfig((p) => ({ ...p, port: parseInt(e.target.value) }))} style={{ width: 100 }} />
+                    <div className="form-field">
+                      <label className="form-label">Port</label>
+                      <input type="number" className="form-input port-input" value={ldapConfig.port} onChange={(e) => setLdapConfig((p) => ({ ...p, port: parseInt(e.target.value) }))} />
                     </div>
                   </div>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={ldapConfig.use_ssl} onChange={(e) => setLdapConfig((p) => ({ ...p, use_ssl: e.target.checked }))} style={{ width: 14, height: 14 }} />
-                    <span style={{ fontSize: 13, color: 'var(--text-main)' }}>Use SSL/LDAPS (port 636)</span>
+                  <label className="checkbox-label">
+                    <input type="checkbox" checked={ldapConfig.use_ssl} onChange={(e) => setLdapConfig((p) => ({ ...p, use_ssl: e.target.checked }))} />
+                    <span className="checkbox-label__text">Use SSL/LDAPS (port 636)</span>
                   </label>
 
                   {field('Base DN', 'base_dn')}
@@ -130,16 +128,16 @@ export default function SettingsPage() {
                   {field('Bind Password', 'bind_password', 'password')}
                   {field('User Search Filter', 'user_filter')}
 
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                  <div className="settings-section-divider">
                     <div className="form-section-title">Group → Role Mapping</div>
                     {field('Admin Group DN', 'group_admin')}
                     {field('Operator Group DN', 'group_operator')}
                     {field('Read-Only Group DN', 'group_readonly')}
                   </div>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={ldapConfig.local_fallback} onChange={(e) => setLdapConfig((p) => ({ ...p, local_fallback: e.target.checked }))} style={{ width: 14, height: 14 }} />
-                    <span style={{ fontSize: 13, color: 'var(--text-main)' }}>Allow local fallback authentication (admin always allowed)</span>
+                  <label className="checkbox-label">
+                    <input type="checkbox" checked={ldapConfig.local_fallback} onChange={(e) => setLdapConfig((p) => ({ ...p, local_fallback: e.target.checked }))} />
+                    <span className="checkbox-label__text">Allow local fallback authentication (admin always allowed)</span>
                   </label>
 
                   <div>
@@ -156,9 +154,9 @@ export default function SettingsPage() {
                 </>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              <div className="settings-save-bar">
                 <button onClick={() => saveLdapMutation.mutate()} disabled={saveLdapMutation.isPending} className="btn btn-primary">
-                  {saveLdapMutation.isPending && <Loader2 size={13} className="animate-spin" />}
+                  {saveLdapMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
                   Save LDAP Configuration
                 </button>
               </div>
@@ -168,13 +166,13 @@ export default function SettingsPage() {
       )}
 
       {tab === 'security' && (
-        <div className="card" style={{ maxWidth: 680 }}>
+        <div className="card settings-card">
           <div className="card-header">
-            <Shield size={15} style={{ color: 'var(--accent-orange)' }} />
+            <Shield size={15} />
             <h3>Security Settings</h3>
           </div>
           <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="flex-col-gap">
               {[
                 { title: 'Password Policy', items: ['Minimum length: 10 characters', 'Must include uppercase, lowercase, number, and special character', 'Hashed with bcrypt (cost factor 12)'] },
                 { title: 'Account Lockout', items: ['Locked after 5 failed login attempts', 'Lockout duration: 30 minutes', 'Administrators can manually unlock accounts'] },
@@ -184,7 +182,7 @@ export default function SettingsPage() {
                 <div key={title} className="form-section">
                   <div className="form-section-title">{title}</div>
                   {items.map((item) => (
-                    <div key={item} style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>• {item}</div>
+                    <div key={item} className="security-item">• {item}</div>
                   ))}
                 </div>
               ))}

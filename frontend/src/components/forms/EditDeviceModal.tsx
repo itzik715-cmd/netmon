@@ -131,114 +131,114 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content" style={{ maxWidth: 720 }}>
+      <div className="modal-content modal-content--xl">
         <div className="modal-header">
-          <Settings size={16} style={{ color: 'var(--text-muted)' }} />
+          <Settings size={16} className="modal-header__icon" />
           <h3>Device Settings — {device.hostname}</h3>
           <button onClick={onClose} className="modal-close"><X size={16} /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body" style={{ maxHeight: '74vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div className="modal-body modal-body--scroll-lg">
+            <div className="form-stack--lg">
 
-              {/* ── General ── */}
+              {/* -- General -- */}
               <div>
-                <div className="form-section-title" style={{ marginBottom: 10 }}>General</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label className="label">Hostname *</label>
-                    <input className="input" value={form.hostname} onChange={set('hostname')} required />
+                <div className="form-section-title--mb">General</div>
+                <div className="form-grid-2">
+                  <div className="form-field">
+                    <label className="form-label">Hostname *</label>
+                    <input className="form-input" value={form.hostname} onChange={set('hostname')} required />
                   </div>
-                  <div>
-                    <label className="label">IP Address *</label>
-                    <input className="input" value={form.ip_address} onChange={set('ip_address')}
+                  <div className="form-field">
+                    <label className="form-label">IP Address *</label>
+                    <input className="form-input" value={form.ip_address} onChange={set('ip_address')}
                       pattern="\d+\.\d+\.\d+\.\d+" placeholder="192.168.1.1" required />
                   </div>
-                  <div>
-                    <label className="label">Device Type</label>
-                    <select className="select" value={form.device_type} onChange={set('device_type')}>
+                  <div className="form-field">
+                    <label className="form-label">Device Type</label>
+                    <select className="form-select" value={form.device_type} onChange={set('device_type')}>
                       <option value="">Select type...</option>
                       {['spine', 'leaf', 'tor', 'router', 'switch', 'firewall', 'server', 'other'].map((t) => (
                         <option key={t} value={t}>{t}</option>
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="label">Network Layer</label>
-                    <select className="select" value={form.layer} onChange={set('layer')}>
+                  <div className="form-field">
+                    <label className="form-label">Network Layer</label>
+                    <select className="form-select" value={form.layer} onChange={set('layer')}>
                       <option value="">Select layer...</option>
                       {['L2', 'L3', 'L2/L3'].map((l) => (
                         <option key={l} value={l}>{l}</option>
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="label">Vendor</label>
-                    <input className="input" value={form.vendor} onChange={set('vendor')} placeholder="Cisco, Arista..." />
+                  <div className="form-field">
+                    <label className="form-label">Vendor</label>
+                    <input className="form-input" value={form.vendor} onChange={set('vendor')} placeholder="Cisco, Arista..." />
                   </div>
-                  <div>
-                    <label className="label">Model</label>
-                    <input className="input" value={form.model} onChange={set('model')} placeholder="Nexus 9000..." />
+                  <div className="form-field">
+                    <label className="form-label">Model</label>
+                    <input className="form-input" value={form.model} onChange={set('model')} placeholder="Nexus 9000..." />
                   </div>
-                  <div>
-                    <label className="label">Location</label>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <select className="select" style={{ flex: 1 }} value={form.location_id} onChange={set('location_id')}>
+                  <div className="form-field">
+                    <label className="form-label">Location</label>
+                    <div className="form-inline-row">
+                      <select className="form-select form-inline-grow" value={form.location_id} onChange={set('location_id')}>
                         <option value="">No location</option>
                         {(locations || []).map((l: any) => (
                           <option key={l.id} value={l.id}>{l.name}</option>
                         ))}
                       </select>
-                      <button type="button" className="btn btn-outline btn-sm" title="New Location"
-                        onClick={() => setShowNewLocation(v => !v)} style={{ flexShrink: 0, padding: '0 8px' }}>
+                      <button type="button" className="btn btn-outline btn-sm form-inline-fixed" title="New Location"
+                        onClick={() => setShowNewLocation(v => !v)}>
                         <Plus size={14} />
                       </button>
                     </div>
                     {showNewLocation && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'flex-end' }}>
-                        <div style={{ flex: 1 }}>
-                          <label className="label" style={{ fontSize: 10 }}>Datacenter</label>
-                          <input className="input" placeholder="IL-PT" value={newDc} onChange={e => setNewDc(e.target.value)} />
+                      <div className="form-inline-row--end">
+                        <div className="form-inline-grow">
+                          <label className="form-label--xs">Datacenter</label>
+                          <input className="form-input" placeholder="IL-PT" value={newDc} onChange={e => setNewDc(e.target.value)} />
                         </div>
-                        <div style={{ flex: 1 }}>
-                          <label className="label" style={{ fontSize: 10 }}>Rack / Cabinet</label>
-                          <input className="input" placeholder="Z34" value={newRack} onChange={e => setNewRack(e.target.value)} />
+                        <div className="form-inline-grow">
+                          <label className="form-label--xs">Rack / Cabinet</label>
+                          <input className="form-input" placeholder="Z34" value={newRack} onChange={e => setNewRack(e.target.value)} />
                         </div>
-                        <button type="button" className="btn btn-primary btn-sm" onClick={handleCreateLocation}
-                          disabled={creatingLoc} style={{ flexShrink: 0, height: 34 }}>
+                        <button type="button" className="btn btn-primary btn-sm form-inline-fixed" onClick={handleCreateLocation}
+                          disabled={creatingLoc}>
                           {creatingLoc ? <Loader2 size={12} className="animate-spin" /> : 'Add'}
                         </button>
                       </div>
                     )}
                   </div>
-                  <div>
-                    <label className="label">Poll Interval (seconds)</label>
-                    <input className="input" type="number" min="10" value={form.poll_interval} onChange={set('poll_interval')} />
+                  <div className="form-field">
+                    <label className="form-label">Poll Interval (seconds)</label>
+                    <input className="form-input" type="number" min="10" value={form.poll_interval} onChange={set('poll_interval')} />
                   </div>
                 </div>
-                <div style={{ marginTop: 12 }}>
-                  <label className="label">Description</label>
-                  <textarea className="input" style={{ height: 64, resize: 'none' }}
+                <div className="form-field">
+                  <label className="form-label">Description</label>
+                  <textarea className="form-textarea form-textarea--sm"
                     value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
                 </div>
               </div>
 
-              {/* ── Status toggles ── */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                <div className="form-section-title" style={{ marginBottom: 10 }}>Status</div>
-                <div style={{ display: 'flex', gap: 24 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+              {/* -- Status toggles -- */}
+              <div className="form-divider">
+                <div className="form-section-title--mb">Status</div>
+                <div className="toggle-group">
+                  <label className="checkbox-row">
                     <input type="checkbox" checked={form.polling_enabled}
                       onChange={(e) => setForm((p) => ({ ...p, polling_enabled: e.target.checked }))} />
                     Polling enabled
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <label className="checkbox-row">
                     <input type="checkbox" checked={form.flow_enabled}
                       onChange={(e) => setForm((p) => ({ ...p, flow_enabled: e.target.checked }))} />
                     Flow collection (sFlow / NetFlow)
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <label className="checkbox-row">
                     <input type="checkbox" checked={form.is_active}
                       onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))} />
                     Device active
@@ -246,9 +246,9 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
                 </div>
               </div>
 
-              {/* ── SNMP ── */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              {/* -- SNMP -- */}
+              <div className="form-divider">
+                <div className="form-section-header">
                   <div className="form-section-title">SNMP Configuration</div>
                   <button type="button" onClick={handleTest} disabled={testing || !form.ip_address}
                     className="btn btn-outline btn-sm">
@@ -257,81 +257,78 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
                 </div>
 
                 {testResult && (
-                  <div style={{
-                    marginBottom: 10, padding: '8px 12px', borderRadius: 6,
-                    background: testResult.success ? 'var(--accent-green-bg, #f0fdf4)' : '#fff1f2',
-                    border: `1px solid ${testResult.success ? 'var(--accent-green)' : 'var(--accent-red)'}`,
-                    display: 'flex', alignItems: 'flex-start', gap: 8,
-                  }}>
-                    {testResult.success
-                      ? <CheckCircle size={14} style={{ color: 'var(--accent-green)', flexShrink: 0, marginTop: 2 }} />
-                      : <AlertCircle size={14} style={{ color: 'var(--accent-red)', flexShrink: 0, marginTop: 2 }} />}
-                    <div style={{ fontSize: 12 }}>
-                      {testResult.success ? (
-                        <>
-                          <strong>SNMP OK</strong>
-                          {testResult.sys_name && <> — <span style={{ fontFamily: 'DM Mono, monospace' }}>{testResult.sys_name}</span></>}
-                          {testResult.sys_descr && (
-                            <div style={{ color: 'var(--text-muted)', marginTop: 2, fontSize: 11 }}>
-                              {testResult.sys_descr.slice(0, 120)}{testResult.sys_descr.length > 120 ? '…' : ''}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <strong style={{ color: 'var(--accent-red)' }}>
-                          SNMP unreachable — check IP, community string, and ACLs
-                        </strong>
-                      )}
+                  <div className={testResult.success ? 'test-success' : 'test-error'}>
+                    <div className="flex-row-gap">
+                      {testResult.success
+                        ? <CheckCircle size={14} className="text-success" />
+                        : <AlertCircle size={14} />}
+                      <div className="text-sm">
+                        {testResult.success ? (
+                          <>
+                            <strong>SNMP OK</strong>
+                            {testResult.sys_name && <> — <span className="mono">{testResult.sys_name}</span></>}
+                            {testResult.sys_descr && (
+                              <div className="text-muted text-xs">
+                                {testResult.sys_descr.slice(0, 120)}{testResult.sys_descr.length > 120 ? '...' : ''}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <strong>
+                            SNMP unreachable — check IP, community string, and ACLs
+                          </strong>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label className="label">SNMP Version</label>
-                    <select className="select" value={form.snmp_version} onChange={set('snmp_version')}>
+                <div className="form-grid-3">
+                  <div className="form-field">
+                    <label className="form-label">SNMP Version</label>
+                    <select className="form-select" value={form.snmp_version} onChange={set('snmp_version')}>
                       <option value="1">v1</option>
                       <option value="2c">v2c</option>
                       <option value="3">v3</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="label">Community / Username</label>
-                    <input className="input" value={form.snmp_community} onChange={set('snmp_community')}
+                  <div className="form-field">
+                    <label className="form-label">Community / Username</label>
+                    <input className="form-input" value={form.snmp_community} onChange={set('snmp_community')}
                       placeholder={form.snmp_community ? undefined : 'public'} />
                   </div>
-                  <div>
-                    <label className="label">SNMP Port</label>
-                    <input className="input" type="number" value={form.snmp_port} onChange={set('snmp_port')} />
+                  <div className="form-field">
+                    <label className="form-label">SNMP Port</label>
+                    <input className="form-input" type="number" value={form.snmp_port} onChange={set('snmp_port')} />
                   </div>
                 </div>
               </div>
 
-              {/* ── API credentials ── */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-                <div className="form-section-title" style={{ marginBottom: 10 }}>
+              {/* -- API credentials -- */}
+              <div className="form-divider">
+                <div className="form-section-title--mb">
                   Arista eAPI Credentials{' '}
-                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 11 }}>(optional)</span>
+                  <span className="form-section-hint">(optional)</span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label className="label">Protocol</label>
-                    <select className="select" value={form.api_protocol} onChange={set('api_protocol')}>
+                <div className="form-grid-4">
+                  <div className="form-field">
+                    <label className="form-label">Protocol</label>
+                    <select className="form-select" value={form.api_protocol} onChange={set('api_protocol')}>
                       <option value="https">HTTPS</option>
                       <option value="http">HTTP</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="label">API Port</label>
-                    <input className="input" type="number" value={form.api_port} onChange={set('api_port')} />
+                  <div className="form-field">
+                    <label className="form-label">API Port</label>
+                    <input className="form-input" type="number" value={form.api_port} onChange={set('api_port')} />
                   </div>
-                  <div>
-                    <label className="label">Username</label>
-                    <input className="input" value={form.api_username} onChange={set('api_username')} placeholder="admin" />
+                  <div className="form-field">
+                    <label className="form-label">Username</label>
+                    <input className="form-input" value={form.api_username} onChange={set('api_username')} placeholder="admin" />
                   </div>
-                  <div>
-                    <label className="label">Password</label>
-                    <input className="input" type="password" value={form.api_password} onChange={set('api_password')}
+                  <div className="form-field">
+                    <label className="form-label">Password</label>
+                    <input className="form-input" type="password" value={form.api_password} onChange={set('api_password')}
                       placeholder={device.api_username ? '(unchanged)' : ''} />
                   </div>
                 </div>

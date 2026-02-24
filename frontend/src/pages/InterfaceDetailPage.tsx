@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { interfacesApi } from '../services/api'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Activity } from 'lucide-react'
 import { InterfaceMetric } from '../types'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format } from 'date-fns'
@@ -56,19 +56,20 @@ export default function InterfaceDetailPage() {
   }))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+    <div className="flex-col-gap">
+      <div className="detail-header">
         {iface && (
-          <Link to={`/devices/${iface.device_id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', textDecoration: 'none' }}>
+          <Link to={`/devices/${iface.device_id}`} className="back-btn">
             <ArrowLeft size={16} />
           </Link>
         )}
-        <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: 'DM Mono, monospace' }}>{iface?.name || `Interface ${ifId}`}</h1>
-          {iface?.alias && <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{iface.alias}</p>}
+        <div className="flex-1">
+          <h1 className="mono">{iface?.name || `Interface ${ifId}`}</h1>
+          {iface?.alias && <p className="text-muted text-sm">{iface.alias}</p>}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+        <label className="flex-row-gap text-sm text-muted" htmlFor="wan-toggle">
           <input
+            id="wan-toggle"
             type="checkbox"
             checked={iface?.is_wan || false}
             onChange={async () => {
@@ -78,7 +79,6 @@ export default function InterfaceDetailPage() {
                 toast.success(iface?.is_wan ? 'Removed from WAN' : 'Marked as WAN')
               } catch { /* toast from interceptor */ }
             }}
-            style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
           />
           WAN
         </label>
@@ -90,7 +90,7 @@ export default function InterfaceDetailPage() {
       </div>
 
       {latest && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+        <div className="stats-grid">
           {[
             { label: 'In Throughput', value: formatBps(latest.in_bps), color: 'var(--primary)' },
             { label: 'Out Throughput', value: formatBps(latest.out_bps), color: '#a78bfa' },
@@ -103,8 +103,8 @@ export default function InterfaceDetailPage() {
             <div key={i} className="info-card">
               <div className="stat-label">{item.label}</div>
               {item.isTag
-                ? <span className={item.tagClass} style={{ marginTop: 6, display: 'inline-flex' }}>{item.value}</span>
-                : <div style={{ fontWeight: 700, fontSize: 18, color: item.color || 'var(--text-main)', marginTop: 4 }}>{item.value}</div>
+                ? <span className={item.tagClass}>{item.value}</span>
+                : <div className="stat-value-sm" style={{ color: item.color }}>{item.value}</div>
               }
             </div>
           ))}
@@ -113,14 +113,14 @@ export default function InterfaceDetailPage() {
 
       <div className="card">
         <div className="card-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <Activity size={15} />
           <h3>Throughput — Last {hours}h</h3>
         </div>
         <div className="card-body">
           {isLoading ? (
-            <div className="empty-state" style={{ height: 200 }}><p>Loading...</p></div>
+            <div className="empty-state"><p>Loading...</p></div>
           ) : chartData.length === 0 ? (
-            <div className="empty-state" style={{ height: 200 }}><p>No data available for this period</p></div>
+            <div className="empty-state"><p>No data available for this period</p></div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
@@ -140,7 +140,7 @@ export default function InterfaceDetailPage() {
       {chartData.length > 0 && (
         <div className="card">
           <div className="card-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <Activity size={15} />
             <h3>Utilization %</h3>
           </div>
           <div className="card-body">

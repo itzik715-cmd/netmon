@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend, Label,
 } from 'recharts'
+import { Activity, Search, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 
 const COLORS     = ['#1a9dc8', '#a78bfa', '#06b6d4', '#f97316', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']
 const COLORS_IN  = ['#27ae60', '#2ecc71', '#1abc9c', '#16a085', '#0d9488', '#059669', '#10b981', '#34d399']
@@ -26,7 +27,7 @@ const TIME_RANGES = [
 
 const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
 
-// ── IP search bar ─────────────────────────────────────────────────────────────
+// -- IP search bar ---------------------------------------------------------------
 function IpSearchBar({
   value, onChange, onClear,
 }: { value: string; onChange: (v: string) => void; onClear: () => void }) {
@@ -38,21 +39,15 @@ function IpSearchBar({
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <div style={{ position: 'relative' }}>
-        <svg
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-          style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: 'var(--text-muted)' }}
-        >
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
+    <form onSubmit={submit} className="flex-row-gap">
+      <div className="search-bar">
+        <Search size={13} />
         <input
           type="text"
-          className="input"
-          placeholder="Search by IP address…"
+          placeholder="Search by IP address..."
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          style={{ paddingLeft: 32, width: 220, fontFamily: 'DM Mono, monospace', fontSize: 13 }}
+          className="mono"
         />
       </div>
       <button type="submit" className="btn btn-primary btn-sm">Search</button>
@@ -62,14 +57,14 @@ function IpSearchBar({
           className="btn btn-outline btn-sm"
           onClick={() => { setDraft(''); onClear(); }}
         >
-          ✕ Clear
+          Clear
         </button>
       )}
     </form>
   )
 }
 
-// ── Donut + ranked list column ─────────────────────────────────────────────────
+// -- Donut + ranked list column ---------------------------------------------------
 function TrafficColumn({
   title, accentColor, colors, totalBytes, peers, selectedPeer, onSelectPeer,
 }: {
@@ -84,14 +79,11 @@ function TrafficColumn({
   const maxBytes = peers[0]?.bytes || 1
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{
-        fontSize: 11, fontWeight: 700, color: accentColor,
-        textTransform: 'uppercase', letterSpacing: 1,
-      }}>
+    <div className="flex-col-gap">
+      <div className="stat-label" style={{ color: accentColor }}>
         {title}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: 10, alignItems: 'start' }}>
+      <div className="grid-traffic-column">
         {/* Donut chart */}
         <ResponsiveContainer width="100%" height={130}>
           <PieChart>
@@ -121,9 +113,9 @@ function TrafficColumn({
         </ResponsiveContainer>
 
         {/* Ranked list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 4 }}>
+        <div className="peer-list">
           {peers.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingTop: 8 }}>No data</div>
+            <div className="text-muted text-xs">No data</div>
           )}
           {peers.slice(0, 8).map((peer, i) => {
             const pct = Math.round((peer.bytes / maxBytes) * 100)
@@ -132,21 +124,16 @@ function TrafficColumn({
               <div
                 key={peer.ip}
                 onClick={() => onSelectPeer(isSelected ? '' : peer.ip)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  cursor: 'pointer', borderRadius: 5, padding: '3px 5px',
-                  background: isSelected ? `${accentColor}18` : 'transparent',
-                  border: isSelected ? `1px solid ${accentColor}40` : '1px solid transparent',
-                  transition: 'background 0.15s',
-                }}
+                className={`peer-row${isSelected ? ' peer-row--selected' : ''}`}
+                style={isSelected ? { background: `${accentColor}18`, borderColor: `${accentColor}40` } : undefined}
               >
-                <span style={{ width: 13, fontSize: 9, color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
-                <span style={{ width: 9, height: 9, borderRadius: 2, flexShrink: 0, background: colors[i % colors.length] }} />
-                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: accentColor, minWidth: 88, flexShrink: 0 }}>{peer.ip}</span>
-                <div style={{ flex: 1, background: 'var(--bg-page)', borderRadius: 3, height: 4, minWidth: 20 }}>
-                  <div style={{ width: `${pct}%`, background: colors[i % colors.length], height: '100%', borderRadius: 3 }} />
+                <span className="peer-rank">{i + 1}</span>
+                <span className="peer-swatch" style={{ background: colors[i % colors.length] }} />
+                <span className="mono peer-ip" style={{ color: accentColor }}>{peer.ip}</span>
+                <div className="peer-bar-track">
+                  <div className="peer-bar-fill" style={{ width: `${pct}%`, background: colors[i % colors.length] }} />
                 </div>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 52, textAlign: 'right', flexShrink: 0 }}>{formatBytes(peer.bytes)}</span>
+                <span className="peer-bytes">{formatBytes(peer.bytes)}</span>
               </div>
             )
           })}
@@ -156,7 +143,7 @@ function TrafficColumn({
   )
 }
 
-// ── IP Profile card ───────────────────────────────────────────────────────────
+// -- IP Profile card --------------------------------------------------------------
 function IpProfile({
   ip, hours, selectedPeer, onSelectPeer,
 }: {
@@ -171,7 +158,7 @@ function IpProfile({
     enabled: !!ip,
   })
 
-  if (isLoading) return <div className="card" style={{ padding: 20 }}>Loading profile for {ip}…</div>
+  if (isLoading) return <div className="card card-body">Loading profile for {ip}...</div>
   if (!profile)  return null
 
   const topOut: { ip: string; bytes: number }[] = profile.top_out || []
@@ -180,38 +167,36 @@ function IpProfile({
   return (
     <div className="card">
       <div className="card-header">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
-        </svg>
+        <Activity size={15} />
         <h3>
           IP Profile —{' '}
-          <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{ip}</span>
+          <span className="mono link-primary">{ip}</span>
         </h3>
       </div>
-      <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card-body flex-col-gap">
 
         {/* Stat row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <div className="stats-grid">
           {[
-            { label: 'Sent',           value: formatBytes(profile.bytes_sent),     icon: '↑', color: 'var(--accent-blue)'  },
-            { label: 'Received',       value: formatBytes(profile.bytes_received), icon: '↓', color: 'var(--accent-green)' },
-            { label: 'Flows as Source', value: profile.flows_as_src.toLocaleString() + ' flows', icon: '→', color: 'var(--accent-blue)'  },
-            { label: 'Flows as Dest',  value: profile.flows_as_dst.toLocaleString() + ' flows', icon: '←', color: 'var(--accent-green)' },
+            { label: 'Sent',           value: formatBytes(profile.bytes_sent),     icon: <ArrowUpRight size={12} />, color: 'var(--accent-blue, var(--primary))'  },
+            { label: 'Received',       value: formatBytes(profile.bytes_received), icon: <ArrowDownRight size={12} />, color: 'var(--accent-green)' },
+            { label: 'Flows as Source', value: profile.flows_as_src.toLocaleString() + ' flows', icon: <ArrowUpRight size={12} />, color: 'var(--accent-blue, var(--primary))'  },
+            { label: 'Flows as Dest',  value: profile.flows_as_dst.toLocaleString() + ' flows', icon: <ArrowDownRight size={12} />, color: 'var(--accent-green)' },
           ].map(({ label, value, icon, color }) => (
-            <div key={label} style={{ background: 'var(--bg-page)', borderRadius: 8, padding: '12px 14px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                <span style={{ color, marginRight: 4 }}>{icon}</span>{label}
+            <div key={label} className="info-card">
+              <div className="stat-label">
+                <span style={{ color }}>{icon}</span> {label}
               </div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-main)', fontFamily: 'DM Mono, monospace' }}>{value}</div>
+              <div className="stat-value-sm mono">{value}</div>
             </div>
           ))}
         </div>
 
         {/* TOP OUT | TOP IN */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div className="grid-2">
           <TrafficColumn
-            title="↑ Top Out (destinations)"
-            accentColor="var(--accent-blue)"
+            title="Top Out (destinations)"
+            accentColor="var(--accent-blue, var(--primary))"
             colors={COLORS}
             totalBytes={profile.bytes_sent}
             peers={topOut}
@@ -219,7 +204,7 @@ function IpProfile({
             onSelectPeer={onSelectPeer}
           />
           <TrafficColumn
-            title="↓ Top In (sources)"
+            title="Top In (sources)"
             accentColor="var(--accent-green)"
             colors={COLORS_IN}
             totalBytes={profile.bytes_received}
@@ -232,7 +217,7 @@ function IpProfile({
         {/* Protocol distribution */}
         {profile.protocol_distribution.length > 0 && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+            <div className="stat-label">
               Protocols
             </div>
             <ResponsiveContainer width="100%" height={130}>
@@ -249,15 +234,15 @@ function IpProfile({
                   ))}
                 </Pie>
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                <Legend formatter={(v) => <span style={{ color: '#64748b', fontSize: 11 }}>{v}</span>} />
+                <Legend formatter={(v) => <span className="text-muted text-xs">{v}</span>} />
               </PieChart>
             </ResponsiveContainer>
           </div>
         )}
 
         {profile.flows_as_src + profile.flows_as_dst === 0 && (
-          <div style={{ color: 'var(--text-light)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>
-            No flows found for {ip} in the selected time window
+          <div className="empty-state">
+            <p>No flows found for {ip} in the selected time window</p>
           </div>
         )}
       </div>
@@ -265,7 +250,7 @@ function IpProfile({
   )
 }
 
-// ── main page ─────────────────────────────────────────────────────────────────
+// -- main page --------------------------------------------------------------------
 export default function FlowsPage() {
   const [hours, setHours]           = useState(1)
   const [searchIp, setSearchIp]     = useState('')
@@ -310,7 +295,7 @@ export default function FlowsPage() {
     selectedDeviceIds === null
       ? undefined
       : selectedDeviceIds.size === 0
-      ? '-1'                        // nothing selected → return no results
+      ? '-1'                        // nothing selected -> return no results
       : [...selectedDeviceIds].join(',')
 
   const { data: stats, isLoading } = useQuery({
@@ -340,14 +325,14 @@ export default function FlowsPage() {
     : (conversations || [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="flex-col-gap">
       {/* Header */}
       <div className="page-header">
         <div>
           <h1>Flow Analysis</h1>
           <p>NetFlow &amp; sFlow traffic analysis</p>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="flex-row-gap">
           <IpSearchBar value={searchIp} onChange={handleSearchChange} onClear={() => { setSearchIp(''); setSelectedPeer('') }} />
           <div className="time-range-bar">
             {TIME_RANGES.map((r) => (
@@ -363,11 +348,11 @@ export default function FlowsPage() {
         </div>
       </div>
 
-      {/* Device filter — shown when at least one device is sending flows */}
+      {/* Device filter -- shown when at least one device is sending flows */}
       {flowDevices.length > 0 && (
-        <div className="card" style={{ padding: '10px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.8, flexShrink: 0 }}>
+        <div className="card device-filter-bar">
+          <div className="flex-row-gap device-filter-inner">
+            <span className="stat-label device-filter-label">
               Devices
             </span>
             {flowDevices.map((d) => {
@@ -376,41 +361,27 @@ export default function FlowsPage() {
                 <button
                   key={d.id}
                   onClick={() => toggleDevice(d.id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '4px 11px', borderRadius: 20, fontSize: 12,
-                    border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border)'}`,
-                    background: isSelected ? 'rgba(26,157,200,0.1)' : 'transparent',
-                    color: isSelected ? 'var(--accent-blue)' : 'var(--text-muted)',
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    fontWeight: isSelected ? 600 : 400,
-                  }}
+                  className={`filter-chip${isSelected ? ' active' : ''}`}
                 >
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                    background: isSelected ? 'var(--accent-blue)' : 'var(--border)',
-                  }} />
+                  <span className={`status-dot ${isSelected ? 'dot-green' : ''}`} />
                   {d.hostname}
-                  <span style={{ fontSize: 10, opacity: 0.65, fontFamily: 'DM Mono, monospace' }}>
-                    {d.ip_address}
-                  </span>
+                  <span className="mono text-xs text-muted">{d.ip_address}</span>
                 </button>
               )
             })}
             {selectedDeviceIds !== null && (
               <button
-                className="btn btn-outline btn-sm"
-                style={{ marginLeft: 'auto', fontSize: 11 }}
+                className="btn btn-outline btn-sm ml-auto"
                 onClick={() => setSelectedDeviceIds(null)}
               >
-                ✕ Show all
+                Show all
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* IP Profile — only shown when searching */}
+      {/* IP Profile -- only shown when searching */}
       {searchIp && (
         <IpProfile
           ip={searchIp}
@@ -422,10 +393,10 @@ export default function FlowsPage() {
 
       {/* Global stats cards */}
       {!searchIp && stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="grid-2">
           <div className="stat-card">
             <div className="stat-icon blue">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <Activity size={20} />
             </div>
             <div className="stat-body">
               <div className="stat-label">Total Flows</div>
@@ -434,7 +405,7 @@ export default function FlowsPage() {
           </div>
           <div className="stat-card">
             <div className="stat-icon green">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <Activity size={20} />
             </div>
             <div className="stat-body">
               <div className="stat-label">Total Traffic</div>
@@ -449,23 +420,23 @@ export default function FlowsPage() {
       ) : !searchIp && (!stats || stats.total_flows === 0) ? (
         <div className="card">
           <div className="card-body">
-            <div className="empty-state" style={{ padding: '48px 0' }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: 48, height: 48 }}>
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-              </svg>
-              <p>No flow data available</p>
-              <p className="sub">Configure your network devices to export NetFlow to this server on UDP port 2055</p>
+            <div className="empty-state">
+              <div className="empty-state__icon">
+                <Activity size={48} />
+              </div>
+              <p className="empty-state__title">No flow data available</p>
+              <p className="empty-state__description">Configure your network devices to export NetFlow to this server on UDP port 2055</p>
             </div>
           </div>
         </div>
       ) : (
         <>
-          {/* Charts — hidden while doing IP search */}
+          {/* Charts -- hidden while doing IP search */}
           {!searchIp && stats && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="grid-2">
               <div className="card">
                 <div className="card-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  <Activity size={15} />
                   <h3>Top Talkers (by bytes)</h3>
                 </div>
                 <div className="card-body">
@@ -479,7 +450,7 @@ export default function FlowsPage() {
                           const { x, y, payload } = props
                           return (
                             <text x={x} y={y} dy={4} textAnchor="end" fill="#1a9dc8" fontSize={11}
-                              style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                              className="chart-tick-link"
                               onClick={() => handleSearchChange(payload.value)}
                             >
                               {payload.value}
@@ -497,7 +468,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  <Activity size={15} />
                   <h3>Top Destinations</h3>
                 </div>
                 <div className="card-body">
@@ -511,7 +482,7 @@ export default function FlowsPage() {
                           const { x, y, payload } = props
                           return (
                             <text x={x} y={y} dy={4} textAnchor="end" fill="#27ae60" fontSize={11}
-                              style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                              className="chart-tick-link"
                               onClick={() => handleSearchChange(payload.value)}
                             >
                               {payload.value}
@@ -529,7 +500,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                  <Activity size={15} />
                   <h3>Protocol Distribution</h3>
                 </div>
                 <div className="card-body">
@@ -547,7 +518,7 @@ export default function FlowsPage() {
 
               <div className="card">
                 <div className="card-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                  <Activity size={15} />
                   <h3>Applications</h3>
                 </div>
                 <div className="card-body">
@@ -557,7 +528,7 @@ export default function FlowsPage() {
                         {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                       </Pie>
                       <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                      <Legend formatter={(v) => <span style={{ color: '#64748b', fontSize: 12 }}>{v}</span>} />
+                      <Legend formatter={(v) => <span className="text-muted text-sm">{v}</span>} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -568,28 +539,27 @@ export default function FlowsPage() {
           {/* Conversations table */}
           <div className="card">
             <div className="card-header">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <Activity size={15} />
               <h3>
                 {searchIp && selectedPeer ? (
                   <>
                     Flows:{' '}
-                    <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{searchIp}</span>
-                    {' ↔ '}
-                    <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-green)' }}>{selectedPeer}</span>
+                    <span className="mono link-primary">{searchIp}</span>
+                    {' \u2194 '}
+                    <span className="mono text-success">{selectedPeer}</span>
                   </>
                 ) : searchIp ? (
-                  <>Flows involving <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent-blue)' }}>{searchIp}</span></>
+                  <>Flows involving <span className="mono link-primary">{searchIp}</span></>
                 ) : (
                   'Top Conversations'
                 )}
               </h3>
               {selectedPeer && (
                 <button
-                  className="btn btn-outline btn-sm"
-                  style={{ marginLeft: 'auto' }}
+                  className="btn btn-outline btn-sm ml-auto"
                   onClick={() => setSelectedPeer('')}
                 >
-                  ✕ Show all flows
+                  Show all flows
                 </button>
               )}
             </div>
@@ -597,7 +567,7 @@ export default function FlowsPage() {
               <table>
                 <thead>
                   <tr>
-                    {searchIp && <th style={{ width: 30 }}></th>}
+                    {searchIp && <th className="flow-dir-col"></th>}
                     <th>Source IP</th>
                     <th>Destination IP</th>
                     <th>Protocol</th>
@@ -614,28 +584,29 @@ export default function FlowsPage() {
                     return (
                       <tr key={flow.id}>
                         {searchIp && (
-                          <td title={isOutgoing ? 'Outgoing' : 'Incoming'} style={{ fontSize: 14, textAlign: 'center' }}>
-                            <span style={{ color: isOutgoing ? 'var(--accent-blue)' : 'var(--accent-green)' }}>
-                              {isOutgoing ? '↑' : '↓'}
-                            </span>
+                          <td title={isOutgoing ? 'Outgoing' : 'Incoming'} className="text-center">
+                            {isOutgoing
+                              ? <ArrowUpRight size={14} className="flow-dir-out" />
+                              : <ArrowDownRight size={14} className="flow-dir-in" />
+                            }
                           </td>
                         )}
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                        <td className="mono text-sm">
                           {flow.src_ip === searchIp
-                            ? <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{flow.src_ip}</span>
+                            ? <span className="font-semibold link-primary">{flow.src_ip}</span>
                             : (
-                              <button className="btn-link" style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--accent-blue)', cursor: 'pointer' }}
+                              <button className="btn--ghost mono text-sm link-primary"
                                 onClick={() => handleSearchChange(flow.src_ip)}>
                                 {flow.src_ip}
                               </button>
                             )
                           }
                         </td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                        <td className="mono text-sm">
                           {flow.dst_ip === searchIp
-                            ? <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>{flow.dst_ip}</span>
+                            ? <span className="font-semibold text-success">{flow.dst_ip}</span>
                             : (
-                              <button className="btn-link" style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--accent-blue)', cursor: 'pointer' }}
+                              <button className="btn--ghost mono text-sm link-primary"
                                 onClick={() => handleSearchChange(flow.dst_ip)}>
                                 {flow.dst_ip}
                               </button>
@@ -643,19 +614,19 @@ export default function FlowsPage() {
                           }
                         </td>
                         <td><span className="tag-blue">{flow.protocol}</span></td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>{flow.dst_port}</td>
-                        <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{flow.application || '—'}</td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{formatBytes(flow.bytes)}</td>
-                        <td style={{ color: 'var(--text-muted)' }}>{flow.packets?.toLocaleString()}</td>
-                        <td style={{ fontSize: 11, color: 'var(--text-light)' }}>
-                          {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '—'}
+                        <td className="mono text-sm text-muted">{flow.dst_port}</td>
+                        <td className="text-sm text-muted">{flow.application || '\u2014'}</td>
+                        <td className="mono text-sm">{formatBytes(flow.bytes)}</td>
+                        <td className="text-muted">{flow.packets?.toLocaleString()}</td>
+                        <td className="text-xs text-light">
+                          {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '\u2014'}
                         </td>
                       </tr>
                     )
                   })}
                   {displayedConversations.length === 0 && (
                     <tr>
-                      <td colSpan={searchIp ? 9 : 8} style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-light)' }}>
+                      <td colSpan={searchIp ? 9 : 8} className="empty-table-cell">
                         {selectedPeer
                           ? `No flows between ${searchIp} and ${selectedPeer}`
                           : searchIp

@@ -15,87 +15,42 @@ import toast from 'react-hot-toast'
 
 function DiffLine({ line }: { line: string }) {
   if (line.startsWith('+++') || line.startsWith('---')) {
-    return (
-      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--text-muted)', padding: '0 8px' }}>
-        {line}
-      </div>
-    )
+    return <div className="diff-line--meta">{line}</div>
   }
   if (line.startsWith('@@')) {
-    return (
-      <div style={{
-        fontFamily: 'DM Mono, monospace', fontSize: 11,
-        background: 'rgba(59,130,246,0.08)', color: '#3b82f6',
-        padding: '2px 8px', userSelect: 'none',
-      }}>
-        {line}
-      </div>
-    )
+    return <div className="diff-line--hunk">{line}</div>
   }
   if (line.startsWith('+')) {
-    return (
-      <div style={{
-        fontFamily: 'DM Mono, monospace', fontSize: 11,
-        background: 'rgba(16,185,129,0.12)', color: '#10b981',
-        padding: '0 8px', whiteSpace: 'pre-wrap',
-      }}>
-        {line}
-      </div>
-    )
+    return <div className="diff-line--add">{line}</div>
   }
   if (line.startsWith('-')) {
-    return (
-      <div style={{
-        fontFamily: 'DM Mono, monospace', fontSize: 11,
-        background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-        padding: '0 8px', whiteSpace: 'pre-wrap',
-      }}>
-        {line}
-      </div>
-    )
+    return <div className="diff-line--del">{line}</div>
   }
-  return (
-    <div style={{
-      fontFamily: 'DM Mono, monospace', fontSize: 11,
-      color: 'var(--text-muted)', padding: '0 8px', whiteSpace: 'pre-wrap',
-    }}>
-      {line}
-    </div>
-  )
+  return <div className="diff-line">{line}</div>
 }
 
 function DiffViewer({ diff, onClose }: { diff: DiffResult; onClose: () => void }) {
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-      zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      padding: '40px 20px', overflowY: 'auto',
-    }}>
-      <div style={{
-        background: 'var(--surface)', borderRadius: 12, width: '100%', maxWidth: 1000,
-        border: '1px solid var(--border)', boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
-      }}>
+    <div className="diff-overlay">
+      <div className="diff-modal">
         {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '16px 20px', borderBottom: '1px solid var(--border)',
-        }}>
-          <GitCompare size={16} style={{ color: 'var(--primary)' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-main)' }}>Config Diff</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+        <div className="diff-header">
+          <GitCompare size={16} className="diff-header__icon" />
+          <div className="diff-header__info">
+            <div className="diff-header__title">Config Diff</div>
+            <div className="diff-header__subtitle">
               {diff.label_a} → {diff.label_b}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="diff-header__stats">
             {diff.identical ? (
-              <span style={{ fontSize: 12, color: 'var(--accent-green)', fontWeight: 600 }}>
+              <span className="diff-header__stat--ok">
                 ✓ Identical
               </span>
             ) : (
               <>
-                <span style={{ fontSize: 12, color: '#10b981' }}>+{diff.additions} added</span>
-                <span style={{ fontSize: 12, color: '#ef4444' }}>−{diff.deletions} removed</span>
+                <span className="diff-header__stat--add">+{diff.additions} added</span>
+                <span className="diff-header__stat--del">−{diff.deletions} removed</span>
               </>
             )}
             <button onClick={onClose} className="btn btn-outline btn-sm">
@@ -105,18 +60,14 @@ function DiffViewer({ diff, onClose }: { diff: DiffResult; onClose: () => void }
         </div>
 
         {/* Diff content */}
-        <div style={{
-          background: 'var(--bg)', borderRadius: '0 0 12px 12px',
-          maxHeight: '70vh', overflowY: 'auto',
-          padding: '8px 0',
-        }}>
+        <div className="diff-body">
           {diff.identical ? (
-            <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-muted)' }}>
-              <CheckCircle size={28} style={{ color: 'var(--accent-green)', marginBottom: 8 }} />
+            <div className="diff-identical">
+              <CheckCircle size={28} />
               <p>The two configurations are identical.</p>
             </div>
           ) : diff.diff_lines.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-muted)' }}>
+            <div className="diff-identical">
               No diff data available.
             </div>
           ) : (
@@ -189,63 +140,63 @@ function SchedulePanel() {
         <Clock size={15} />
         <h3>Backup Schedules</h3>
       </div>
-      <div className="card-body" style={{ padding: 0 }}>
+      <div className="card-body--flush">
         {/* Existing schedules table */}
         {(schedules || []).length > 0 && (
-          <table className="data-table" style={{ width: '100%' }}>
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>Time (UTC)</th>
-                <th>Retention</th>
-                <th>Enabled</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(schedules || []).map((s) => (
-                <tr key={s.id}>
-                  <td style={{ fontWeight: 600, fontSize: 13 }}>
-                    {s.device_id ? (s.device_hostname || `Device #${s.device_id}`) : 'All API Devices'}
-                  </td>
-                  <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
-                    {String(s.hour).padStart(2, '0')}:{String(s.minute).padStart(2, '0')}
-                  </td>
-                  <td style={{ fontSize: 13 }}>{s.retention_days} days</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={s.is_active}
-                      onChange={() => toggleMutation.mutate(s)}
-                      style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => { if (s.id && confirm('Delete this schedule?')) deleteMutation.mutate(s.id) }}
-                      className="btn btn-outline btn-sm"
-                      style={{ color: 'var(--accent-red)' }}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Device</th>
+                  <th>Time (UTC)</th>
+                  <th>Retention</th>
+                  <th>Enabled</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(schedules || []).map((s) => (
+                  <tr key={s.id}>
+                    <td className="font-semibold">
+                      {s.device_id ? (s.device_hostname || `Device #${s.device_id}`) : 'All API Devices'}
+                    </td>
+                    <td className="mono">
+                      {String(s.hour).padStart(2, '0')}:{String(s.minute).padStart(2, '0')}
+                    </td>
+                    <td>{s.retention_days} days</td>
+                    <td>
+                      <button
+                        className={`toggle ${s.is_active ? 'toggle--active' : ''}`}
+                        onClick={() => toggleMutation.mutate(s)}
+                      >
+                        <span className="toggle__knob" />
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => { if (s.id && confirm('Delete this schedule?')) deleteMutation.mutate(s.id) }}
+                        className="btn btn-outline btn-sm btn-outline--danger"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {/* Add schedule form */}
-        <div style={{ padding: 16, borderTop: (schedules || []).length > 0 ? '1px solid var(--border)' : 'none' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-main)' }}>Add Schedule</div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div className={`schedule-form ${(schedules || []).length > 0 ? 'schedule-form--bordered' : ''}`}>
+          <div className="schedule-form__title">Add Schedule</div>
+          <div className="schedule-form__row">
             <div>
-              <label className="label" style={{ fontSize: 11 }}>Device</label>
+              <label className="form-label">Device</label>
               <select
-                className="select"
+                className="form-select"
                 value={newDeviceId}
                 onChange={(e) => setNewDeviceId(e.target.value)}
-                style={{ minWidth: 180, height: 32, fontSize: 12 }}
               >
                 <option value="">All API Devices</option>
                 {apiDevices.map((d: any) => (
@@ -254,14 +205,14 @@ function SchedulePanel() {
               </select>
             </div>
             <div>
-              <label className="label" style={{ fontSize: 11 }}>Time (UTC)</label>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <select className="select" value={newHour} onChange={(e) => setNewHour(parseInt(e.target.value))} style={{ width: 65, height: 32, fontSize: 12 }}>
+              <label className="form-label">Time (UTC)</label>
+              <div className="schedule-form__time-row">
+                <select className="form-select" value={newHour} onChange={(e) => setNewHour(parseInt(e.target.value))}>
                   {Array.from({ length: 24 }, (_, h) => (
                     <option key={h} value={h}>{h.toString().padStart(2, '0')}h</option>
                   ))}
                 </select>
-                <select className="select" value={newMinute} onChange={(e) => setNewMinute(parseInt(e.target.value))} style={{ width: 65, height: 32, fontSize: 12 }}>
+                <select className="form-select" value={newMinute} onChange={(e) => setNewMinute(parseInt(e.target.value))}>
                   {[0, 15, 30, 45].map((m) => (
                     <option key={m} value={m}>{m.toString().padStart(2, '0')}m</option>
                   ))}
@@ -269,15 +220,14 @@ function SchedulePanel() {
               </div>
             </div>
             <div>
-              <label className="label" style={{ fontSize: 11 }}>Retention (days)</label>
+              <label className="form-label">Retention (days)</label>
               <input
                 type="number"
-                className="input"
+                className="form-input"
                 value={newRetention}
                 min={1}
                 max={3650}
                 onChange={(e) => setNewRetention(parseInt(e.target.value))}
-                style={{ width: 80, height: 32, fontSize: 12 }}
               />
             </div>
             <button
@@ -290,7 +240,6 @@ function SchedulePanel() {
               })}
               disabled={saveMutation.isPending}
               className="btn btn-primary btn-sm"
-              style={{ height: 32 }}
             >
               {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
               Add
@@ -442,32 +391,34 @@ export default function BackupsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="flex-col-gap">
       {diff && <DiffViewer diff={diff} onClose={() => setDiff(null)} />}
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-main)' }}>Config Backups</h1>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+      <div className="page-header">
+        <div>
+          <h1>Config Backups</h1>
+          <p>
             Running-config snapshots with unsaved-changes detection and version comparison
           </p>
         </div>
-        <button
-          onClick={() => setCompareMode((v) => !v)}
-          className={`btn ${compareMode ? 'btn-primary' : 'btn-outline'} btn-sm`}
-        >
-          <GitCompare size={13} />
-          {compareMode ? 'Exit Compare' : 'Compare Versions'}
-        </button>
-        <button
-          onClick={() => backupAllMutation.mutate()}
-          disabled={backupAllMutation.isPending || !apiDevices.length}
-          className="btn btn-primary btn-sm"
-        >
-          {backupAllMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Archive size={13} />}
-          Backup All Now
-        </button>
+        <div className="flex-row-gap">
+          <button
+            onClick={() => setCompareMode((v) => !v)}
+            className={`btn ${compareMode ? 'btn-primary' : 'btn-outline'} btn-sm`}
+          >
+            <GitCompare size={13} />
+            {compareMode ? 'Exit Compare' : 'Compare Versions'}
+          </button>
+          <button
+            onClick={() => backupAllMutation.mutate()}
+            disabled={backupAllMutation.isPending || !apiDevices.length}
+            className="btn btn-primary btn-sm"
+          >
+            {backupAllMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Archive size={13} />}
+            Backup All Now
+          </button>
+        </div>
       </div>
 
       {/* Summary stats */}
@@ -493,10 +444,10 @@ export default function BackupsPage() {
           },
         ].map((s, i) => (
           <div key={i} className="stat-card">
-            <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="stat-label flex-row-gap">
               {s.icon} {s.label}
             </div>
-            <div className="stat-value" style={{ color: s.color || 'var(--text-main)' }}>
+            <div className="stat-value" style={s.color ? { color: s.color } : undefined}>
               {s.value}
             </div>
           </div>
@@ -512,28 +463,18 @@ export default function BackupsPage() {
           <div className="card-header">
             <GitCompare size={15} />
             <h3>Compare Versions</h3>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>
+            <span className="compare-hint">
               Click rows below to select version A and B, then click Compare
             </span>
           </div>
-          <div className="card-body" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 12, flex: 1, flexWrap: 'wrap' }}>
-              <div style={{
-                flex: 1, minWidth: 200, padding: '10px 14px', borderRadius: 8,
-                border: `1px solid ${compareA ? 'var(--primary)' : 'var(--border)'}`,
-                background: compareA ? 'rgba(99,102,241,0.06)' : 'var(--bg)',
-                fontSize: 12, color: compareA ? 'var(--primary)' : 'var(--text-muted)',
-              }}>
+          <div className="card-body flex-row-wrap">
+            <div className="compare-slots">
+              <div className={`compare-slot ${compareA ? 'compare-slot--a' : ''}`}>
                 {compareA
                   ? `Version A: Backup #${compareA} — ${backups?.find((b) => b.id === compareA)?.device_hostname || ''}`
                   : 'Version A: (click a row to select)'}
               </div>
-              <div style={{
-                flex: 1, minWidth: 200, padding: '10px 14px', borderRadius: 8,
-                border: `1px solid ${compareB ? '#10b981' : 'var(--border)'}`,
-                background: compareB ? 'rgba(16,185,129,0.06)' : 'var(--bg)',
-                fontSize: 12, color: compareB ? '#10b981' : 'var(--text-muted)',
-              }}>
+              <div className={`compare-slot ${compareB ? 'compare-slot--b' : ''}`}>
                 {compareB
                   ? `Version B: Backup #${compareB} — ${backups?.find((b) => b.id === compareB)?.device_hostname || ''}`
                   : 'Version B: (click another row to select)'}
@@ -562,12 +503,11 @@ export default function BackupsPage() {
         <div className="card-header">
           <Archive size={15} />
           <h3>Backup History</h3>
-          <div style={{ marginLeft: 'auto' }}>
+          <div className="card__actions">
             <select
-              className="select"
+              className="form-select"
               value={selectedDevice}
               onChange={(e) => setSelectedDevice(e.target.value)}
-              style={{ height: 30, fontSize: 12 }}
             >
               <option value="">All devices</option>
               {(devices || []).map((d: any) => (
@@ -581,9 +521,9 @@ export default function BackupsPage() {
           <div className="empty-state card-body"><p>Loading backups...</p></div>
         ) : !backups || backups.length === 0 ? (
           <div className="empty-state">
-            <Archive size={32} style={{ color: 'var(--text-light)', marginBottom: 8 }} />
-            <p style={{ color: 'var(--text-muted)' }}>No backups yet.</p>
-            <p style={{ fontSize: 12, color: 'var(--text-light)' }}>
+            <Archive size={32} />
+            <p>No backups yet.</p>
+            <p className="sub">
               Click "Backup All Now" to start, or configure a device and click the backup button.
             </p>
           </div>
@@ -592,7 +532,7 @@ export default function BackupsPage() {
             <table>
               <thead>
                 <tr>
-                  {compareMode && <th style={{ width: 40 }}>Select</th>}
+                  {compareMode && <th>Select</th>}
                   <th>Device</th>
                   <th>Date / Time</th>
                   <th>Type</th>
@@ -611,12 +551,16 @@ export default function BackupsPage() {
                     <>
                       <tr
                         key={backup.id}
-                        style={{
-                          cursor: compareMode ? 'pointer' : 'default',
-                          background: isSelected
-                            ? compareA === backup.id ? 'rgba(99,102,241,0.06)' : 'rgba(16,185,129,0.06)'
-                            : 'transparent',
-                        }}
+                        style={
+                          compareMode
+                            ? {
+                                cursor: 'pointer',
+                                background: isSelected
+                                  ? compareA === backup.id ? 'rgba(99,102,241,0.06)' : 'rgba(16,185,129,0.06)'
+                                  : undefined,
+                              }
+                            : undefined
+                        }
                         onClick={compareMode ? () => toggleCompare(backup.id) : undefined}
                       >
                         {compareMode && (
@@ -628,10 +572,10 @@ export default function BackupsPage() {
                             />
                           </td>
                         )}
-                        <td style={{ fontWeight: 600, fontSize: 13 }}>
+                        <td className="font-semibold">
                           {backup.device_hostname || `Device #${backup.device_id}`}
                         </td>
-                        <td style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
+                        <td className="mono text-muted">
                           {backup.created_at ? (
                             <span title={new Date(backup.created_at).toLocaleString()}>
                               {formatDistanceToNow(new Date(backup.created_at), { addSuffix: true })}
@@ -648,17 +592,17 @@ export default function BackupsPage() {
                             <span className="tag-gray">—</span>
                           ) : backup.configs_match ? (
                             <span className="tag-green">
-                              <CheckCircle size={11} style={{ display: 'inline', marginRight: 4 }} />
+                              <CheckCircle size={11} />
                               Saved
                             </span>
                           ) : (
                             <span className="tag-orange">
-                              <AlertTriangle size={11} style={{ display: 'inline', marginRight: 4 }} />
+                              <AlertTriangle size={11} />
                               Unsaved changes!
                             </span>
                           )}
                         </td>
-                        <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        <td className="text-muted text-sm">
                           {backup.size_bytes ? `${(backup.size_bytes / 1024).toFixed(1)} KB` : '—'}
                         </td>
                         <td>
@@ -669,7 +613,7 @@ export default function BackupsPage() {
                           )}
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          <div className="flex-row-wrap-sm">
                             {/* Expand/view config */}
                             <button
                               onClick={() => handleExpand(backup.id)}
@@ -706,9 +650,8 @@ export default function BackupsPage() {
                               <button
                                 onClick={() => handleDiffStartup(backup.id)}
                                 disabled={diffLoading === backup.id}
-                                className="btn btn-outline btn-sm"
+                                className="btn btn-outline btn-sm btn-outline--warning"
                                 title="Diff running vs startup config"
-                                style={{ borderColor: 'var(--accent-orange)', color: 'var(--accent-orange)' }}
                               >
                                 <AlertTriangle size={11} />
                               </button>
@@ -727,8 +670,7 @@ export default function BackupsPage() {
                               onClick={() => {
                                 if (confirm(`Delete this backup?`)) deleteMutation.mutate(backup.id)
                               }}
-                              className="btn btn-outline btn-sm"
-                              style={{ color: 'var(--accent-red)' }}
+                              className="btn btn-outline btn-sm btn-outline--danger"
                               title="Delete backup"
                             >
                               <Trash2 size={11} />
@@ -739,18 +681,15 @@ export default function BackupsPage() {
                       {/* Expanded config view */}
                       {isExpanded && backupDetail && backupDetail.id === backup.id && (
                         <tr key={`${backup.id}-detail`}>
-                          <td colSpan={compareMode ? 8 : 7} style={{ padding: 0 }}>
-                            <div style={{
-                              background: 'var(--bg)', borderTop: '1px solid var(--border)',
-                              padding: 16,
-                            }}>
+                          <td colSpan={compareMode ? 8 : 7} className="card-body--flush">
+                            <div className="backup-detail">
                               {backupDetail.error ? (
-                                <div style={{ color: 'var(--accent-red)', fontSize: 13 }}>
+                                <div className="backup-detail__error">
                                   Error: {backupDetail.error}
                                 </div>
                               ) : (
                                 <div>
-                                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                                  <div className="backup-detail__meta">
                                     Running config — {backupDetail.size_bytes
                                       ? `${(backupDetail.size_bytes / 1024).toFixed(1)} KB`
                                       : 'unknown size'}
@@ -758,13 +697,7 @@ export default function BackupsPage() {
                                       <> · {format(new Date(backupDetail.created_at), 'yyyy-MM-dd HH:mm:ss')}</>
                                     )}
                                   </div>
-                                  <pre style={{
-                                    fontFamily: 'DM Mono, monospace', fontSize: 11,
-                                    background: 'var(--surface)', border: '1px solid var(--border)',
-                                    borderRadius: 6, padding: 12, maxHeight: 400,
-                                    overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                                    color: 'var(--text-muted)', margin: 0,
-                                  }}>
+                                  <pre className="backup-detail__pre">
                                     {backupDetail.config_text || '(no config stored)'}
                                   </pre>
                                 </div>
@@ -789,7 +722,7 @@ export default function BackupsPage() {
           <h3>Manual Backup by Device</h3>
         </div>
         <div className="card-body">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="flex-row-wrap">
             {apiDevices.map((d: any) => (
               <button
                 key={d.id}
@@ -804,7 +737,7 @@ export default function BackupsPage() {
               </button>
             ))}
             {!apiDevices.length && (
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>No devices with API credentials configured.</span>
+              <span className="muted-text">No devices with API credentials configured.</span>
             )}
           </div>
         </div>
