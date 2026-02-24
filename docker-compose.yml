@@ -63,6 +63,12 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       SNMP_POLL_INTERVAL_SECONDS: ${SNMP_POLL_INTERVAL:-60}
       HTTPS_ONLY: ${HTTPS_ONLY:-false}
+      # Duo MFA (optional)
+      DUO_ENABLED: ${DUO_ENABLED:-false}
+      DUO_INTEGRATION_KEY: ${DUO_INTEGRATION_KEY:-}
+      DUO_SECRET_KEY: ${DUO_SECRET_KEY:-}
+      DUO_API_HOSTNAME: ${DUO_API_HOSTNAME:-}
+      DUO_REDIRECT_URI: ${DUO_REDIRECT_URI:-}
     volumes:
       - ./logs:/app/logs
     networks:

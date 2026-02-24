@@ -70,6 +70,9 @@ export default api
 export const authApi = {
   login: (username: string, password: string) =>
     api.post('/auth/login', { username, password }),
+  duoCallback: (duo_code: string, state: string) =>
+    api.post('/auth/duo/callback', { duo_code, state }),
+  duoStatus: () => api.get('/auth/duo/status'),
   logout: () => api.post('/auth/logout'),
   me: () => api.get('/auth/me'),
   changePassword: (data: { current_password?: string; new_password: string; confirm_password: string }) =>

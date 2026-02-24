@@ -1227,6 +1227,7 @@ tbody tr:hover td { background: var(--primary-50); }
 .auth-logo-icon svg { width: 28px; height: 28px; fill: white; }
 .auth-title { font-size: var(--text-2xl); font-weight: 700; color: var(--text-main); }
 .auth-subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-top: 4px; text-align: center; }
+.duo-loading { display: flex; justify-content: center; padding: 2rem; }
 
 
 /* ═══════════════════════════════════════════════════════════

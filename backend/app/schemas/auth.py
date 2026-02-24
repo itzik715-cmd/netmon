@@ -51,6 +51,11 @@ class TokenData(BaseModel):
     role: Optional[str] = None
 
 
+class DuoCallbackRequest(BaseModel):
+    duo_code: str
+    state: str
+
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 

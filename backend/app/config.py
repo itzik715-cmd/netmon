@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     # HTTPS
     HTTPS_ONLY: bool = False
 
+    # Duo MFA (optional)
+    DUO_ENABLED: bool = False
+    DUO_INTEGRATION_KEY: str = ""     # Client ID from Duo Admin Panel
+    DUO_SECRET_KEY: str = ""          # Client Secret from Duo Admin Panel
+    DUO_API_HOSTNAME: str = ""        # e.g. "api-XXXXXXXX.duosecurity.com"
+    DUO_REDIRECT_URI: str = ""        # e.g. "https://netmon.example.com/login"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

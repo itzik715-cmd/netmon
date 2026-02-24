@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { settingsApi, authApi } from '../services/api'
-import { Settings, Shield, TestTube, Loader2, Monitor, Save } from 'lucide-react'
+import { Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-type Tab = 'ldap' | 'security'
+type Tab = 'ldap' | 'mfa' | 'security'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('ldap')
@@ -79,6 +79,10 @@ export default function SettingsPage() {
       <div className="tab-bar">
         <button className={`tab-btn${tab === 'ldap' ? ' active' : ''}`} onClick={() => setTab('ldap')}>
           LDAP / Active Directory
+        </button>
+        <button className={`tab-btn${tab === 'mfa' ? ' active' : ''}`} onClick={() => setTab('mfa')}>
+          <Fingerprint size={13} />
+          Multi-Factor Auth
         </button>
         <button className={`tab-btn${tab === 'security' ? ' active' : ''}`} onClick={() => setTab('security')}>
           <Shield size={13} />
@@ -165,6 +169,8 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {tab === 'mfa' && <DuoStatusPanel />}
+
       {tab === 'security' && (
         <div className="card settings-card">
           <div className="card-header">
@@ -190,6 +196,101 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+function DuoStatusPanel() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['duo-status'],
+    queryFn: () => authApi.duoStatus().then((r) => r.data),
+  })
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header">
+        <Fingerprint size={15} />
+        <h3>Duo Multi-Factor Authentication</h3>
+      </div>
+      <div className="card-body">
+        {isLoading ? (
+          <div className="empty-state"><Loader2 size={20} className="animate-spin" /></div>
+        ) : (
+          <div className="flex-col-gap">
+            <div className="toggle-row">
+              <div>
+                <div className="toggle-row__title">Duo MFA Status</div>
+                <div className="toggle-row__description">
+                  Duo MFA is configured via environment variables on the server.
+                </div>
+              </div>
+              <span className={data?.enabled ? 'tag-green' : 'tag-gray'}>
+                {data?.enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+
+            {data?.enabled && (
+              <>
+                <div className="form-section">
+                  <div className="form-section-title">Configuration</div>
+                  <div className="security-item">• API Hostname: <span className="mono">{data.api_hostname || 'Not configured'}</span></div>
+                  <div className="security-item">• Service Status: {data.healthy ? <span className="tag-green">Connected</span> : <span className="tag-red">Unreachable</span>}</div>
+                  <div className="security-item">• Scope: All users (including LDAP)</div>
+                </div>
+
+                <div className="form-section">
+                  <div className="form-section-title">How it works</div>
+                  <div className="security-item">
+                    When enabled, all users must verify their identity via the Duo Universal Prompt
+                    after entering their username and password. This applies to both local and LDAP users.
+                    Users who are not enrolled in Duo will be prompted to set up their MFA device on first login.
+                  </div>
+                </div>
+              </>
+            )}
+
+            {!data?.enabled && (
+              <div className="form-section">
+                <div className="form-section-title">Setup Instructions</div>
+                <div className="security-item">
+                  To enable Duo MFA, follow these steps:
+                </div>
+                <div className="security-item">
+                  <strong>1.</strong> Log in to the <strong>Duo Admin Panel</strong> at <span className="mono">admin.duosecurity.com</span>
+                </div>
+                <div className="security-item">
+                  <strong>2.</strong> Navigate to <strong>Applications → Protect an Application</strong>
+                </div>
+                <div className="security-item">
+                  <strong>3.</strong> Search for <strong>"Web SDK"</strong> and click <strong>Protect</strong>
+                </div>
+                <div className="security-item">
+                  <strong>4.</strong> Copy the <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>API Hostname</strong>
+                </div>
+                <div className="security-item">
+                  <strong>5.</strong> Set the <strong>Redirect URI</strong> in Duo to your login page URL (e.g. <span className="mono">https://netmon.example.com/login</span>)
+                </div>
+                <div className="security-item">
+                  <strong>6.</strong> Set the following environment variables on the backend server:
+                </div>
+                <div className="security-item">
+                  <pre className="mono" style={{ fontSize: '12px', background: 'var(--surface-raised)', padding: '12px', borderRadius: '6px', margin: '4px 0' }}>
+{`DUO_ENABLED=true
+DUO_INTEGRATION_KEY=<Client ID>
+DUO_SECRET_KEY=<Client Secret>
+DUO_API_HOSTNAME=api-XXXXXXXX.duosecurity.com
+DUO_REDIRECT_URI=https://your-domain/login`}
+                  </pre>
+                </div>
+                <div className="security-item">
+                  <strong>7.</strong> Restart the backend service: <span className="mono">docker compose restart backend</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
