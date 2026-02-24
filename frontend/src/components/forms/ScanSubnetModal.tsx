@@ -60,7 +60,7 @@ export default function ScanSubnetModal({ onClose, onDone }: { onClose: () => vo
                     value={form.subnet}
                     onChange={set('subnet')}
                     required
-                    pattern="\d+\.\d+\.\d+\.\d+\/\d+"
+                    pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$"
                   />
                   <p className="form-help">
                     e.g. 192.168.1.0/24 — scans all hosts in the range

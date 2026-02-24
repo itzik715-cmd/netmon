@@ -43,7 +43,6 @@ export const useAuthStore = create<AuthState>()(
       name: 'netmon-auth',
       partialize: (state) => ({
         token: state.token,
-        refreshToken: state.refreshToken,
         user: state.user,
         sessionStart: state.sessionStart,
         sessionMaxSeconds: state.sessionMaxSeconds,

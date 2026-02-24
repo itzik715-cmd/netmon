@@ -434,6 +434,21 @@ app.add_middleware(
 )
 
 
+# CSRF Origin validation middleware
+@app.middleware("http")
+async def csrf_origin_check(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin:
+            allowed = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS != "*" else []
+            if allowed and origin not in allowed:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "Origin not allowed"},
+                )
+    return await call_next(request)
+
+
 # Security headers middleware
 @app.middleware("http")
 async def security_headers(request: Request, call_next):

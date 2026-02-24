@@ -146,7 +146,7 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
                 <div className="form-field">
                   <label className="form-label">IP Address *</label>
                   <input className="form-input" value={form.ip_address} onChange={set('ip_address')}
-                    pattern="\d+\.\d+\.\d+\.\d+" placeholder="192.168.1.1" required />
+                    pattern="^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$" placeholder="192.168.1.1" required />
                 </div>
                 <div className="form-field">
                   <label className="form-label">Device Type</label>

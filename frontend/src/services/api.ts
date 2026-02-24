@@ -6,6 +6,7 @@ const api: AxiosInstance = axios.create({
   baseURL: '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 })
 
 // Request interceptor: attach token
@@ -24,28 +25,20 @@ api.interceptors.response.use(
     const originalRequest = error.config as any
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
-      const refreshToken = useAuthStore.getState().refreshToken
-      if (refreshToken) {
-        try {
-          const response = await axios.post('/api/auth/refresh', {
-            refresh_token: refreshToken,
-          })
-          const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = response.data
-          const currentUser = useAuthStore.getState().user
-          if (currentUser) {
-            useAuthStore.getState().setAuth(access_token, refresh_token, {
-              ...currentUser,
-              role,
-              must_change_password,
-            }, session_start, session_max_seconds)
-          }
-          originalRequest.headers.Authorization = `Bearer ${access_token}`
-          return api(originalRequest)
-        } catch {
-          useAuthStore.getState().logout()
-          window.location.href = '/login'
+      try {
+        const response = await axios.post('/api/auth/refresh', {}, { withCredentials: true })
+        const { access_token, refresh_token, role, must_change_password, session_start, session_max_seconds } = response.data
+        const currentUser = useAuthStore.getState().user
+        if (currentUser) {
+          useAuthStore.getState().setAuth(access_token, refresh_token, {
+            ...currentUser,
+            role,
+            must_change_password,
+          }, session_start, session_max_seconds)
         }
-      } else {
+        originalRequest.headers.Authorization = `Bearer ${access_token}`
+        return api(originalRequest)
+      } catch {
         useAuthStore.getState().logout()
         window.location.href = '/login'
       }

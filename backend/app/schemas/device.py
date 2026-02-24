@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
+import ipaddress
 
 
 class LocationCreate(BaseModel):
@@ -49,6 +50,15 @@ class DeviceCreate(BaseModel):
     api_port: Optional[int] = 443
     api_protocol: Optional[str] = "https"
 
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip(cls, v: str) -> str:
+        try:
+            ipaddress.ip_address(v)
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v}")
+        return v
+
 
 class DeviceUpdate(BaseModel):
     hostname: Optional[str] = None
@@ -76,6 +86,16 @@ class DeviceUpdate(BaseModel):
     api_password: Optional[str] = None
     api_port: Optional[int] = None
     api_protocol: Optional[str] = None
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            try:
+                ipaddress.ip_address(v)
+            except ValueError:
+                raise ValueError(f"Invalid IP address: {v}")
+        return v
 
 
 class DeviceResponse(BaseModel):
@@ -131,6 +151,17 @@ class SubnetScanRequest(BaseModel):
     device_type: Optional[str] = None
     layer: Optional[str] = None
     location_id: Optional[int] = None
+
+    @field_validator("subnet")
+    @classmethod
+    def validate_subnet(cls, v: str) -> str:
+        try:
+            net = ipaddress.ip_network(v, strict=False)
+            if net.prefixlen > 30:
+                raise ValueError("Prefix length must be /30 or shorter")
+        except ValueError as e:
+            raise ValueError(f"Invalid CIDR subnet: {e}")
+        return v
 
 
 class SubnetScanResponse(BaseModel):

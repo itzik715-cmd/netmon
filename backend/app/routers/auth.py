@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from app.database import get_db
@@ -25,6 +26,25 @@ import logging
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
+
+REFRESH_COOKIE = "netmon_refresh"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Set refresh token as httpOnly, Secure, SameSite=Strict cookie."""
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=REFRESH_COOKIE, path="/api/auth")
 
 
 def get_client_ip(request: Request) -> str:
@@ -120,7 +140,7 @@ async def login(
 
     session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
 
-    return Token(
+    token_response = Token(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -129,6 +149,9 @@ async def login(
         session_start=session_start,
         session_max_seconds=session_max,
     )
+    response = JSONResponse(content=token_response.model_dump())
+    _set_refresh_cookie(response, refresh_token)
+    return response
 
 
 @router.post("/duo/callback", response_model=Token)
@@ -204,7 +227,7 @@ async def duo_callback(
     role_name = user_data["role"]
     session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
 
-    return Token(
+    token_response = Token(
         access_token=access_token,
         refresh_token=refresh_token_str,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -213,6 +236,9 @@ async def duo_callback(
         session_start=session_start,
         session_max_seconds=session_max,
     )
+    response = JSONResponse(content=token_response.model_dump())
+    _set_refresh_cookie(response, refresh_token_str)
+    return response
 
 
 @router.get("/duo/status", dependencies=[Depends(require_admin())])
@@ -237,12 +263,19 @@ async def duo_status(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh")
 async def refresh_token(
-    payload: RefreshTokenRequest,
+    request: Request,
+    payload: Optional[RefreshTokenRequest] = None,
     db: AsyncSession = Depends(get_db),
+    netmon_refresh: Optional[str] = Cookie(default=None),
 ):
-    token_data = decode_token(payload.refresh_token)
+    # Accept refresh token from httpOnly cookie or request body (backward compatible)
+    raw_token = netmon_refresh or (payload.refresh_token if payload else None)
+    if not raw_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token provided")
+
+    token_data = decode_token(raw_token)
     if not token_data or not token_data.user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
@@ -282,7 +315,7 @@ async def refresh_token(
 
     session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
 
-    return Token(
+    token_resp = Token(
         access_token=new_access_token,
         refresh_token=new_refresh_token,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -291,6 +324,9 @@ async def refresh_token(
         session_start=session_start,
         session_max_seconds=session_max,
     )
+    response = JSONResponse(content=token_resp.model_dump())
+    _set_refresh_cookie(response, new_refresh_token)
+    return response
 
 
 @router.post("/change-password")
@@ -359,4 +395,6 @@ async def logout(
         username=current_user.username,
         source_ip=get_client_ip(request),
     )
-    return {"message": "Logged out successfully"}
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    _clear_refresh_cookie(response)
+    return response
