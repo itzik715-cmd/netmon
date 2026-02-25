@@ -43,7 +43,7 @@ Then open: `http://<server-ip>`
 
 | Username | Password | Role  | Note                         |
 |----------|----------|-------|------------------------------|
-| admin    | admin    | Admin | MUST change on first login   |
+| admin    | Genrate  | Admin | MUST change on first login   |
 
 ## Architecture
 
