@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Legend, ReferenceLine,
+  ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { format } from 'date-fns'
 import { Globe, Activity, Calendar } from 'lucide-react'
@@ -145,8 +145,56 @@ export default function WanDashboardPage() {
     'Out %': +m.utilization_out.toFixed(2),
   }))
 
-  const p95 = Math.max(p95In, p95Out)
-  const p95Chart = +(p95 / divisor).toFixed(3)
+  const p95InChart = +(p95In / divisor).toFixed(3)
+  const p95OutChart = +(p95Out / divisor).toFixed(3)
+  const p95MaxChart = Math.max(p95InChart, p95OutChart)
+
+  // Zoom state
+  const [refLeft, setRefLeft] = useState<string | null>(null)
+  const [refRight, setRefRight] = useState<string | null>(null)
+  const [zoomedData, setZoomedData] = useState<any[] | null>(null)
+
+  const displayData = zoomedData ?? chartData
+
+  // Compute stats from visible data
+  const computeStats = (data: any[], key: string) => {
+    const vals = data.map((d) => +d[key]).filter((v) => !isNaN(v))
+    if (vals.length === 0) return { last: 0, min: 0, avg: 0, max: 0 }
+    return {
+      last: vals[vals.length - 1],
+      min: Math.min(...vals),
+      avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+      max: Math.max(...vals),
+    }
+  }
+  const inKey = `In (${unit})`
+  const outKey = `Out (${unit})`
+  const inStats = computeStats(displayData, inKey)
+  const outStats = computeStats(displayData, outKey)
+
+  const fmtStat = (v: number) => formatBps(v * divisor)
+
+  // Zoom handlers
+  const handleMouseDown = (e: any) => {
+    if (e?.activeLabel) setRefLeft(e.activeLabel)
+  }
+  const handleMouseMove = (e: any) => {
+    if (refLeft && e?.activeLabel) setRefRight(e.activeLabel)
+  }
+  const handleMouseUp = () => {
+    if (refLeft && refRight) {
+      const leftIdx = chartData.findIndex((d: any) => d.time === refLeft)
+      const rightIdx = chartData.findIndex((d: any) => d.time === refRight)
+      if (leftIdx >= 0 && rightIdx >= 0) {
+        const [from, to] = leftIdx <= rightIdx ? [leftIdx, rightIdx] : [rightIdx, leftIdx]
+        if (to - from >= 2) {
+          setZoomedData(chartData.slice(from, to + 1))
+        }
+      }
+    }
+    setRefLeft(null)
+    setRefRight(null)
+  }
 
   const timeLabel = timeRange.mode === 'preset'
     ? (timeRange.hours <= 24 ? `${timeRange.hours}h` : `${timeRange.hours / 24}d`)
@@ -200,7 +248,7 @@ export default function WanDashboardPage() {
           </div>
           <div className="stat-body">
             <div className="stat-label">95th Percentile ({timeLabel})</div>
-            <div className="stat-value">{formatBps(p95)}</div>
+            <div className="stat-value">{formatBps(Math.max(p95In, p95Out))}</div>
           </div>
         </div>
       </div>
@@ -247,9 +295,14 @@ export default function WanDashboardPage() {
 
       {/* Throughput graph with 95th percentile */}
       <div className="card">
-        <div className="card-header">
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Activity size={15} />
-          <h3>Aggregate WAN Throughput — {timeLabel}</h3>
+          <h3 style={{ flex: 1 }}>Aggregate WAN Throughput — {timeLabel}</h3>
+          {zoomedData && (
+            <button className="btn btn-outline btn-sm" onClick={() => setZoomedData(null)} style={{ fontSize: '11px', padding: '2px 8px' }}>
+              Reset Zoom
+            </button>
+          )}
         </div>
         <div className="card-body">
           {isLoading ? (
@@ -257,24 +310,60 @@ export default function WanDashboardPage() {
           ) : chartData.length === 0 ? (
             <div className="empty-state"><p>No data available</p></div>
           ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${unit}`} width={80} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend />
-                <Line type="monotone" dataKey={`In (${unit})`} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                <Line type="monotone" dataKey={`Out (${unit})`} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                <ReferenceLine
-                  y={p95Chart}
-                  stroke="#e74c3c"
-                  strokeDasharray="6 4"
-                  strokeWidth={2}
-                  label={{ value: `95th: ${formatBps(p95)}`, position: 'insideTopRight', fill: '#e74c3c', fontSize: 12, fontWeight: 600 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart
+                  data={displayData}
+                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${unit}`} width={80} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Line type="monotone" dataKey={inKey} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  <Line type="monotone" dataKey={outKey} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  <ReferenceLine
+                    y={p95MaxChart}
+                    stroke="#e74c3c"
+                    strokeDasharray="6 4"
+                    strokeWidth={2}
+                    label={{ value: `95th: ${formatBps(Math.max(p95In, p95Out))}`, position: 'insideTopRight', fill: '#e74c3c', fontSize: 12, fontWeight: 600 }}
+                  />
+                  {refLeft && refRight && (
+                    <ReferenceArea x1={refLeft} x2={refRight} fill="#1a9dc8" fillOpacity={0.15} />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+              {/* Summary stats legend */}
+              <div style={{ padding: '8px 12px 4px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '20px' }}>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <span style={{ color: '#1a9dc8', fontWeight: 600 }}>■</span>
+                  <span style={{ minWidth: '70px', fontWeight: 600 }}>In Traffic</span>
+                  <span>last: {fmtStat(inStats.last)}</span>
+                  <span>min: {fmtStat(inStats.min)}</span>
+                  <span>avg: {fmtStat(inStats.avg)}</span>
+                  <span>max: {fmtStat(inStats.max)}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <span style={{ color: '#a78bfa', fontWeight: 600 }}>■</span>
+                  <span style={{ minWidth: '70px', fontWeight: 600 }}>Out Traffic</span>
+                  <span>last: {fmtStat(outStats.last)}</span>
+                  <span>min: {fmtStat(outStats.min)}</span>
+                  <span>avg: {fmtStat(outStats.avg)}</span>
+                  <span>max: {fmtStat(outStats.max)}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <span style={{ color: '#e74c3c', fontWeight: 600 }}>▲</span>
+                  <span style={{ minWidth: '70px', fontWeight: 600 }}>95th In:</span>
+                  <span>{formatBps(p95In)}</span>
+                  <span style={{ marginLeft: '16px', fontWeight: 600 }}>95th Out:</span>
+                  <span>{formatBps(p95Out)}</span>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
