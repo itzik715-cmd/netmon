@@ -122,7 +122,7 @@ export default function Header() {
       <div>
         <nav className="breadcrumb">
           <span className="seg">
-            <Link to="/">NMP</Link>
+            <Link to="/">CWM</Link>
           </span>
 
           {crumbs.map((crumb, idx) => (
