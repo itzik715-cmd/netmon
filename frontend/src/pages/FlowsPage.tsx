@@ -949,7 +949,7 @@ export default function FlowsPage() {
 
       {/* Global stats cards */}
       {!searchIp && stats && (
-        <div className="grid-2">
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <div className="stat-card">
             <div className="stat-icon blue">
               <Activity size={20} />
@@ -966,6 +966,24 @@ export default function FlowsPage() {
             <div className="stat-body">
               <div className="stat-label">Total Traffic</div>
               <div className="stat-value">{formatBytes(stats.total_bytes)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+              <ArrowDownLeft size={20} />
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Inbound</div>
+              <div className="stat-value">{formatBytes(stats.total_inbound || 0)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
+              <ArrowUpRight size={20} />
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Outbound</div>
+              <div className="stat-value">{formatBytes(stats.total_outbound || 0)}</div>
             </div>
           </div>
         </div>
@@ -987,108 +1005,151 @@ export default function FlowsPage() {
         </div>
       ) : (
         <>
-          {/* Charts -- hidden while doing IP search */}
+          {/* Inbound / Outbound traffic tables */}
           {!searchIp && stats && (
-            <div className="grid-2">
-              <div className="card">
-                <div className="card-header">
-                  <BarChart3 size={15} />
-                  <h3>Top Talkers (by bytes)</h3>
+            <>
+              <div className="grid-2">
+                {/* ── OUTBOUND: Our network → External ── */}
+                <div className="card">
+                  <div className="card-header">
+                    <ArrowUpRight size={15} className="flow-direction-icon--out" />
+                    <h3>Outbound Traffic</h3>
+                    <span className="card-header__sub" style={{ marginLeft: 'auto' }}>Our network → External</span>
+                  </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    {(stats.top_outbound || []).length === 0 ? (
+                      <div className="empty-state" style={{ padding: '20px' }}><p>No outbound traffic data</p></div>
+                    ) : (
+                      <table className="services-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Destination</th>
+                            <th>Service</th>
+                            <th></th>
+                            <th>Traffic</th>
+                            <th>%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(stats.top_outbound || []).map((item: any, i: number) => {
+                            const maxBytes = stats.top_outbound[0]?.bytes || 1
+                            const barPct = Math.round((item.bytes / maxBytes) * 100)
+                            return (
+                              <tr key={item.ip}>
+                                <td className="text-muted">{i + 1}</td>
+                                <td>
+                                  <button className="flow-ip-link mono" onClick={() => handleSearchChange(item.ip)}>{item.ip}</button>
+                                </td>
+                                <td>
+                                  {item.service_name ? (
+                                    <span className="services-table__svc-badge">{item.service_name}:{item.service_port}</span>
+                                  ) : <span className="text-muted">{'\u2014'}</span>}
+                                </td>
+                                <td className="services-table__bar-cell">
+                                  <div className="services-table__bar services-table__bar--outbound" style={{ width: `${barPct}%` }} />
+                                </td>
+                                <td className="mono">{formatBytes(item.bytes)}</td>
+                                <td className="mono text-muted">{item.pct}%</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 </div>
-                <div className="card-body">
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={stats.top_talkers} layout="vertical" margin={{ left: 80 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                      <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
-                      <YAxis
-                        type="category" dataKey="ip"
-                        tick={(props) => {
-                          const { x, y, payload } = props
-                          return (
-                            <text x={x} y={y} dy={4} textAnchor="end" fill="#1a9dc8" fontSize={11}
-                              className="chart-tick-link"
-                              onClick={() => handleSearchChange(payload.value)}
-                            >
-                              {payload.value}
-                            </text>
-                          )
-                        }}
-                        tickLine={false} width={80}
-                      />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
-                      <Bar dataKey="bytes" fill="#1a9dc8" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+
+                {/* ── INBOUND: External → Our network ── */}
+                <div className="card">
+                  <div className="card-header">
+                    <ArrowDownLeft size={15} className="flow-direction-icon--in" />
+                    <h3>Inbound Traffic</h3>
+                    <span className="card-header__sub" style={{ marginLeft: 'auto' }}>External → Our network</span>
+                  </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    {(stats.top_inbound || []).length === 0 ? (
+                      <div className="empty-state" style={{ padding: '20px' }}><p>No inbound traffic data</p></div>
+                    ) : (
+                      <table className="services-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Source</th>
+                            <th>Service</th>
+                            <th></th>
+                            <th>Traffic</th>
+                            <th>%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(stats.top_inbound || []).map((item: any, i: number) => {
+                            const maxBytes = stats.top_inbound[0]?.bytes || 1
+                            const barPct = Math.round((item.bytes / maxBytes) * 100)
+                            return (
+                              <tr key={item.ip}>
+                                <td className="text-muted">{i + 1}</td>
+                                <td>
+                                  <button className="flow-ip-link mono" onClick={() => handleSearchChange(item.ip)}>{item.ip}</button>
+                                </td>
+                                <td>
+                                  {item.service_name ? (
+                                    <span className="services-table__svc-badge">{item.service_name}:{item.service_port}</span>
+                                  ) : <span className="text-muted">{'\u2014'}</span>}
+                                </td>
+                                <td className="services-table__bar-cell">
+                                  <div className="services-table__bar services-table__bar--inbound" style={{ width: `${barPct}%` }} />
+                                </td>
+                                <td className="mono">{formatBytes(item.bytes)}</td>
+                                <td className="mono text-muted">{item.pct}%</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <BarChart3 size={15} />
-                  <h3>Top Destinations</h3>
+              {/* Protocol + Application charts */}
+              <div className="grid-2">
+                <div className="card">
+                  <div className="card-header">
+                    <BarChart3 size={15} />
+                    <h3>Protocol Distribution</h3>
+                  </div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie data={stats.protocol_distribution} dataKey="bytes" nameKey="protocol" cx="50%" cy="50%" outerRadius={80}
+                          label={({ protocol, percent }: any) => `${protocol} ${(percent * 100).toFixed(1)}%`} labelLine={false}>
+                          {stats.protocol_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-                <div className="card-body">
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={stats.top_destinations} layout="vertical" margin={{ left: 80 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                      <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
-                      <YAxis
-                        type="category" dataKey="ip"
-                        tick={(props) => {
-                          const { x, y, payload } = props
-                          return (
-                            <text x={x} y={y} dy={4} textAnchor="end" fill="#27ae60" fontSize={11}
-                              className="chart-tick-link"
-                              onClick={() => handleSearchChange(payload.value)}
-                            >
-                              {payload.value}
-                            </text>
-                          )
-                        }}
-                        tickLine={false} width={80}
-                      />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
-                      <Bar dataKey="bytes" fill="#27ae60" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <BarChart3 size={15} />
-                  <h3>Protocol Distribution</h3>
-                </div>
-                <div className="card-body">
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie data={stats.protocol_distribution} dataKey="bytes" nameKey="protocol" cx="50%" cy="50%" outerRadius={80}
-                        label={({ protocol, percent }: any) => `${protocol} ${(percent * 100).toFixed(1)}%`} labelLine={false}>
-                        {stats.protocol_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header">
-                  <BarChart3 size={15} />
-                  <h3>Applications</h3>
-                </div>
-                <div className="card-body">
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie data={stats.application_distribution} dataKey="bytes" nameKey="app" cx="50%" cy="50%" outerRadius={80}>
-                        {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                <div className="card">
+                  <div className="card-header">
+                    <BarChart3 size={15} />
+                    <h3>Applications</h3>
+                  </div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie data={stats.application_distribution} dataKey="bytes" nameKey="app" cx="50%" cy="50%" outerRadius={80}>
+                          {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           {/* SECTION 5: Conversations table */}
@@ -1149,10 +1210,10 @@ export default function FlowsPage() {
                       <>
                         {searchIp && <th className="flow-dir-col"></th>}
                         <th>Source IP</th>
-                        <th></th>
-                        <th>Port / Service</th>
+                        <th>Src Service</th>
                         <th></th>
                         <th>Destination IP</th>
+                        <th>Dst Service</th>
                         <th>Protocol</th>
                         <th>Bytes</th>
                         <th>Packets</th>
@@ -1187,6 +1248,8 @@ export default function FlowsPage() {
                     displayedConversations.map((flow: any) => {
                       const isOutgoing = flow.src_ip === searchIp
                       const bytesPct = Math.round(((flow.bytes || 0) / maxBytesInView) * 100)
+                      const srcSvc = flow.src_service || PORT_NAMES[flow.src_port] || ''
+                      const dstSvc = flow.dst_service || PORT_NAMES[flow.dst_port] || ''
                       return (
                         <tr key={flow.id}>
                           {searchIp && (
@@ -1208,17 +1271,14 @@ export default function FlowsPage() {
                               )
                             }
                           </td>
-                          <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
-                            <ArrowRight size={14} />
-                          </td>
-                          <td className="mono text-sm text-center">
-                            {flow.dst_port != null ? (
-                              <>
-                                <span className="font-semibold">{flow.dst_port}</span>
-                                {' '}
-                                <span className="text-muted">[{PORT_NAMES[flow.dst_port] || flow.application || 'Unknown'}]</span>
-                              </>
-                            ) : '\u2014'}
+                          <td className="mono text-sm">
+                            {flow.src_port ? (
+                              srcSvc ? (
+                                <span className="services-table__svc-badge">{srcSvc}:{flow.src_port}</span>
+                              ) : (
+                                <span className="text-muted">:{flow.src_port}</span>
+                              )
+                            ) : <span className="text-muted">{'\u2014'}</span>}
                           </td>
                           <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
                             <ArrowRight size={14} />
@@ -1233,6 +1293,15 @@ export default function FlowsPage() {
                                 </button>
                               )
                             }
+                          </td>
+                          <td className="mono text-sm">
+                            {flow.dst_port ? (
+                              dstSvc ? (
+                                <span className="services-table__svc-badge">{dstSvc}:{flow.dst_port}</span>
+                              ) : (
+                                <span className="text-muted">:{flow.dst_port}</span>
+                              )
+                            ) : <span className="text-muted">{'\u2014'}</span>}
                           </td>
                           <td><span className="tag-blue">{flow.protocol}</span></td>
                           <td className="mono text-sm">
@@ -1249,7 +1318,7 @@ export default function FlowsPage() {
                   )}
                   {displayedConversations.length === 0 && (
                     <tr>
-                      <td colSpan={isAggregated ? 5 : (searchIp ? 9 : 8)} className="empty-table-cell">
+                      <td colSpan={isAggregated ? 5 : (searchIp ? 10 : 9)} className="empty-table-cell">
                         {selectedPeer
                           ? `No flows between ${searchIp} and ${selectedPeer}`
                           : searchIp

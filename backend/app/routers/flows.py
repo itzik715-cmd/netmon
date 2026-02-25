@@ -4,9 +4,10 @@ from sqlalchemy import select, func, desc, or_, and_, case, extract, literal_col
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from ipaddress import ip_network, ip_address
 from app.database import get_db
 from app.models.flow import FlowRecord
-from app.models.device import Device
+from app.models.device import Device, DeviceRoute
 from app.models.user import User
 from app.middleware.rbac import get_current_user
 
@@ -185,6 +186,56 @@ async def get_flow_devices(
     ]
 
 
+async def _load_owned_subnets(db: AsyncSession) -> list:
+    """Load announced subnets from spine device routing tables.
+
+    Returns a list of ipaddress network objects for matching.
+    Excludes RFC1918, loopback, link-local, and default routes.
+    """
+    rows = (await db.execute(
+        select(DeviceRoute.destination, DeviceRoute.prefix_len, DeviceRoute.device_id)
+        .join(Device, Device.id == DeviceRoute.device_id)
+        .where(Device.device_type == "spine")
+    )).all()
+    nets = []
+    for r in rows:
+        dest = r.destination
+        if not dest or dest == "0.0.0.0":
+            continue
+        try:
+            addr = ip_address(dest)
+        except ValueError:
+            continue
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            continue
+        prefix = r.prefix_len if r.prefix_len else 24
+        try:
+            net = ip_network(f"{dest}/{prefix}", strict=False)
+            nets.append(net)
+        except ValueError:
+            continue
+    return nets
+
+
+def _is_owned(ip_str: str, owned_nets: list) -> bool:
+    """Check if an IP belongs to any owned subnet."""
+    try:
+        addr = ip_address(ip_str)
+    except (ValueError, TypeError):
+        return False
+    return any(addr in net for net in owned_nets)
+
+
+@router.get("/owned-subnets")
+async def get_owned_subnets(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return the list of owned/announced public subnets from spine routing tables."""
+    nets = await _load_owned_subnets(db)
+    return [{"subnet": str(n), "prefix_len": n.prefixlen} for n in sorted(nets, key=lambda n: n.network_address)]
+
+
 def _device_filter(device_ids_str: Optional[str], device_id: Optional[int]) -> list:
     """Build SQLAlchemy filter clauses for device(s). device_ids takes precedence."""
     if device_ids_str:
@@ -209,7 +260,10 @@ async def get_flow_stats(
 ):
     base_filter = _time_filter(FlowRecord.timestamp, hours, start, end) + _device_filter(device_ids, device_id)
 
-    # Top talkers (src IP by bytes)
+    # Load owned subnets for inbound/outbound classification
+    owned_nets = await _load_owned_subnets(db)
+
+    # Top talkers (src IP by bytes) — kept for backward compat
     talkers_q = await db.execute(
         select(FlowRecord.src_ip, func.sum(FlowRecord.bytes).label("total_bytes"))
         .where(*base_filter)
@@ -219,7 +273,7 @@ async def get_flow_stats(
     )
     top_talkers = [{"ip": row.src_ip, "bytes": int(row.total_bytes or 0)} for row in talkers_q]
 
-    # Top destinations
+    # Top destinations — kept for backward compat
     dest_q = await db.execute(
         select(FlowRecord.dst_ip, func.sum(FlowRecord.bytes).label("total_bytes"))
         .where(*base_filter)
@@ -228,6 +282,146 @@ async def get_flow_stats(
         .limit(limit)
     )
     top_destinations = [{"ip": row.dst_ip, "bytes": int(row.total_bytes or 0)} for row in dest_q]
+
+    # ── Inbound / Outbound classification ────────────────────
+    # sFlow ingress: src_ip=remote peer, dst_ip=our owned IP
+    # INBOUND = traffic coming INTO our network (dst_ip is owned)
+    #   -> group by src_ip (who is sending to us) + src_port (what service the peer runs / what they're sending from)
+    # OUTBOUND = traffic going OUT from our network (src_ip is owned)
+    #   -> group by dst_ip (where are we sending to) + dst_port (what service we're accessing)
+    #
+    # With sFlow ingress-only capture:
+    #   dst_ip is always the owned IP, src_ip is the remote peer
+    #   src_port = the service port on the remote (e.g. 443 = HTTPS server)
+    #   So from our network's perspective: our owned IP → remote:443 = OUTBOUND web browsing
+    #
+    # Classification:
+    #   If dst_ip is owned: this is traffic TO us = but if src_port is well-known (443, 22)
+    #     it means our IP was the client connecting out and getting responses back
+    #   If src_ip is owned: this is traffic FROM us
+
+    # For sFlow ingress: all flows have dst_ip=owned, src_ip=external
+    # We classify based on the service port:
+    # - src_port is well-known (server port like 443, 22, 80) => OUTBOUND (our IP connected to remote service)
+    # - dst_port is well-known (server port like 80, 443, 3389) => INBOUND (remote connected to our service)
+
+    # Fetch broader data for classification
+    flow_rows = (await db.execute(
+        select(
+            FlowRecord.src_ip,
+            FlowRecord.dst_ip,
+            FlowRecord.src_port,
+            FlowRecord.dst_port,
+            FlowRecord.protocol_name,
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*base_filter)
+        .group_by(FlowRecord.src_ip, FlowRecord.dst_ip, FlowRecord.src_port, FlowRecord.dst_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes"))
+        .limit(500)
+    )).all()
+
+    # Aggregate inbound and outbound
+    inbound_by_ip: dict[str, dict] = {}   # external IP → {bytes, flows, services: {port: bytes}}
+    outbound_by_ip: dict[str, dict] = {}  # external IP → {bytes, flows, services: {port: bytes}}
+    total_inbound = 0
+    total_outbound = 0
+
+    for r in flow_rows:
+        src_owned = _is_owned(r.src_ip, owned_nets)
+        dst_owned = _is_owned(r.dst_ip, owned_nets)
+        b = int(r.bytes or 0)
+        f = int(r.flows or 0)
+        src_port = int(r.src_port) if r.src_port else 0
+        dst_port = int(r.dst_port) if r.dst_port else 0
+
+        if dst_owned and not src_owned:
+            # dst_ip is ours, src_ip is external
+            # If src_port is a well-known service port → our IP was connecting out (OUTBOUND)
+            # If dst_port is a well-known service port → external connecting to our service (INBOUND)
+            src_is_service = src_port in PORT_SERVICE_MAP and src_port < 10000
+            dst_is_service = dst_port in PORT_SERVICE_MAP and dst_port < 10000
+
+            if src_is_service and not dst_is_service:
+                # OUTBOUND: our IP connected to remote's service (src_port = the service)
+                ext_ip = r.src_ip
+                svc_port = src_port
+                if ext_ip not in outbound_by_ip:
+                    outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
+                outbound_by_ip[ext_ip]["bytes"] += b
+                outbound_by_ip[ext_ip]["flows"] += f
+                outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+                total_outbound += b
+            elif dst_is_service and not src_is_service:
+                # INBOUND: external connecting to our service (dst_port = the service)
+                ext_ip = r.src_ip
+                svc_port = dst_port
+                if ext_ip not in inbound_by_ip:
+                    inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
+                inbound_by_ip[ext_ip]["bytes"] += b
+                inbound_by_ip[ext_ip]["flows"] += f
+                inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+                total_inbound += b
+            else:
+                # Ambiguous — use src_port heuristic (lower port = service)
+                if src_port > 0 and (dst_port == 0 or src_port < dst_port):
+                    ext_ip = r.src_ip
+                    svc_port = src_port
+                    if ext_ip not in outbound_by_ip:
+                        outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
+                    outbound_by_ip[ext_ip]["bytes"] += b
+                    outbound_by_ip[ext_ip]["flows"] += f
+                    outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+                    total_outbound += b
+                else:
+                    ext_ip = r.src_ip
+                    svc_port = dst_port
+                    if ext_ip not in inbound_by_ip:
+                        inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
+                    inbound_by_ip[ext_ip]["bytes"] += b
+                    inbound_by_ip[ext_ip]["flows"] += f
+                    if svc_port > 0:
+                        inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+                    total_inbound += b
+
+        elif src_owned and not dst_owned:
+            # Our IP is sending out (OUTBOUND)
+            ext_ip = r.dst_ip
+            svc_port = dst_port
+            if ext_ip not in outbound_by_ip:
+                outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
+            outbound_by_ip[ext_ip]["bytes"] += b
+            outbound_by_ip[ext_ip]["flows"] += f
+            if svc_port > 0:
+                outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+            total_outbound += b
+        # else: internal-to-internal or both external — skip
+
+    # Build top inbound/outbound lists with primary service
+    def _build_top(by_ip: dict, total: int) -> list:
+        items = sorted(by_ip.items(), key=lambda x: -x[1]["bytes"])[:limit]
+        result = []
+        for ext_ip, data in items:
+            # Find the dominant service port
+            svcs = data["services"]
+            if svcs:
+                top_port = max(svcs, key=svcs.get)
+                svc_name = PORT_SERVICE_MAP.get(top_port, f"port/{top_port}")
+            else:
+                top_port = 0
+                svc_name = ""
+            result.append({
+                "ip": ext_ip,
+                "bytes": data["bytes"],
+                "flows": data["flows"],
+                "service_port": top_port,
+                "service_name": svc_name,
+                "pct": round(data["bytes"] / total * 100, 1) if total > 0 else 0,
+            })
+        return result
+
+    top_inbound = _build_top(inbound_by_ip, total_inbound)
+    top_outbound = _build_top(outbound_by_ip, total_outbound)
 
     # Protocol distribution
     proto_q = await db.execute(
@@ -274,6 +468,10 @@ async def get_flow_stats(
     return {
         "top_talkers": top_talkers,
         "top_destinations": top_destinations,
+        "top_inbound": top_inbound,
+        "top_outbound": top_outbound,
+        "total_inbound": total_inbound,
+        "total_outbound": total_outbound,
         "protocol_distribution": protocol_dist,
         "application_distribution": app_dist,
         "total_flows": int(total_row.flows or 0),
@@ -364,6 +562,8 @@ async def get_conversations(
             "packets": f.packets,
             "application": f.application,
             "timestamp": f.timestamp.isoformat() if f.timestamp else None,
+            "src_service": PORT_SERVICE_MAP.get(f.src_port, "") if f.src_port else "",
+            "dst_service": PORT_SERVICE_MAP.get(f.dst_port, "") if f.dst_port else "",
         }
         for f in flows
     ]
