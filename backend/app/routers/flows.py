@@ -23,7 +23,65 @@ PORT_SERVICE_MAP: dict[int, str] = {
     993: "IMAPS", 995: "POP3S", 1433: "MSSQL", 1521: "Oracle",
     3306: "MySQL", 3389: "RDP", 5432: "PostgreSQL", 5900: "VNC",
     6379: "Redis", 8080: "HTTP Alt", 8443: "HTTPS Alt", 9090: "Prometheus",
+    6881: "BitTorrent", 6882: "BitTorrent", 6883: "BitTorrent",
+    8006: "Proxmox", 8444: "Proxmox Backup", 3478: "STUN/TURN",
+    1194: "OpenVPN", 51820: "WireGuard", 1723: "PPTP",
 }
+
+# Activity labels for security classification
+PORT_ACTIVITY_MAP: dict[int, str] = {
+    22: "SSH Sessions", 23: "Telnet", 80: "Web Browsing", 443: "Web Browsing",
+    8080: "Web Browsing", 8443: "Web Browsing",
+    25: "Email", 465: "Email", 587: "Email", 993: "Email", 995: "Email", 110: "Email", 143: "Email",
+    53: "DNS", 853: "DNS",
+    3389: "RDP Access", 5900: "VNC Access",
+    21: "FTP Transfers", 20: "FTP Transfers", 69: "TFTP",
+    445: "File Sharing", 139: "File Sharing",
+    3306: "Database", 5432: "Database", 1433: "Database", 1521: "Database", 6379: "Database",
+    161: "SNMP Monitoring", 162: "SNMP Monitoring", 514: "Syslog",
+    8006: "Proxmox Management", 8444: "Proxmox Backup",
+    6881: "BitTorrent", 6882: "BitTorrent", 6883: "BitTorrent",
+    1194: "VPN", 51820: "VPN", 1723: "VPN", 500: "VPN",
+    3478: "VoIP/STUN", 5060: "VoIP/SIP",
+    179: "BGP Routing",
+}
+
+
+def _compute_behavior(services_accessed: list, services_served: list,
+                      unique_src: int, unique_dst: int) -> dict:
+    """Classify IP role and detected activities from service port analysis."""
+    has_client = len(services_accessed) > 0
+    has_server = len(services_served) > 0
+
+    if has_client and has_server:
+        role = "Client + Server"
+    elif has_server:
+        role = "Server"
+    elif has_client:
+        role = "Client"
+    else:
+        role = "Unknown"
+
+    # Check for scanner behavior: many unique dst ports, low bytes per flow
+    if unique_dst > 30 and unique_src <= 2:
+        role = "Scanner"
+
+    # Collect unique activities
+    seen = set()
+    activities = []
+    for svc in services_accessed + services_served:
+        port = svc.get("port", 0)
+        activity = PORT_ACTIVITY_MAP.get(port)
+        if activity and activity not in seen:
+            seen.add(activity)
+            activities.append(activity)
+        elif not activity and port > 0:
+            label = PORT_SERVICE_MAP.get(port)
+            if label and label not in seen:
+                seen.add(label)
+                activities.append(label)
+
+    return {"role": role, "activities": activities}
 
 
 def _compute_threat_indicators(
@@ -613,13 +671,104 @@ async def get_ip_profile(
     )).all()
     countries_out = [{"country": r.country, "bytes": int(r.bytes or 0), "flows": int(r.flows or 0)} for r in countries_out_rows]
 
-    # ── 12. Unidirectional detection ─────────────────────────
+    # ── 12. Services Accessed (src_port from peers when dst_ip == ip) ──
+    svc_accessed_rows = (await db.execute(
+        select(
+            FlowRecord.src_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+            func.count(func.distinct(FlowRecord.src_ip)).label("unique_peers"),
+        ).where(*time_filters, FlowRecord.dst_ip == ip)
+        .where(FlowRecord.src_port.isnot(None), FlowRecord.src_port > 0)
+        .group_by(FlowRecord.src_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(12)
+    )).all()
+    services_accessed = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0),
+         "flows": int(r.flows or 0), "unique_peers": int(r.unique_peers or 0)}
+        for r in svc_accessed_rows
+    ]
+
+    # ── 13. Services Served (dst_port from peers when src_ip == ip) ──
+    svc_served_rows = (await db.execute(
+        select(
+            FlowRecord.dst_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+            func.count(func.distinct(FlowRecord.dst_ip)).label("unique_peers"),
+        ).where(*time_filters, FlowRecord.src_ip == ip)
+        .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+        .group_by(FlowRecord.dst_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(12)
+    )).all()
+    services_served = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0),
+         "flows": int(r.flows or 0), "unique_peers": int(r.unique_peers or 0)}
+        for r in svc_served_rows
+    ]
+
+    # ── 14. Peer primary service port ────────────────────────
+    # For each top peer, determine the dominant service port
+    if top_peer_ips:
+        # When dst_ip == ip, src_port = the service the peer runs (what our IP accesses)
+        peer_svc_rows = (await db.execute(
+            select(
+                FlowRecord.src_ip.label("peer_ip"),
+                FlowRecord.src_port.label("port"),
+                func.sum(FlowRecord.bytes).label("bytes"),
+            ).where(*time_filters, FlowRecord.dst_ip == ip,
+                    FlowRecord.src_ip.in_(top_peer_ips),
+                    FlowRecord.src_port.isnot(None), FlowRecord.src_port > 0)
+            .group_by(FlowRecord.src_ip, FlowRecord.src_port)
+            .order_by(desc("bytes"))
+        )).all()
+        # Keep only the top port per peer
+        peer_primary_service: dict[str, dict] = {}
+        for r in peer_svc_rows:
+            if r.peer_ip not in peer_primary_service:
+                peer_primary_service[r.peer_ip] = {
+                    "port": int(r.port),
+                    "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+                }
+        # Also check the other direction: when src_ip == ip, dst_port = service
+        peer_svc_rows2 = (await db.execute(
+            select(
+                FlowRecord.dst_ip.label("peer_ip"),
+                FlowRecord.dst_port.label("port"),
+                func.sum(FlowRecord.bytes).label("bytes"),
+            ).where(*time_filters, FlowRecord.src_ip == ip,
+                    FlowRecord.dst_ip.in_(top_peer_ips),
+                    FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+            .group_by(FlowRecord.dst_ip, FlowRecord.dst_port)
+            .order_by(desc("bytes"))
+        )).all()
+        for r in peer_svc_rows2:
+            if r.peer_ip not in peer_primary_service:
+                peer_primary_service[r.peer_ip] = {
+                    "port": int(r.port),
+                    "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+                }
+        # Attach to peer details
+        for pd in top_peers_detailed:
+            svc = peer_primary_service.get(pd["ip"])
+            if svc:
+                pd["primary_port"] = svc["port"]
+                pd["primary_service"] = svc["service"]
+
+    # ── 15. Unidirectional detection ─────────────────────────
     unidirectional = (
         (bytes_sent == 0 and bytes_received > 0) or
         (bytes_received == 0 and bytes_sent > 0)
     )
 
-    # ── 13. Threat scoring ───────────────────────────────────
+    # ── 16. Behavior classification ──────────────────────────
+    behavior = _compute_behavior(services_accessed, services_served, unique_src, unique_dst)
+
+    # ── 17. Threat scoring ───────────────────────────────────
     top_peer_pct = top_peers_detailed[0]["pct"] if top_peers_detailed else 0
     threat = _compute_threat_indicators(
         unique_src, unique_dst, unique_dst_ports, unique_src_ports,
@@ -654,4 +803,7 @@ async def get_ip_profile(
         "countries_in": countries_in,
         "countries_out": countries_out,
         "threat": threat,
+        "services_accessed": services_accessed,
+        "services_served": services_served,
+        "behavior": behavior,
     }
