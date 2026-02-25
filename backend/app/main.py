@@ -90,6 +90,16 @@ async def scheduled_cleanup():
         await cleanup_old_metrics(db)
 
 
+async def scheduled_flow_rollup():
+    """Roll up raw flow_records into 5-minute summary buckets."""
+    if not await _acquire_scheduler_lock("flow_rollup", ttl_seconds=270):
+        return
+    from app.database import AsyncSessionLocal
+    from app.services.flow_rollup import rollup_flows
+    async with AsyncSessionLocal() as db:
+        await rollup_flows(db)
+
+
 async def scheduled_block_sync():
     """Sync null-route and flowspec blocks from all spine devices with eAPI credentials."""
     from app.database import AsyncSessionLocal
@@ -247,6 +257,49 @@ async def run_migrations():
             except Exception as e:
                 logger.warning("Migration ALTER config_backups.%s skipped: %s", col, e)
 
+    # flow_summary_5m table and composite indexes for flow queries
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_summary_5m (
+                id SERIAL PRIMARY KEY,
+                bucket TIMESTAMPTZ NOT NULL,
+                device_id INTEGER REFERENCES devices(id),
+                src_ip VARCHAR(50) NOT NULL,
+                dst_ip VARCHAR(50) NOT NULL,
+                src_port INTEGER NOT NULL DEFAULT 0,
+                dst_port INTEGER NOT NULL DEFAULT 0,
+                protocol_name VARCHAR(20),
+                application VARCHAR(100),
+                bytes BIGINT DEFAULT 0,
+                packets BIGINT DEFAULT 0,
+                flow_count INTEGER DEFAULT 0
+            )
+        """))
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_fs5m_bucket ON flow_summary_5m (bucket)",
+            "CREATE INDEX IF NOT EXISTS ix_fs5m_bucket_src ON flow_summary_5m (bucket, src_ip)",
+            "CREATE INDEX IF NOT EXISTS ix_fs5m_bucket_dst ON flow_summary_5m (bucket, dst_ip)",
+            "CREATE INDEX IF NOT EXISTS ix_fs5m_bucket_device ON flow_summary_5m (bucket, device_id)",
+            # Composite indexes on raw flow_records for faster short-range queries
+            "CREATE INDEX IF NOT EXISTS ix_flow_records_ts_src_ip ON flow_records (timestamp, src_ip)",
+            "CREATE INDEX IF NOT EXISTS ix_flow_records_ts_dst_ip ON flow_records (timestamp, dst_ip)",
+            "CREATE INDEX IF NOT EXISTS ix_flow_records_ts_device ON flow_records (timestamp, device_id)",
+        ]:
+            try:
+                await conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.warning("Migration index skipped: %s", e)
+
+    # Unique constraint for flow_summary_5m (idempotent upserts)
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE flow_summary_5m ADD CONSTRAINT uq_flow_summary_5m_key "
+                "UNIQUE (bucket, device_id, src_ip, dst_ip, src_port, dst_port, protocol_name, application)"
+            ))
+        except Exception:
+            pass  # already exists
+
     logger.info("Database migrations applied")
 
 
@@ -346,6 +399,22 @@ async def create_default_data():
             db.add(BackupSchedule(hour=2, minute=0, retention_days=90, is_active=True))
             await db.commit()
 
+        # One-time backfill of flow_summary_5m from existing flow_records
+        backfill_row = await db.execute(
+            select(SystemSetting).where(SystemSetting.key == "flow_rollup_backfilled")
+        )
+        if not backfill_row.scalar_one_or_none():
+            logger.info("Starting one-time flow summary backfill (this may take a few minutes)...")
+            from app.services.flow_rollup import backfill_summaries
+            await backfill_summaries(db, days=30)
+            db.add(SystemSetting(
+                key="flow_rollup_backfilled",
+                value="true",
+                description="Whether flow_summary_5m has been backfilled from historical data",
+            ))
+            await db.commit()
+            logger.info("Flow summary backfill complete")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -385,6 +454,15 @@ async def lifespan(app: FastAPI):
         "interval",
         seconds=60,
         id="block_sync",
+        max_instances=1,
+    )
+
+    # Flow summary rollup — every 5 minutes
+    scheduler.add_job(
+        scheduled_flow_rollup,
+        "interval",
+        seconds=300,
+        id="flow_rollup",
         max_instances=1,
     )
 
