@@ -182,6 +182,17 @@ export interface DeviceRoute {
   updated_at?: string
 }
 
+export interface OwnedSubnet {
+  id: number | null
+  subnet: string
+  prefix_len: number
+  source: 'learned' | 'manual'
+  source_devices: string[]
+  is_active: boolean
+  note: string | null
+  created_at: string | null
+}
+
 export interface DeviceBlock {
   id: number
   device_id: number

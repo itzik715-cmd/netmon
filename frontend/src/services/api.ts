@@ -123,6 +123,10 @@ export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),
   conversations: (params?: object) => api.get('/flows/conversations', { params }),
   ipProfile: (ip: string, params?: object) => api.get('/flows/ip-profile', { params: { ip, ...params } }),
+  ownedSubnets: () => api.get('/flows/owned-subnets'),
+  createOwnedSubnet: (data: { subnet: string; note?: string }) => api.post('/flows/owned-subnets', data),
+  toggleOwnedSubnet: (data: { subnet: string; is_active: boolean }) => api.post('/flows/owned-subnets/toggle', data),
+  deleteOwnedSubnet: (id: number) => api.delete(`/flows/owned-subnets/${id}`),
 }
 
 // Users

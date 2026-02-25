@@ -1,17 +1,36 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, and_, case, extract, literal_column
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from ipaddress import ip_network, ip_address
+from pydantic import BaseModel, field_validator
 from app.database import get_db
 from app.models.flow import FlowRecord
 from app.models.device import Device, DeviceRoute
+from app.models.owned_subnet import OwnedSubnet
 from app.models.user import User
-from app.middleware.rbac import get_current_user
+from app.middleware.rbac import get_current_user, require_operator_or_above
 
 router = APIRouter(prefix="/api/flows", tags=["Flow Analysis"])
+
+
+class SubnetCreate(BaseModel):
+    subnet: str
+    note: Optional[str] = None
+
+    @field_validator("subnet")
+    @classmethod
+    def validate_cidr(cls, v: str) -> str:
+        net = ip_network(v, strict=False)
+        return str(net)
+
+
+class SubnetToggle(BaseModel):
+    subnet: str
+    is_active: bool
+
 
 PROTOCOL_MAP = {1: "ICMP", 6: "TCP", 17: "UDP", 47: "GRE", 89: "OSPF"}
 
@@ -186,18 +205,9 @@ async def get_flow_devices(
     ]
 
 
-async def _load_owned_subnets(db: AsyncSession) -> list:
-    """Load announced subnets from spine device routing tables.
-
-    Returns a list of ipaddress network objects for matching.
-    Excludes RFC1918, loopback, link-local, and default routes.
-    """
-    rows = (await db.execute(
-        select(DeviceRoute.destination, DeviceRoute.prefix_len, DeviceRoute.device_id)
-        .join(Device, Device.id == DeviceRoute.device_id)
-        .where(Device.device_type == "spine")
-    )).all()
-    nets = []
+def _parse_spine_routes(rows) -> dict[str, list[str]]:
+    """Parse spine device routes into a dict of CIDR -> list of device hostnames."""
+    learned: dict[str, list[str]] = {}
     for r in rows:
         dest = r.destination
         if not dest or dest == "0.0.0.0":
@@ -211,9 +221,42 @@ async def _load_owned_subnets(db: AsyncSession) -> list:
         prefix = r.prefix_len if r.prefix_len else 24
         try:
             net = ip_network(f"{dest}/{prefix}", strict=False)
-            nets.append(net)
+            cidr = str(net)
+            learned.setdefault(cidr, []).append(r.hostname)
         except ValueError:
             continue
+    return learned
+
+
+async def _load_owned_subnets(db: AsyncSession) -> list:
+    """Load owned subnets for flow classification, respecting overrides."""
+    rows = (await db.execute(
+        select(DeviceRoute.destination, DeviceRoute.prefix_len, Device.hostname)
+        .join(Device, Device.id == DeviceRoute.device_id)
+        .where(Device.device_type == "spine")
+    )).all()
+    learned = _parse_spine_routes(rows)
+
+    # Load overrides
+    overrides = (await db.execute(select(OwnedSubnet))).scalars().all()
+    ignored_cidrs = {o.subnet for o in overrides if not o.is_active}
+    manual_nets = []
+    for o in overrides:
+        if o.source == "manual" and o.is_active:
+            try:
+                manual_nets.append(ip_network(o.subnet, strict=False))
+            except ValueError:
+                continue
+
+    # Build final list: learned (minus ignored) + manual
+    nets = []
+    for cidr in learned:
+        if cidr not in ignored_cidrs:
+            try:
+                nets.append(ip_network(cidr, strict=False))
+            except ValueError:
+                continue
+    nets.extend(manual_nets)
     return nets
 
 
@@ -231,9 +274,119 @@ async def get_owned_subnets(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Return the list of owned/announced public subnets from spine routing tables."""
-    nets = await _load_owned_subnets(db)
-    return [{"subnet": str(n), "prefix_len": n.prefixlen} for n in sorted(nets, key=lambda n: n.network_address)]
+    """Return merged list of learned + manual subnets with override status."""
+    # 1. Load learned from spine routes
+    rows = (await db.execute(
+        select(DeviceRoute.destination, DeviceRoute.prefix_len, Device.hostname)
+        .join(Device, Device.id == DeviceRoute.device_id)
+        .where(Device.device_type == "spine")
+    )).all()
+    learned = _parse_spine_routes(rows)
+
+    # 2. Load overrides from OwnedSubnet table
+    overrides = (await db.execute(select(OwnedSubnet))).scalars().all()
+    override_map = {o.subnet: o for o in overrides}
+
+    # 3. Merge learned subnets
+    results = []
+    for cidr in sorted(learned):
+        override = override_map.pop(cidr, None)
+        net = ip_network(cidr, strict=False)
+        results.append({
+            "id": override.id if override else None,
+            "subnet": cidr,
+            "prefix_len": net.prefixlen,
+            "source": "learned",
+            "source_devices": sorted(set(learned[cidr])),
+            "is_active": override.is_active if override else True,
+            "note": override.note if override else None,
+            "created_at": override.created_at.isoformat() if override and override.created_at else None,
+        })
+
+    # 4. Add remaining manual subnets
+    for cidr, o in sorted(override_map.items()):
+        if o.source == "manual":
+            net = ip_network(cidr, strict=False)
+            results.append({
+                "id": o.id,
+                "subnet": cidr,
+                "prefix_len": net.prefixlen,
+                "source": "manual",
+                "source_devices": [],
+                "is_active": o.is_active,
+                "note": o.note,
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+            })
+
+    return results
+
+
+@router.post("/owned-subnets", status_code=201)
+async def create_owned_subnet(
+    payload: SubnetCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Add a manual owned subnet."""
+    existing = (await db.execute(
+        select(OwnedSubnet).where(OwnedSubnet.subnet == payload.subnet)
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Subnet already exists")
+
+    subnet = OwnedSubnet(subnet=payload.subnet, source="manual", is_active=True, note=payload.note)
+    db.add(subnet)
+    await db.flush()
+    await db.refresh(subnet)
+    net = ip_network(subnet.subnet, strict=False)
+    return {
+        "id": subnet.id, "subnet": subnet.subnet, "prefix_len": net.prefixlen,
+        "source": "manual", "source_devices": [], "is_active": True,
+        "note": subnet.note, "created_at": subnet.created_at.isoformat() if subnet.created_at else None,
+    }
+
+
+@router.post("/owned-subnets/toggle")
+async def toggle_owned_subnet(
+    payload: SubnetToggle,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Toggle a subnet's active/ignored state."""
+    cidr = str(ip_network(payload.subnet, strict=False))
+
+    existing = (await db.execute(
+        select(OwnedSubnet).where(OwnedSubnet.subnet == cidr)
+    )).scalar_one_or_none()
+
+    if existing:
+        if existing.source == "learned" and payload.is_active:
+            # Re-enabling a learned subnet — remove the override
+            await db.delete(existing)
+        else:
+            existing.is_active = payload.is_active
+    else:
+        # Creating an ignore override for a learned subnet
+        db.add(OwnedSubnet(subnet=cidr, source="learned", is_active=False))
+
+    return {"status": "ok", "subnet": cidr, "is_active": payload.is_active}
+
+
+@router.delete("/owned-subnets/{subnet_id}", status_code=204)
+async def delete_owned_subnet(
+    subnet_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Delete a manual subnet."""
+    subnet = (await db.execute(
+        select(OwnedSubnet).where(OwnedSubnet.id == subnet_id)
+    )).scalar_one_or_none()
+    if not subnet:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    if subnet.source != "manual":
+        raise HTTPException(status_code=400, detail="Only manual subnets can be deleted")
+    await db.delete(subnet)
 
 
 def _device_filter(device_ids_str: Optional[str], device_id: Optional[int]) -> list:

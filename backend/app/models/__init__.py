@@ -5,6 +5,7 @@ from app.models.alert import AlertRule, AlertEvent
 from app.models.flow import FlowRecord
 from app.models.settings import SystemSetting
 from app.models.config_backup import ConfigBackup, BackupSchedule
+from app.models.owned_subnet import OwnedSubnet
 
 __all__ = [
     "User", "Role", "AuditLog",
@@ -14,5 +15,6 @@ __all__ = [
     "FlowRecord",
     "SystemSetting",
     "ConfigBackup", "BackupSchedule",
+    "OwnedSubnet",
 ]
 
