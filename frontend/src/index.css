@@ -3027,3 +3027,207 @@ a.stat-card {
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Security IP Profile — Threat Ring, Peers, Protocols, Stats
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Threat Score Ring ─────────────────────────────────── */
+.threat-ring { flex-shrink: 0; }
+.threat-ring__score { font-size: 22px; font-weight: 700; font-family: var(--font-mono); }
+.threat-ring__level { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; }
+
+/* ─── Threat Flag Pills ─────────────────────────────────── */
+.ip-profile__threat-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ip-profile__threat-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.ip-profile__threat-flag--low       { background: var(--success-50); color: var(--success-700); }
+.ip-profile__threat-flag--medium    { background: var(--warning-50); color: var(--warning-700); }
+.ip-profile__threat-flag--high      { background: #fff7ed; color: #c2410c; }
+.ip-profile__threat-flag--critical  { background: var(--danger-50); color: var(--danger-700); }
+
+/* ─── Stats 6-column variant ────────────────────────────── */
+.ip-profile__stats--6 {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+/* ─── 60 / 40 Grid ──────────────────────────────────────── */
+.ip-profile__grid-60-40 {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+}
+
+/* ─── Peer Detail Card ──────────────────────────────────── */
+.peer-detail-card {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.peer-detail-card:last-child { border-bottom: none; }
+.peer-detail-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.peer-detail-card__rank {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 24px;
+}
+.peer-detail-card__country {
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--neutral-100);
+  color: var(--neutral-600);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.peer-detail-card__pct {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-500);
+  font-family: var(--font-mono);
+}
+.peer-detail-card__bar {
+  height: 4px;
+  background: var(--neutral-100);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.peer-detail-card__bar-fill {
+  height: 100%;
+  background: var(--primary-400);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.peer-detail-card__metrics {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.peer-detail-card__metrics strong {
+  color: var(--text-main);
+}
+.peer-detail-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ─── Muted tag (port pills) ────────────────────────────── */
+.tag-muted {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--neutral-100);
+  color: var(--neutral-600);
+  font-family: var(--font-mono);
+}
+
+/* ─── Protocol Direction Bars ───────────────────────────── */
+.proto-direction {
+  display: grid;
+  grid-template-columns: 70px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+}
+.proto-direction__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.proto-direction__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proto-direction__bar {
+  height: 6px;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+.proto-direction__bar--in  { background: #22c55e; }
+.proto-direction__bar--out { background: #0284c7; }
+.proto-direction__legend {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ─── Quick Stats Grid ──────────────────────────────────── */
+.quick-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.quick-stats__item {
+  padding: 8px 10px;
+  background: var(--neutral-50);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.quick-stats__item--wide {
+  grid-column: span 2;
+}
+.quick-stats__label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+.quick-stats__value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+}
+.quick-stats__countries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.quick-stats__country {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--neutral-100);
+  border-radius: 4px;
+  color: var(--neutral-700);
+  font-weight: 500;
+}
+.quick-stats__country small {
+  color: var(--neutral-500);
+  font-size: 10px;
+  margin-left: 2px;
+}
+
+/* ─── Responsive: stack on narrow ───────────────────────── */
+@media (max-width: 900px) {
+  .ip-profile__stats--6 { grid-template-columns: repeat(3, 1fr); }
+  .ip-profile__grid-60-40 { grid-template-columns: 1fr; }
+  .quick-stats { grid-template-columns: 1fr; }
+  .quick-stats__item--wide { grid-column: span 1; }
+}

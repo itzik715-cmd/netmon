@@ -4,11 +4,12 @@ import { flowsApi, devicesApi } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Label,
+  AreaChart, Area,
 } from 'recharts'
 import {
   Search, Globe, Copy, ExternalLink, X, ArrowUpRight, ArrowDownLeft, ArrowRight,
   Activity, HardDrive, BarChart3, Check, AlertTriangle, Clock,
-  Filter, Loader2, Calendar,
+  Filter, Loader2, Calendar, Shield,
 } from 'lucide-react'
 
 const COLORS_OUT = ['#0284c7', '#38bdf8', '#7dd3fc', '#bae6fd', '#0369a1', '#075985', '#0c4a6e', '#0ea5e9']
@@ -360,6 +361,27 @@ function TrafficBalance({ sent, received }: { sent: number; received: number }) 
   )
 }
 
+// -- Threat Score Ring ---------------------------------------------------------
+function ThreatScoreRing({ score, level }: { score: number; level: string }) {
+  const r = 40, stroke = 7, circ = 2 * Math.PI * r
+  const offset = circ - (score / 100) * circ
+  const colorMap: Record<string, string> = { low: '#22c55e', medium: '#f59e0b', high: '#f97316', critical: '#ef4444' }
+  const color = colorMap[level] || '#94a3b8'
+  return (
+    <div className="threat-ring">
+      <svg width={100} height={100} viewBox="0 0 100 100">
+        <circle className="threat-ring__track" cx={50} cy={50} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+        <circle className="threat-ring__arc" cx={50} cy={50} r={r} fill="none"
+          stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={offset}
+          transform="rotate(-90 50 50)" />
+        <text x={50} y={46} textAnchor="middle" className="threat-ring__score" fill="var(--text-main)">{score}</text>
+        <text x={50} y={62} textAnchor="middle" className="threat-ring__level" fill={color}>{level.toUpperCase()}</text>
+      </svg>
+    </div>
+  )
+}
+
 // -- IP Profile card -----------------------------------------------------------
 function IpProfile({
   ip, timeRangeParams, selectedPeer, onSelectPeer, onClear, onNavigateIp,
@@ -377,14 +399,6 @@ function IpProfile({
     enabled: !!ip,
   })
 
-  // Top Ports from ip-profile API response
-  const topPorts = useMemo(() => {
-    if (!profile?.top_ports) return []
-    return profile.top_ports.map((p: any) => ({
-      port: p.port, bytes: p.bytes, name: portName(p.port),
-    }))
-  }, [profile])
-
   if (isLoading) {
     return (
       <div className="card card-body flex-row-gap">
@@ -400,39 +414,62 @@ function IpProfile({
   const totalFlows = profile.total_flows ?? (profile.flows_as_src + profile.flows_as_dst)
   const totalBytes = profile.total_bytes ?? (profile.bytes_sent + profile.bytes_received)
   const isUnidirectional = profile.unidirectional
-  // For unidirectional data, use whichever peers we have
   const uniPeers = topIn.length > 0 ? topIn : topOut
   const uniBytes = Math.max(profile.bytes_sent, profile.bytes_received)
+  const threat = profile.threat || { score: 0, level: 'low', flags: [] }
+  const timeline: any[] = profile.timeline || []
+  const topPeersDetailed: any[] = profile.top_peers_detailed || []
+  const topDstPorts: any[] = profile.top_dst_ports || []
+  const topSrcPorts: any[] = profile.top_src_ports || []
+  const protocolDirection: any[] = profile.protocol_direction || []
+  const countriesIn: any[] = profile.countries_in || []
+  const countriesOut: any[] = profile.countries_out || []
+
+  // Timeline chart data
+  const timelineData = timeline.map((t: any) => {
+    const d = new Date(t.timestamp)
+    const label = isNaN(d.getTime()) ? t.timestamp : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return { time: label, 'Bytes In': t.bytes_in, 'Bytes Out': t.bytes_out }
+  })
+
+  // Max bytes for peer bars
+  const maxPeerBytes = topPeersDetailed.length > 0 ? topPeersDetailed[0].bytes_total : 1
+  // Max bytes for port bars
+  const maxPortBytes = topDstPorts.length > 0 ? topDstPorts[0].bytes : 1
+  // Max bytes for protocol direction bars
+  const maxProtoBytes = protocolDirection.reduce((m: number, p: any) => Math.max(m, p.bytes_in + p.bytes_out), 1)
 
   return (
     <div className="ip-profile">
-      {/* SECTION 1: Banner */}
+      {/* ═══ ROW 1: Header Banner + Threat Score ═══ */}
       <div className="ip-profile__banner">
         <div className="ip-profile__banner-top">
           <div className="ip-profile__banner-icon">
             <Globe />
           </div>
           <div className="ip-profile__banner-info">
-            <div className="ip-profile__banner-label">IP Profile</div>
+            <div className="ip-profile__banner-label">IP Security Profile</div>
             <div className="ip-profile__ip-address">{ip}</div>
             <div className="ip-profile__summary">
-              {totalFlows.toLocaleString()} total flows &middot; {formatBytes(totalBytes)} total traffic
+              {totalFlows.toLocaleString()} flows &middot; {formatBytes(totalBytes)}
             </div>
+            {/* Threat flags */}
+            {threat.flags.length > 0 && (
+              <div className="ip-profile__threat-flags">
+                {threat.flags.map((f: any) => (
+                  <span key={f.id} className={`ip-profile__threat-flag ip-profile__threat-flag--${threat.level}`}>
+                    <AlertTriangle size={10} /> {f.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
+          <ThreatScoreRing score={threat.score} level={threat.level} />
           <div className="ip-profile__actions">
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => navigator.clipboard.writeText(ip)}
-              title="Copy IP to clipboard"
-            >
+            <button className="btn btn-outline btn-sm" onClick={() => navigator.clipboard.writeText(ip)} title="Copy IP">
               <Copy size={12} /> Copy IP
             </button>
-            <a
-              href={`https://whois.domaintools.com/${ip}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-outline btn-sm"
-            >
+            <a href={`https://whois.domaintools.com/${ip}`} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
               <ExternalLink size={12} /> Whois
             </a>
             <button className="btn btn-outline btn-sm" onClick={onClear}>
@@ -441,68 +478,256 @@ function IpProfile({
           </div>
         </div>
 
-        {/* Stat mini-cards */}
-        <div className="ip-profile__stats">
-          {isUnidirectional ? (
-            <>
-              {/* Total Traffic */}
-              <div className="ip-profile__stat-card ip-profile__stat-card--blue">
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-                  <Activity size={14} /> TOTAL TRAFFIC
+        {/* Stat mini-cards — 6-column */}
+        <div className="ip-profile__stats ip-profile__stats--6">
+          <div className="ip-profile__stat-card ip-profile__stat-card--blue">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue"><Activity size={14} /> TOTAL TRAFFIC</div>
+            <div className="ip-profile__stat-value">{formatBytes(totalBytes)}</div>
+          </div>
+          <div className="ip-profile__stat-card ip-profile__stat-card--green">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--green"><Activity size={14} /> TOTAL FLOWS</div>
+            <div className="ip-profile__stat-value">{totalFlows.toLocaleString()}</div>
+          </div>
+          <div className="ip-profile__stat-card ip-profile__stat-card--blue">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue"><Globe size={14} /> UNIQUE SRC IPS</div>
+            <div className="ip-profile__stat-value">{(profile.unique_src_ips ?? 0).toLocaleString()}</div>
+          </div>
+          <div className="ip-profile__stat-card ip-profile__stat-card--green">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--green"><Globe size={14} /> UNIQUE DST IPS</div>
+            <div className="ip-profile__stat-value">{(profile.unique_dst_ips ?? 0).toLocaleString()}</div>
+          </div>
+          <div className="ip-profile__stat-card ip-profile__stat-card--blue">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue"><Shield size={14} /> DST PORTS</div>
+            <div className="ip-profile__stat-value">{(profile.unique_dst_ports ?? 0).toLocaleString()}</div>
+          </div>
+          <div className="ip-profile__stat-card ip-profile__stat-card--green">
+            <div className="ip-profile__stat-icon ip-profile__stat-icon--green"><Shield size={14} /> SRC PORTS</div>
+            <div className="ip-profile__stat-value">{(profile.unique_src_ports ?? 0).toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ ROW 2: Traffic Timeline ═══ */}
+      {timelineData.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <Activity size={15} />
+            <h3>Traffic Timeline</h3>
+          </div>
+          <div className="card-body">
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={timelineData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradOut" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0284c7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                <Area type="monotone" dataKey="Bytes In" stroke="#22c55e" fill="url(#gradIn)" strokeWidth={2} />
+                <Area type="monotone" dataKey="Bytes Out" stroke="#0284c7" fill="url(#gradOut)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ ROW 3: Top Peers Detailed (60%) + Port Analysis (40%) ═══ */}
+      <div className="ip-profile__grid-60-40">
+        {/* Left: Top Peers Detailed */}
+        <div className="card">
+          <div className="card-header">
+            <Globe size={15} />
+            <h3>Top Peers — Detailed</h3>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {topPeersDetailed.length === 0 ? (
+              <div className="empty-state" style={{ padding: '20px' }}><p>No peer data</p></div>
+            ) : topPeersDetailed.map((peer: any, i: number) => {
+              const barPct = Math.round((peer.bytes_total / maxPeerBytes) * 100)
+              return (
+                <div key={peer.ip} className="peer-detail-card">
+                  <div className="peer-detail-card__header">
+                    <span className="peer-detail-card__rank">#{i + 1}</span>
+                    <button className="flow-ip-link mono" onClick={() => onNavigateIp(peer.ip)}>{peer.ip}</button>
+                    {peer.country && <span className="peer-detail-card__country">{peer.country}</span>}
+                    <span className="peer-detail-card__pct">{peer.pct}%</span>
+                  </div>
+                  <div className="peer-detail-card__bar">
+                    <div className="peer-detail-card__bar-fill" style={{ width: `${barPct}%` }} />
+                  </div>
+                  <div className="peer-detail-card__metrics">
+                    <span><strong>{formatBytes(peer.bytes_in)}</strong> in</span>
+                    <span><strong>{formatBytes(peer.bytes_out)}</strong> out</span>
+                    <span>{peer.packets?.toLocaleString()} pkts</span>
+                    <span>{peer.flows?.toLocaleString()} flows</span>
+                  </div>
+                  <div className="peer-detail-card__tags">
+                    {peer.protocols?.map((p: string) => <span key={p} className="tag-blue">{p}</span>)}
+                    {peer.top_ports?.map((tp: any) => (
+                      <span key={tp.port} className="tag-muted">{tp.service || tp.port}</span>
+                    ))}
+                  </div>
                 </div>
-                <div className="ip-profile__stat-value">{formatBytes(totalBytes)}</div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Right: Port Analysis */}
+        <div className="flex-col-gap">
+          {/* Top Destination Ports */}
+          <div className="card">
+            <div className="card-header">
+              <BarChart3 size={15} />
+              <h3>Top Destination Ports</h3>
+            </div>
+            <div className="card-body" style={{ padding: 0 }}>
+              {topDstPorts.length === 0 ? (
+                <div className="empty-state" style={{ padding: '16px' }}><p>No port data</p></div>
+              ) : (
+                <table className="flow-table" style={{ fontSize: '11px' }}>
+                  <thead>
+                    <tr><th>Port</th><th>Service</th><th>Proto</th><th></th><th>Bytes</th></tr>
+                  </thead>
+                  <tbody>
+                    {topDstPorts.map((p: any) => (
+                      <tr key={`${p.port}-${p.protocol}`}>
+                        <td className="mono">{p.port}</td>
+                        <td>{p.service || '\u2014'}</td>
+                        <td><span className="tag-blue" style={{ fontSize: '10px' }}>{p.protocol}</span></td>
+                        <td style={{ width: '60px' }}>
+                          <div className="flow-bytes-bar" style={{ width: `${Math.round((p.bytes / maxPortBytes) * 100)}%` }} />
+                        </td>
+                        <td className="mono">{formatBytes(p.bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Top Source Ports */}
+          {topSrcPorts.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <BarChart3 size={15} />
+                <h3>Top Source Ports</h3>
               </div>
-              {/* Total Flows */}
-              <div className="ip-profile__stat-card ip-profile__stat-card--green">
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
-                  <Activity size={14} /> TOTAL FLOWS
-                </div>
-                <div className="ip-profile__stat-value">{totalFlows.toLocaleString()}</div>
+              <div className="card-body" style={{ padding: 0 }}>
+                <table className="flow-table" style={{ fontSize: '11px' }}>
+                  <thead>
+                    <tr><th>Port</th><th>Service</th><th>Proto</th><th>Bytes</th></tr>
+                  </thead>
+                  <tbody>
+                    {topSrcPorts.map((p: any) => (
+                      <tr key={`${p.port}-${p.protocol}`}>
+                        <td className="mono">{p.port}</td>
+                        <td>{p.service || '\u2014'}</td>
+                        <td><span className="tag-blue" style={{ fontSize: '10px' }}>{p.protocol}</span></td>
+                        <td className="mono">{formatBytes(p.bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              {/* Top Peers count */}
-              <div className="ip-profile__stat-card ip-profile__stat-card--blue">
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-                  <Globe size={14} /> UNIQUE PEERS
-                </div>
-                <div className="ip-profile__stat-value">{profile.top_peers?.length ?? 0}</div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Sent */}
-              <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.bytes_sent === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-                  <ArrowUpRight size={14} /> SENT
-                </div>
-                <div className="ip-profile__stat-value">{formatBytes(profile.bytes_sent)}</div>
-              </div>
-              {/* Received */}
-              <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.bytes_received === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
-                  <ArrowDownLeft size={14} /> RECEIVED
-                </div>
-                <div className="ip-profile__stat-value">{formatBytes(profile.bytes_received)}</div>
-              </div>
-              {/* As Source */}
-              <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.flows_as_src === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-                  <ArrowUpRight size={14} /> AS SOURCE
-                </div>
-                <div className="ip-profile__stat-value">{profile.flows_as_src.toLocaleString()}</div>
-              </div>
-              {/* As Dest */}
-              <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.flows_as_dst === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
-                  <ArrowDownLeft size={14} /> AS DEST
-                </div>
-                <div className="ip-profile__stat-value">{profile.flows_as_dst.toLocaleString()}</div>
-              </div>
-            </>
+            </div>
           )}
         </div>
       </div>
 
-      {/* SECTION 2: Traffic Direction Cards */}
+      {/* ═══ ROW 4: Protocol Direction + Quick Stats ═══ */}
+      <div className="grid-2">
+        {/* Protocol Direction Breakdown */}
+        <div className="card">
+          <div className="card-header">
+            <BarChart3 size={15} />
+            <h3>Protocol Breakdown (In/Out)</h3>
+          </div>
+          <div className="card-body">
+            {protocolDirection.length === 0 ? (
+              <div className="empty-state"><p>No protocol data</p></div>
+            ) : protocolDirection.map((p: any) => {
+              const total = p.bytes_in + p.bytes_out
+              const inPct = total > 0 ? Math.round((p.bytes_in / maxProtoBytes) * 100) : 0
+              const outPct = total > 0 ? Math.round((p.bytes_out / maxProtoBytes) * 100) : 0
+              return (
+                <div key={p.protocol} className="proto-direction">
+                  <span className="proto-direction__name">{p.protocol}</span>
+                  <div className="proto-direction__bars">
+                    <div className="proto-direction__bar proto-direction__bar--in" style={{ width: `${inPct}%` }} />
+                    <div className="proto-direction__bar proto-direction__bar--out" style={{ width: `${outPct}%` }} />
+                  </div>
+                  <span className="proto-direction__legend">
+                    <span style={{ color: '#22c55e' }}>{formatBytes(p.bytes_in)}</span>
+                    {' / '}
+                    <span style={{ color: '#0284c7' }}>{formatBytes(p.bytes_out)}</span>
+                  </span>
+                </div>
+              )
+            })}
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
+              <span style={{ color: '#22c55e' }}>&#9632;</span> Inbound &nbsp;
+              <span style={{ color: '#0284c7' }}>&#9632;</span> Outbound
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Stats */}
+        <div className="card">
+          <div className="card-header">
+            <Shield size={15} />
+            <h3>Quick Stats</h3>
+          </div>
+          <div className="card-body">
+            <div className="quick-stats">
+              <div className="quick-stats__item">
+                <div className="quick-stats__label">Unique Src IPs</div>
+                <div className="quick-stats__value">{(profile.unique_src_ips ?? 0).toLocaleString()}</div>
+              </div>
+              <div className="quick-stats__item">
+                <div className="quick-stats__label">Unique Dst IPs</div>
+                <div className="quick-stats__value">{(profile.unique_dst_ips ?? 0).toLocaleString()}</div>
+              </div>
+              <div className="quick-stats__item">
+                <div className="quick-stats__label">Unique Dst Ports</div>
+                <div className="quick-stats__value">{(profile.unique_dst_ports ?? 0).toLocaleString()}</div>
+              </div>
+              <div className="quick-stats__item">
+                <div className="quick-stats__label">Unique Src Ports</div>
+                <div className="quick-stats__value">{(profile.unique_src_ports ?? 0).toLocaleString()}</div>
+              </div>
+              {/* Countries */}
+              <div className="quick-stats__item quick-stats__item--wide">
+                <div className="quick-stats__label">Countries (Inbound)</div>
+                <div className="quick-stats__countries">
+                  {countriesIn.length === 0 ? <span className="text-muted">N/A</span> : countriesIn.slice(0, 5).map((c: any) => (
+                    <span key={c.country} className="quick-stats__country">{c.country} <small>{formatBytes(c.bytes)}</small></span>
+                  ))}
+                </div>
+              </div>
+              <div className="quick-stats__item quick-stats__item--wide">
+                <div className="quick-stats__label">Countries (Outbound)</div>
+                <div className="quick-stats__countries">
+                  {countriesOut.length === 0 ? <span className="text-muted">N/A</span> : countriesOut.slice(0, 5).map((c: any) => (
+                    <span key={c.country} className="quick-stats__country">{c.country} <small>{formatBytes(c.bytes)}</small></span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ ROW 5: Existing Direction Cards + Balance ═══ */}
       {isUnidirectional ? (
         <div className="grid-1">
           <TrafficDirectionCard
@@ -547,86 +772,10 @@ function IpProfile({
         </div>
       )}
 
-      {/* SECTION 3: Protocol & Port Analysis */}
-      <div className="grid-2">
-        {/* Protocol Distribution */}
-        <div className="card">
-          <div className="card-header">
-            <BarChart3 size={15} />
-            <h3>Protocol Distribution</h3>
-          </div>
-          <div className="card-body">
-            {profile.protocol_distribution.length === 0 ? (
-              <div className="empty-state"><p>No protocol data</p></div>
-            ) : profile.protocol_distribution.length === 1 ? (
-              <div className="protocol-single">
-                <span className="protocol-single__name">{profile.protocol_distribution[0].protocol}</span>
-                <div className="protocol-single__bar" />
-                <span className="protocol-single__stat">
-                  {profile.protocol_distribution[0].count.toLocaleString()} flows &middot; {formatBytes(profile.protocol_distribution[0].bytes)}
-                </span>
-              </div>
-            ) : (
-              <>
-                <ResponsiveContainer width="100%" height={40}>
-                  <BarChart data={[profile.protocol_distribution.reduce((acc: any, p: any) => { acc[p.protocol] = p.bytes; return acc }, {})]} layout="horizontal" barSize={28}>
-                    {profile.protocol_distribution.map((p: any, i: number) => (
-                      <Bar key={p.protocol} dataKey={p.protocol} stackId="a" fill={COLORS[i % COLORS.length]} radius={i === 0 ? [4, 0, 0, 4] : i === profile.protocol_distribution.length - 1 ? [0, 4, 4, 0] : 0} />
-                    ))}
-                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="protocol-legend">
-                  {profile.protocol_distribution.map((p: any, i: number) => (
-                    <div key={p.protocol} className="protocol-legend__item">
-                      <span className="protocol-legend__dot" style={{ background: COLORS[i % COLORS.length] }} />
-                      <span>{p.protocol}</span>
-                      <span className="mono">{p.count.toLocaleString()}</span>
-                      <span className="mono">{formatBytes(p.bytes)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Top Ports */}
-        <div className="card">
-          <div className="card-header">
-            <BarChart3 size={15} />
-            <h3>Top Ports</h3>
-          </div>
-          <div className="card-body">
-            {topPorts.length === 0 ? (
-              <div className="empty-state"><p>No port data available</p></div>
-            ) : (
-              <ResponsiveContainer width="100%" height={Math.max(topPorts.length * 28 + 20, 100)}>
-                <BarChart data={topPorts} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatBytes(v)} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tick={{ fill: '#64748b', fontSize: 10 }}
-                    tickLine={false}
-                    width={80}
-                  />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [formatBytes(v), 'Traffic']} />
-                  <Bar dataKey="bytes" fill="#a78bfa" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 4: Traffic Balance (only when bidirectional data available) */}
       {!isUnidirectional && (
         <TrafficBalance sent={profile.bytes_sent} received={profile.bytes_received} />
       )}
 
-      {/* No flows state */}
       {totalFlows === 0 && (
         <div className="card">
           <div className="card-body">

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_, case
+from sqlalchemy import select, func, desc, or_, and_, case, extract, literal_column
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 from app.database import get_db
 from app.models.flow import FlowRecord
 from app.models.device import Device
@@ -12,6 +13,64 @@ from app.middleware.rbac import get_current_user
 router = APIRouter(prefix="/api/flows", tags=["Flow Analysis"])
 
 PROTOCOL_MAP = {1: "ICMP", 6: "TCP", 17: "UDP", 47: "GRE", 89: "OSPF"}
+
+PORT_SERVICE_MAP: dict[int, str] = {
+    20: "FTP Data", 21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
+    53: "DNS", 67: "DHCP", 68: "DHCP", 69: "TFTP", 80: "HTTP",
+    110: "POP3", 123: "NTP", 143: "IMAP", 161: "SNMP", 162: "SNMP Trap",
+    179: "BGP", 389: "LDAP", 443: "HTTPS", 445: "SMB", 465: "SMTPS",
+    500: "IKE", 514: "Syslog", 587: "SMTP", 636: "LDAPS", 853: "DoT",
+    993: "IMAPS", 995: "POP3S", 1433: "MSSQL", 1521: "Oracle",
+    3306: "MySQL", 3389: "RDP", 5432: "PostgreSQL", 5900: "VNC",
+    6379: "Redis", 8080: "HTTP Alt", 8443: "HTTPS Alt", 9090: "Prometheus",
+}
+
+
+def _compute_threat_indicators(
+    unique_src: int, unique_dst: int, unique_dst_ports: int, unique_src_ports: int,
+    top_peer_pct: float, bytes_sent: int, bytes_received: int,
+    protocols: list, timeline: list,
+) -> dict:
+    """Score 0-100 with flags based on heuristic indicators."""
+    flags = []
+    score = 0
+    if unique_src > 50:
+        flags.append({"id": "high_unique_sources", "label": f"{unique_src} unique sources", "weight": 25})
+        score += 25
+    if unique_dst_ports > 20:
+        flags.append({"id": "high_unique_dst_ports", "label": f"{unique_dst_ports} dst ports probed", "weight": 20})
+        score += 20
+    if top_peer_pct > 70:
+        flags.append({"id": "single_peer_dominance", "label": f"Top peer {top_peer_pct:.0f}% of traffic", "weight": 15})
+        score += 15
+    total = bytes_sent + bytes_received
+    if total > 0:
+        ratio = max(bytes_sent, bytes_received) / max(min(bytes_sent, bytes_received), 1)
+        if ratio > 10 and min(bytes_sent, bytes_received) > 0:
+            flags.append({"id": "asymmetric_traffic", "label": f"Asymmetric ratio {ratio:.0f}:1", "weight": 10})
+            score += 10
+    suspicious_protos = {"ICMP", "GRE", "ESP", "IPIP"}
+    for p in protocols:
+        if p.get("protocol", "").upper() in suspicious_protos and p.get("bytes", 0) > 1_000_000:
+            flags.append({"id": "suspicious_protocol", "label": f"{p['protocol']} > 1 MB", "weight": 20})
+            score += 20
+            break
+    if len(timeline) >= 3:
+        vals = [b.get("bytes_in", 0) + b.get("bytes_out", 0) for b in timeline]
+        avg_val = sum(vals) / len(vals)
+        if avg_val > 0 and vals[-1] > avg_val * 3:
+            flags.append({"id": "traffic_spike", "label": "Recent spike > 3x avg", "weight": 10})
+            score += 10
+    score = min(score, 100)
+    if score >= 70:
+        level = "critical"
+    elif score >= 45:
+        level = "high"
+    elif score >= 20:
+        level = "medium"
+    else:
+        level = "low"
+    return {"score": score, "level": level, "flags": flags}
 
 
 def _time_filter(model_ts, hours: int, start: Optional[str] = None, end: Optional[str] = None) -> list:
@@ -261,35 +320,35 @@ async def get_ip_profile(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Return an activity summary for a single IP address."""
+    """Return a security-focused activity summary for a single IP address."""
     time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
+    both_dirs = [*time_filters, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip)]
 
-    # Bytes/flows when this IP is the source
+    # ── 1. Basic sent/received totals ────────────────────────
     sent_row = (await db.execute(
         select(func.sum(FlowRecord.bytes), func.count(FlowRecord.id))
         .where(*time_filters, FlowRecord.src_ip == ip)
     )).first()
-
-    # Bytes/flows when this IP is the destination
     recv_row = (await db.execute(
         select(func.sum(FlowRecord.bytes), func.count(FlowRecord.id))
         .where(*time_filters, FlowRecord.dst_ip == ip)
     )).first()
 
-    # Top peers — combine both directions, rank by total bytes
+    bytes_sent = int(sent_row[0] or 0)
+    flows_as_src = int(sent_row[1] or 0)
+    bytes_received = int(recv_row[0] or 0)
+    flows_as_dst = int(recv_row[1] or 0)
+
+    # ── 2. Top peers simple (both directions) ────────────────
     as_src = (await db.execute(
         select(FlowRecord.dst_ip.label("peer"), func.sum(FlowRecord.bytes).label("bytes"))
         .where(*time_filters, FlowRecord.src_ip == ip)
-        .group_by(FlowRecord.dst_ip)
-        .order_by(desc("bytes"))
-        .limit(10)
+        .group_by(FlowRecord.dst_ip).order_by(desc("bytes")).limit(10)
     )).all()
     as_dst = (await db.execute(
         select(FlowRecord.src_ip.label("peer"), func.sum(FlowRecord.bytes).label("bytes"))
         .where(*time_filters, FlowRecord.dst_ip == ip)
-        .group_by(FlowRecord.src_ip)
-        .order_by(desc("bytes"))
-        .limit(10)
+        .group_by(FlowRecord.src_ip).order_by(desc("bytes")).limit(10)
     )).all()
 
     peer_bytes: dict[str, int] = {}
@@ -301,15 +360,16 @@ async def get_ip_profile(
         [{"ip": k, "bytes": v} for k, v in peer_bytes.items()],
         key=lambda x: -x["bytes"],
     )[:8]
+    top_out = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_src]
+    top_in  = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_dst]
 
-    # Protocol distribution for this IP
+    # ── 3. Protocol distribution ─────────────────────────────
     proto_rows = (await db.execute(
         select(FlowRecord.protocol_name,
                func.count(FlowRecord.id).label("count"),
                func.sum(FlowRecord.bytes).label("bytes"))
-        .where(*time_filters, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
-        .group_by(FlowRecord.protocol_name)
-        .order_by(desc("bytes"))
+        .where(*both_dirs)
+        .group_by(FlowRecord.protocol_name).order_by(desc("bytes"))
     )).all()
     protocols = [
         {"protocol": r.protocol_name or "Unknown",
@@ -317,32 +377,254 @@ async def get_ip_profile(
         for r in proto_rows
     ]
 
-    # Top ports for this IP (used by frontend Top Ports chart)
+    # ── 4. Top destination ports (old simple format kept as top_ports) ──
     port_rows = (await db.execute(
         select(FlowRecord.dst_port.label("port"),
                func.sum(FlowRecord.bytes).label("bytes"))
-        .where(*time_filters, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
+        .where(*both_dirs)
         .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
-        .group_by(FlowRecord.dst_port)
-        .order_by(desc("bytes"))
-        .limit(8)
+        .group_by(FlowRecord.dst_port).order_by(desc("bytes")).limit(8)
     )).all()
     top_ports = [{"port": int(r.port), "bytes": int(r.bytes or 0)} for r in port_rows]
 
-    top_out = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_src]
-    top_in  = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_dst]
+    # ── 5. Unique counts (single query) ──────────────────────
+    uniq_row = (await db.execute(
+        select(
+            func.count(func.distinct(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.src_ip), else_=None
+            ))).label("unique_src"),
+            func.count(func.distinct(case(
+                (FlowRecord.src_ip == ip, FlowRecord.dst_ip), else_=None
+            ))).label("unique_dst"),
+            func.count(func.distinct(FlowRecord.dst_port)).label("unique_dst_ports"),
+            func.count(func.distinct(FlowRecord.src_port)).label("unique_src_ports"),
+        ).where(*both_dirs)
+    )).first()
+    unique_src = int(uniq_row.unique_src or 0)
+    unique_dst = int(uniq_row.unique_dst or 0)
+    unique_dst_ports = int(uniq_row.unique_dst_ports or 0)
+    unique_src_ports = int(uniq_row.unique_src_ports or 0)
 
-    bytes_sent = int(sent_row[0] or 0)
-    flows_as_src = int(sent_row[1] or 0)
-    bytes_received = int(recv_row[0] or 0)
-    flows_as_dst = int(recv_row[1] or 0)
+    # ── 6. Top destination ports detailed ────────────────────
+    dst_port_detail = (await db.execute(
+        select(
+            FlowRecord.dst_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.sum(FlowRecord.packets).label("packets"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*both_dirs)
+        .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+        .group_by(FlowRecord.dst_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(10)
+    )).all()
+    top_dst_ports = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), ""),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0),
+         "packets": int(r.packets or 0), "flows": int(r.flows or 0)}
+        for r in dst_port_detail
+    ]
 
-    # Detect unidirectional flow capture (common with sFlow ingress sampling).
-    # When data exists in only one direction, flag it so the frontend can
-    # display a single combined view instead of misleading sent/received split.
+    # ── 7. Top source ports detailed ─────────────────────────
+    src_port_detail = (await db.execute(
+        select(
+            FlowRecord.src_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*both_dirs)
+        .where(FlowRecord.src_port.isnot(None), FlowRecord.src_port > 0)
+        .group_by(FlowRecord.src_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(5)
+    )).all()
+    top_src_ports = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), ""),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0),
+         "flows": int(r.flows or 0)}
+        for r in src_port_detail
+    ]
+
+    # ── 8. Timeline (bucketed) ───────────────────────────────
+    if hours <= 6:
+        bucket_seconds = 300     # 5 min
+    elif hours <= 24:
+        bucket_seconds = 900     # 15 min
+    else:
+        bucket_seconds = 3600    # 1 hour
+
+    epoch = extract("epoch", FlowRecord.timestamp)
+    bucket_ts = func.to_timestamp(func.floor(epoch / bucket_seconds) * bucket_seconds).label("bucket")
+
+    timeline_rows = (await db.execute(
+        select(
+            bucket_ts,
+            func.sum(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_in"),
+            func.sum(case(
+                (FlowRecord.src_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_out"),
+            func.count(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.id), else_=None
+            )).label("flows_in"),
+            func.count(case(
+                (FlowRecord.src_ip == ip, FlowRecord.id), else_=None
+            )).label("flows_out"),
+        ).where(*both_dirs)
+        .group_by("bucket").order_by("bucket")
+    )).all()
+    timeline = [
+        {"timestamp": r.bucket.isoformat() if hasattr(r.bucket, "isoformat") else str(r.bucket),
+         "bytes_in": int(r.bytes_in or 0), "bytes_out": int(r.bytes_out or 0),
+         "flows_in": int(r.flows_in or 0), "flows_out": int(r.flows_out or 0)}
+        for r in timeline_rows
+    ]
+
+    # ── 9. Top peers detailed (direction breakdown + protocols + country) ──
+    peer_ip_expr = case(
+        (FlowRecord.src_ip == ip, FlowRecord.dst_ip),
+        else_=FlowRecord.src_ip,
+    ).label("peer_ip")
+    peer_detail_rows = (await db.execute(
+        select(
+            peer_ip_expr,
+            func.sum(case(
+                (FlowRecord.src_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_out"),
+            func.sum(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_in"),
+            func.sum(FlowRecord.packets).label("packets"),
+            func.count(FlowRecord.id).label("flows"),
+            func.string_agg(func.distinct(FlowRecord.protocol_name), literal_column("','")).label("protos"),
+        ).where(*both_dirs)
+        .group_by("peer_ip").order_by(desc(func.sum(FlowRecord.bytes))).limit(5)
+    )).all()
+
+    # Country lookup for top peers
+    top_peer_ips = [r.peer_ip for r in peer_detail_rows]
+    peer_country: dict[str, str] = {}
+    if top_peer_ips:
+        # Look up country from flow records where peer appears
+        country_rows = (await db.execute(
+            select(
+                FlowRecord.src_ip,
+                func.max(FlowRecord.src_country).label("country"),
+            ).where(FlowRecord.src_ip.in_(top_peer_ips), FlowRecord.src_country.isnot(None))
+            .group_by(FlowRecord.src_ip)
+        )).all()
+        for cr in country_rows:
+            peer_country[cr.src_ip] = cr.country or ""
+        # Also check dst side
+        country_rows2 = (await db.execute(
+            select(
+                FlowRecord.dst_ip,
+                func.max(FlowRecord.dst_country).label("country"),
+            ).where(FlowRecord.dst_ip.in_(top_peer_ips), FlowRecord.dst_country.isnot(None))
+            .group_by(FlowRecord.dst_ip)
+        )).all()
+        for cr in country_rows2:
+            if cr.dst_ip not in peer_country:
+                peer_country[cr.dst_ip] = cr.country or ""
+
+    # Top ports per peer
+    peer_ports: dict[str, list] = defaultdict(list)
+    if top_peer_ips:
+        pp_rows = (await db.execute(
+            select(
+                peer_ip_expr,
+                FlowRecord.dst_port.label("port"),
+                func.sum(FlowRecord.bytes).label("bytes"),
+            ).where(*both_dirs, FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+            .where(case(
+                (FlowRecord.src_ip == ip, FlowRecord.dst_ip),
+                else_=FlowRecord.src_ip,
+            ).in_(top_peer_ips))
+            .group_by("peer_ip", FlowRecord.dst_port)
+            .order_by(desc("bytes")).limit(25)
+        )).all()
+        for ppr in pp_rows:
+            if len(peer_ports[ppr.peer_ip]) < 3:
+                peer_ports[ppr.peer_ip].append({
+                    "port": int(ppr.port),
+                    "service": PORT_SERVICE_MAP.get(int(ppr.port), ""),
+                    "bytes": int(ppr.bytes or 0),
+                })
+
+    total_bytes = bytes_sent + bytes_received
+    top_peers_detailed = []
+    for r in peer_detail_rows:
+        b_total = int(r.bytes_in or 0) + int(r.bytes_out or 0)
+        top_peers_detailed.append({
+            "ip": r.peer_ip,
+            "bytes_in": int(r.bytes_in or 0),
+            "bytes_out": int(r.bytes_out or 0),
+            "bytes_total": b_total,
+            "packets": int(r.packets or 0),
+            "flows": int(r.flows or 0),
+            "pct": round(b_total / total_bytes * 100, 1) if total_bytes > 0 else 0,
+            "protocols": [p for p in (r.protos or "").split(",") if p],
+            "country": peer_country.get(r.peer_ip, ""),
+            "top_ports": peer_ports.get(r.peer_ip, []),
+        })
+
+    # ── 10. Protocol direction breakdown ─────────────────────
+    proto_dir_rows = (await db.execute(
+        select(
+            FlowRecord.protocol_name,
+            func.sum(case(
+                (FlowRecord.src_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_out"),
+            func.sum(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_in"),
+            func.count(case(
+                (FlowRecord.src_ip == ip, FlowRecord.id), else_=None
+            )).label("flows_out"),
+            func.count(case(
+                (FlowRecord.dst_ip == ip, FlowRecord.id), else_=None
+            )).label("flows_in"),
+        ).where(*both_dirs)
+        .group_by(FlowRecord.protocol_name).order_by(desc(func.sum(FlowRecord.bytes)))
+    )).all()
+    protocol_direction = [
+        {"protocol": r.protocol_name or "Unknown",
+         "bytes_in": int(r.bytes_in or 0), "bytes_out": int(r.bytes_out or 0),
+         "flows_in": int(r.flows_in or 0), "flows_out": int(r.flows_out or 0)}
+        for r in proto_dir_rows
+    ]
+
+    # ── 11. Country aggregations ─────────────────────────────
+    countries_in_rows = (await db.execute(
+        select(FlowRecord.src_country.label("country"),
+               func.sum(FlowRecord.bytes).label("bytes"),
+               func.count(FlowRecord.id).label("flows"))
+        .where(*time_filters, FlowRecord.dst_ip == ip, FlowRecord.src_country.isnot(None))
+        .group_by(FlowRecord.src_country).order_by(desc("bytes")).limit(10)
+    )).all()
+    countries_in = [{"country": r.country, "bytes": int(r.bytes or 0), "flows": int(r.flows or 0)} for r in countries_in_rows]
+
+    countries_out_rows = (await db.execute(
+        select(FlowRecord.dst_country.label("country"),
+               func.sum(FlowRecord.bytes).label("bytes"),
+               func.count(FlowRecord.id).label("flows"))
+        .where(*time_filters, FlowRecord.src_ip == ip, FlowRecord.dst_country.isnot(None))
+        .group_by(FlowRecord.dst_country).order_by(desc("bytes")).limit(10)
+    )).all()
+    countries_out = [{"country": r.country, "bytes": int(r.bytes or 0), "flows": int(r.flows or 0)} for r in countries_out_rows]
+
+    # ── 12. Unidirectional detection ─────────────────────────
     unidirectional = (
         (bytes_sent == 0 and bytes_received > 0) or
         (bytes_received == 0 and bytes_sent > 0)
+    )
+
+    # ── 13. Threat scoring ───────────────────────────────────
+    top_peer_pct = top_peers_detailed[0]["pct"] if top_peers_detailed else 0
+    threat = _compute_threat_indicators(
+        unique_src, unique_dst, unique_dst_ports, unique_src_ports,
+        top_peer_pct, bytes_sent, bytes_received,
+        protocols, timeline,
     )
 
     return {
@@ -351,7 +633,7 @@ async def get_ip_profile(
         "flows_as_src": flows_as_src,
         "bytes_received": bytes_received,
         "flows_as_dst": flows_as_dst,
-        "total_bytes": bytes_sent + bytes_received,
+        "total_bytes": total_bytes,
         "total_flows": flows_as_src + flows_as_dst,
         "unidirectional": unidirectional,
         "top_peers": top_peers,
@@ -359,4 +641,17 @@ async def get_ip_profile(
         "top_in": top_in,
         "top_ports": top_ports,
         "protocol_distribution": protocols,
+        # New security fields
+        "unique_src_ips": unique_src,
+        "unique_dst_ips": unique_dst,
+        "unique_dst_ports": unique_dst_ports,
+        "unique_src_ports": unique_src_ports,
+        "top_dst_ports": top_dst_ports,
+        "top_src_ports": top_src_ports,
+        "timeline": timeline,
+        "top_peers_detailed": top_peers_detailed,
+        "protocol_direction": protocol_direction,
+        "countries_in": countries_in,
+        "countries_out": countries_out,
+        "threat": threat,
     }
