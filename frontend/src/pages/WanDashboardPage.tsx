@@ -326,93 +326,6 @@ export default function WanDashboardPage() {
         </div>
       </div>
 
-      {/* Owned Subnets management */}
-      <div className="card">
-        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Network size={15} />
-          <h3 style={{ flex: 1 }}>Owned Subnets</h3>
-          <span className="text-muted text-sm">
-            {ownedSubnets.filter((s) => s.is_active).length} active / {ownedSubnets.length} total
-          </span>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
-            <Plus size={12} /> Add Subnet
-          </button>
-        </div>
-        {showAddForm && (
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: '8px', alignItems: 'end' }}>
-            <div style={{ flex: 1 }}>
-              <label className="form-label">CIDR</label>
-              <input className="form-input" placeholder="e.g. 203.0.113.0/24" value={newSubnet} onChange={(e) => setNewSubnet(e.target.value)} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label className="form-label">Note (optional)</label>
-              <input className="form-input" placeholder="Description" value={newNote} onChange={(e) => setNewNote(e.target.value)} />
-            </div>
-            <button className="btn btn-primary btn-sm" disabled={!newSubnet.trim() || createMutation.isPending}
-              onClick={() => createMutation.mutate({ subnet: newSubnet.trim(), note: newNote.trim() || undefined })}>
-              {createMutation.isPending ? 'Adding...' : 'Add'}
-            </button>
-            <button className="btn btn-outline btn-sm" onClick={() => { setShowAddForm(false); setNewSubnet(''); setNewNote('') }}>
-              <X size={12} />
-            </button>
-          </div>
-        )}
-        <div className="table-wrap">
-          {subnetsLoading ? (
-            <div className="empty-state"><p>Loading subnets...</p></div>
-          ) : ownedSubnets.length === 0 ? (
-            <div className="empty-state"><p>No owned subnets found. Discover routes on your Spine devices first.</p></div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Subnet</th>
-                  <th>Source</th>
-                  <th>Status</th>
-                  <th>Note</th>
-                  <th style={{ width: '60px' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {ownedSubnets.map((s: OwnedSubnet) => (
-                  <tr key={s.subnet} style={{ opacity: s.is_active ? 1 : 0.45 }}>
-                    <td className="mono font-semibold">{s.subnet}</td>
-                    <td>
-                      {s.source === 'learned'
-                        ? <span className="text-muted text-sm">{s.source_devices.join(', ')}</span>
-                        : <span className="tag-blue">Manual</span>
-                      }
-                    </td>
-                    <td>
-                      <button
-                        className={`btn btn-sm ${s.is_active ? 'btn-outline' : 'btn-outline'}`}
-                        style={{
-                          fontSize: '11px', padding: '2px 10px', minWidth: '75px',
-                          color: s.is_active ? 'var(--success-600)' : 'var(--text-muted)',
-                          borderColor: s.is_active ? 'var(--success-400)' : 'var(--border)',
-                        }}
-                        onClick={() => toggleMutation.mutate({ subnet: s.subnet, is_active: !s.is_active })}
-                        disabled={toggleMutation.isPending}
-                      >
-                        {s.is_active ? 'Active' : 'Ignored'}
-                      </button>
-                    </td>
-                    <td className="text-muted text-sm">{s.note || '\u2014'}</td>
-                    <td>
-                      {s.source === 'manual' && s.id && (
-                        <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteMutation.mutate(s.id!) }}>
-                          <Trash2 size={14} color="#ef4444" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
       {/* Throughput graph with 95th percentile */}
       <div className="card">
         <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -484,6 +397,93 @@ export default function WanDashboardPage() {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Owned Subnets management */}
+      <div className="card">
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Network size={15} />
+          <h3 style={{ flex: 1 }}>Owned Subnets</h3>
+          <span className="text-muted text-sm">
+            {ownedSubnets.filter((s) => s.is_active).length} active / {ownedSubnets.length} total
+          </span>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
+            <Plus size={12} /> Add Subnet
+          </button>
+        </div>
+        {showAddForm && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: '8px', alignItems: 'end' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">CIDR</label>
+              <input className="form-input" placeholder="e.g. 203.0.113.0/24" value={newSubnet} onChange={(e) => setNewSubnet(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Note (optional)</label>
+              <input className="form-input" placeholder="Description" value={newNote} onChange={(e) => setNewNote(e.target.value)} />
+            </div>
+            <button className="btn btn-primary btn-sm" disabled={!newSubnet.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate({ subnet: newSubnet.trim(), note: newNote.trim() || undefined })}>
+              {createMutation.isPending ? 'Adding...' : 'Add'}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => { setShowAddForm(false); setNewSubnet(''); setNewNote('') }}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
+        <div className="table-wrap">
+          {subnetsLoading ? (
+            <div className="empty-state"><p>Loading subnets...</p></div>
+          ) : ownedSubnets.length === 0 ? (
+            <div className="empty-state"><p>No owned subnets found. Discover routes on your Spine devices first.</p></div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Subnet</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Note</th>
+                  <th style={{ width: '60px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {ownedSubnets.map((s: OwnedSubnet) => (
+                  <tr key={s.subnet} style={{ opacity: s.is_active ? 1 : 0.45 }}>
+                    <td className="mono font-semibold">{s.subnet}</td>
+                    <td>
+                      {s.source === 'learned'
+                        ? <span className="text-muted text-sm">{s.source_devices.join(', ')}</span>
+                        : <span className="tag-blue">Manual</span>
+                      }
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          fontSize: '11px', padding: '2px 10px', minWidth: '75px',
+                          color: s.is_active ? 'var(--success-600)' : 'var(--text-muted)',
+                          borderColor: s.is_active ? 'var(--success-400)' : 'var(--border)',
+                        }}
+                        onClick={() => toggleMutation.mutate({ subnet: s.subnet, is_active: !s.is_active })}
+                        disabled={toggleMutation.isPending}
+                      >
+                        {s.is_active ? 'Active' : 'Ignored'}
+                      </button>
+                    </td>
+                    <td className="text-muted text-sm">{s.note || '\u2014'}</td>
+                    <td>
+                      {s.source === 'manual' && s.id && (
+                        <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteMutation.mutate(s.id!) }}>
+                          <Trash2 size={14} color="#ef4444" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
