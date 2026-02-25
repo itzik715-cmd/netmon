@@ -122,7 +122,7 @@ export default function Header() {
       <div>
         <nav className="breadcrumb">
           <span className="seg">
-            <Link to="/">CWM</Link>
+            <Link to="/"><img src="/logo-cwm.png" alt="CWM" style={{ height: 24, verticalAlign: 'middle' }} /></Link>
           </span>
 
           {crumbs.map((crumb, idx) => (

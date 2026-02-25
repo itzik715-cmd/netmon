@@ -106,7 +106,7 @@ export default function LoginPage() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-logo">
-            <img src="/logo-cwm.svg" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+            <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
             <h1 className="auth-title">CWM</h1>
             <p className="auth-subtitle">Completing MFA verification...</p>
           </div>
@@ -123,7 +123,7 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <img src="/logo-cwm.svg" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+          <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
           <h1 className="auth-title">CWM</h1>
           <p className="auth-subtitle">Network Monitor</p>
         </div>
