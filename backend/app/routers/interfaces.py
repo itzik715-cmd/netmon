@@ -82,6 +82,32 @@ async def get_wan_interfaces(
         dev_result = await db.execute(select(Device).where(Device.id.in_(device_ids)))
         device_map = {d.id: d.hostname for d in dev_result.scalars().all()}
 
+    # Fetch latest metric per WAN interface for utilization
+    iface_ids = [i.id for i in interfaces]
+    util_map: dict[int, dict] = {}
+    if iface_ids:
+        # Subquery: max timestamp per interface
+        latest_ts = (
+            select(
+                InterfaceMetric.interface_id,
+                sqlfunc.max(InterfaceMetric.timestamp).label("max_ts"),
+            )
+            .where(InterfaceMetric.interface_id.in_(iface_ids))
+            .group_by(InterfaceMetric.interface_id)
+            .subquery()
+        )
+        latest_rows = (await db.execute(
+            select(InterfaceMetric)
+            .join(latest_ts, (InterfaceMetric.interface_id == latest_ts.c.interface_id) & (InterfaceMetric.timestamp == latest_ts.c.max_ts))
+        )).scalars().all()
+        for m in latest_rows:
+            util_map[m.interface_id] = {
+                "utilization_in": m.utilization_in,
+                "utilization_out": m.utilization_out,
+                "in_bps": m.in_bps,
+                "out_bps": m.out_bps,
+            }
+
     return [
         {
             "id": i.id,
@@ -93,6 +119,10 @@ async def get_wan_interfaces(
             "admin_status": i.admin_status,
             "oper_status": i.oper_status,
             "is_wan": i.is_wan,
+            "utilization_in": util_map.get(i.id, {}).get("utilization_in", 0),
+            "utilization_out": util_map.get(i.id, {}).get("utilization_out", 0),
+            "in_bps": util_map.get(i.id, {}).get("in_bps", 0),
+            "out_bps": util_map.get(i.id, {}).get("out_bps", 0),
         }
         for i in interfaces
     ]

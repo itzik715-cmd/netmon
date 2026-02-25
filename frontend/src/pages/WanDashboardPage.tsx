@@ -300,26 +300,60 @@ export default function WanDashboardPage() {
           ) : (
             <table>
                 <thead>
-                  <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Status</th></tr>
+                  <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Utilization</th><th>Status</th></tr>
                 </thead>
                 <tbody>
-                  {wanList.map((w: any) => (
-                    <tr key={w.id}>
-                      <td>
-                        <Link to={`/interfaces/${w.id}`} className="link-primary font-semibold">
-                          {w.name}
-                        </Link>
-                        {w.alias && <span className="text-muted text-sm ml-2">{w.alias}</span>}
-                      </td>
-                      <td>{w.device_hostname || `Device #${w.device_id}`}</td>
-                      <td>{w.speed ? formatBps(w.speed) : '-'}</td>
-                      <td>
-                        <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
-                          {w.oper_status || 'unknown'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {wanList.map((w: any) => {
+                    const utilIn = w.utilization_in ?? 0
+                    const utilOut = w.utilization_out ?? 0
+                    const maxUtil = Math.max(utilIn, utilOut)
+                    const utilColor = maxUtil >= 90 ? '#ef4444' : maxUtil >= 75 ? '#f59e0b' : '#22c55e'
+                    const utilBg = maxUtil >= 90 ? '#fef2f2' : maxUtil >= 75 ? '#fffbeb' : '#f0fdf4'
+                    return (
+                      <tr key={w.id}>
+                        <td>
+                          <Link to={`/interfaces/${w.id}`} className="link-primary font-semibold">
+                            {w.name}
+                          </Link>
+                          {w.alias && <span className="text-muted text-sm ml-2">{w.alias}</span>}
+                        </td>
+                        <td>{w.device_hostname || `Device #${w.device_id}`}</td>
+                        <td>{w.speed ? formatBps(w.speed) : '-'}</td>
+                        <td style={{ minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              flex: 1, height: '18px', background: utilBg,
+                              borderRadius: '4px', overflow: 'hidden', position: 'relative',
+                              border: `1px solid ${utilColor}22`,
+                            }}>
+                              <div style={{
+                                width: `${Math.min(maxUtil, 100)}%`, height: '100%',
+                                background: utilColor, borderRadius: '3px',
+                                transition: 'width 0.3s ease',
+                              }} />
+                              <span style={{
+                                position: 'absolute', top: '50%', left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                fontSize: '10px', fontWeight: 700,
+                                color: maxUtil > 50 ? '#fff' : utilColor,
+                                textShadow: maxUtil > 50 ? '0 0 2px rgba(0,0,0,0.3)' : 'none',
+                              }}>
+                                {maxUtil.toFixed(1)}%
+                              </span>
+                            </div>
+                            <span className="mono text-muted" style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                              {w.in_bps ? formatBps(w.in_bps) : ''}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
+                            {w.oper_status || 'unknown'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
           )}
