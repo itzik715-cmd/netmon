@@ -337,19 +337,13 @@ async def get_ip_profile(
     bytes_received = int(recv_row[0] or 0)
     flows_as_dst = int(recv_row[1] or 0)
 
-    # sFlow/NetFlow often captures only one direction (ingress sampling).
-    # When traffic exists in only one direction, mirror peers to the other
-    # so the user sees a complete communication profile.
-    if bytes_sent == 0 and bytes_received > 0 and top_in and not top_out:
-        # We have inbound only — use inbound peers as outbound destinations
-        top_out = top_in
-        bytes_sent = bytes_received
-        flows_as_src = flows_as_dst
-    elif bytes_received == 0 and bytes_sent > 0 and top_out and not top_in:
-        # We have outbound only — use outbound peers as inbound sources
-        top_in = top_out
-        bytes_received = bytes_sent
-        flows_as_dst = flows_as_src
+    # Detect unidirectional flow capture (common with sFlow ingress sampling).
+    # When data exists in only one direction, flag it so the frontend can
+    # display a single combined view instead of misleading sent/received split.
+    unidirectional = (
+        (bytes_sent == 0 and bytes_received > 0) or
+        (bytes_received == 0 and bytes_sent > 0)
+    )
 
     return {
         "ip": ip,
@@ -357,6 +351,9 @@ async def get_ip_profile(
         "flows_as_src": flows_as_src,
         "bytes_received": bytes_received,
         "flows_as_dst": flows_as_dst,
+        "total_bytes": bytes_sent + bytes_received,
+        "total_flows": flows_as_src + flows_as_dst,
+        "unidirectional": unidirectional,
         "top_peers": top_peers,
         "top_out": top_out,
         "top_in": top_in,

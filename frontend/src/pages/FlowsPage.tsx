@@ -397,11 +397,12 @@ function IpProfile({
 
   const topOut: { ip: string; bytes: number }[] = profile.top_out || []
   const topIn:  { ip: string; bytes: number }[] = profile.top_in  || []
-  const totalFlows = profile.flows_as_src + profile.flows_as_dst
-  const totalBytes = profile.bytes_sent + profile.bytes_received
-  const isAsymmetric = profile.bytes_received > 0 && profile.bytes_sent > 0
-    ? Math.max(profile.bytes_received, profile.bytes_sent) / Math.min(profile.bytes_received, profile.bytes_sent) > 10
-    : (profile.bytes_received > 0 && profile.bytes_sent === 0) || (profile.bytes_sent > 0 && profile.bytes_received === 0)
+  const totalFlows = profile.total_flows ?? (profile.flows_as_src + profile.flows_as_dst)
+  const totalBytes = profile.total_bytes ?? (profile.bytes_sent + profile.bytes_received)
+  const isUnidirectional = profile.unidirectional
+  // For unidirectional data, use whichever peers we have
+  const uniPeers = topIn.length > 0 ? topIn : topOut
+  const uniBytes = Math.max(profile.bytes_sent, profile.bytes_received)
 
   return (
     <div className="ip-profile">
@@ -442,69 +443,109 @@ function IpProfile({
 
         {/* Stat mini-cards */}
         <div className="ip-profile__stats">
-          {/* Sent */}
-          <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.bytes_sent === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-              <ArrowUpRight size={14} /> SENT
-            </div>
-            <div className="ip-profile__stat-value">{formatBytes(profile.bytes_sent)}</div>
-            {isAsymmetric && profile.bytes_sent === 0 && (
-              <div className="ip-profile__asymmetric-badge">
-                <AlertTriangle size={10} /> Asymmetric
+          {isUnidirectional ? (
+            <>
+              {/* Total Traffic */}
+              <div className="ip-profile__stat-card ip-profile__stat-card--blue">
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+                  <Activity size={14} /> TOTAL TRAFFIC
+                </div>
+                <div className="ip-profile__stat-value">{formatBytes(totalBytes)}</div>
               </div>
-            )}
-          </div>
-          {/* Received */}
-          <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.bytes_received === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-            <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
-              <ArrowDownLeft size={14} /> RECEIVED
-            </div>
-            <div className="ip-profile__stat-value">{formatBytes(profile.bytes_received)}</div>
-          </div>
-          {/* As Source */}
-          <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.flows_as_src === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-            <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
-              <ArrowUpRight size={14} /> AS SOURCE
-            </div>
-            <div className="ip-profile__stat-value">{profile.flows_as_src.toLocaleString()}</div>
-          </div>
-          {/* As Dest */}
-          <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.flows_as_dst === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
-            <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
-              <ArrowDownLeft size={14} /> AS DEST
-            </div>
-            <div className="ip-profile__stat-value">{profile.flows_as_dst.toLocaleString()}</div>
-          </div>
+              {/* Total Flows */}
+              <div className="ip-profile__stat-card ip-profile__stat-card--green">
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
+                  <Activity size={14} /> TOTAL FLOWS
+                </div>
+                <div className="ip-profile__stat-value">{totalFlows.toLocaleString()}</div>
+              </div>
+              {/* Top Peers count */}
+              <div className="ip-profile__stat-card ip-profile__stat-card--blue">
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+                  <Globe size={14} /> UNIQUE PEERS
+                </div>
+                <div className="ip-profile__stat-value">{profile.top_peers?.length ?? 0}</div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Sent */}
+              <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.bytes_sent === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+                  <ArrowUpRight size={14} /> SENT
+                </div>
+                <div className="ip-profile__stat-value">{formatBytes(profile.bytes_sent)}</div>
+              </div>
+              {/* Received */}
+              <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.bytes_received === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
+                  <ArrowDownLeft size={14} /> RECEIVED
+                </div>
+                <div className="ip-profile__stat-value">{formatBytes(profile.bytes_received)}</div>
+              </div>
+              {/* As Source */}
+              <div className={`ip-profile__stat-card ip-profile__stat-card--blue${profile.flows_as_src === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--blue">
+                  <ArrowUpRight size={14} /> AS SOURCE
+                </div>
+                <div className="ip-profile__stat-value">{profile.flows_as_src.toLocaleString()}</div>
+              </div>
+              {/* As Dest */}
+              <div className={`ip-profile__stat-card ip-profile__stat-card--green${profile.flows_as_dst === 0 ? ' ip-profile__stat-card--dimmed' : ''}`}>
+                <div className="ip-profile__stat-icon ip-profile__stat-icon--green">
+                  <ArrowDownLeft size={14} /> AS DEST
+                </div>
+                <div className="ip-profile__stat-value">{profile.flows_as_dst.toLocaleString()}</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* SECTION 2: Traffic Direction Cards */}
-      <div className="grid-2">
-        <TrafficDirectionCard
-          title="Outbound Traffic (Destinations)"
-          icon={<ArrowUpRight size={15} className="flow-direction-icon--out" />}
-          emptyLabel="No outbound traffic"
-          emptyDesc="This IP has not sent any data in the selected time window"
-          colors={COLORS_OUT}
-          totalBytes={profile.bytes_sent}
-          peers={topOut}
-          selectedPeer={selectedPeer}
-          onSelectPeer={onSelectPeer}
-          onNavigateIp={onNavigateIp}
-        />
-        <TrafficDirectionCard
-          title="Inbound Traffic (Sources)"
-          icon={<ArrowDownLeft size={15} className="flow-direction-icon--in" />}
-          emptyLabel="No inbound traffic"
-          emptyDesc="This IP has not received any data in the selected time window"
-          colors={COLORS_IN}
-          totalBytes={profile.bytes_received}
-          peers={topIn}
-          selectedPeer={selectedPeer}
-          onSelectPeer={onSelectPeer}
-          onNavigateIp={onNavigateIp}
-        />
-      </div>
+      {isUnidirectional ? (
+        <div className="grid-1">
+          <TrafficDirectionCard
+            title="Top Peers (by total traffic)"
+            icon={<Activity size={15} />}
+            emptyLabel="No traffic"
+            emptyDesc="No flow data in the selected time window"
+            colors={COLORS_IN}
+            totalBytes={uniBytes}
+            peers={uniPeers}
+            selectedPeer={selectedPeer}
+            onSelectPeer={onSelectPeer}
+            onNavigateIp={onNavigateIp}
+          />
+        </div>
+      ) : (
+        <div className="grid-2">
+          <TrafficDirectionCard
+            title="Outbound Traffic (Destinations)"
+            icon={<ArrowUpRight size={15} className="flow-direction-icon--out" />}
+            emptyLabel="No outbound traffic"
+            emptyDesc="This IP has not sent any data in the selected time window"
+            colors={COLORS_OUT}
+            totalBytes={profile.bytes_sent}
+            peers={topOut}
+            selectedPeer={selectedPeer}
+            onSelectPeer={onSelectPeer}
+            onNavigateIp={onNavigateIp}
+          />
+          <TrafficDirectionCard
+            title="Inbound Traffic (Sources)"
+            icon={<ArrowDownLeft size={15} className="flow-direction-icon--in" />}
+            emptyLabel="No inbound traffic"
+            emptyDesc="This IP has not received any data in the selected time window"
+            colors={COLORS_IN}
+            totalBytes={profile.bytes_received}
+            peers={topIn}
+            selectedPeer={selectedPeer}
+            onSelectPeer={onSelectPeer}
+            onNavigateIp={onNavigateIp}
+          />
+        </div>
+      )}
 
       {/* SECTION 3: Protocol & Port Analysis */}
       <div className="grid-2">
@@ -580,8 +621,10 @@ function IpProfile({
         </div>
       </div>
 
-      {/* SECTION 4: Traffic Balance */}
-      <TrafficBalance sent={profile.bytes_sent} received={profile.bytes_received} />
+      {/* SECTION 4: Traffic Balance (only when bidirectional data available) */}
+      {!isUnidirectional && (
+        <TrafficBalance sent={profile.bytes_sent} received={profile.bytes_received} />
+      )}
 
       {/* No flows state */}
       {totalFlows === 0 && (
