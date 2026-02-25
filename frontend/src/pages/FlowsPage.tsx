@@ -363,7 +363,6 @@ function TrafficBalance({ sent, received }: { sent: number; received: number }) 
 // -- IP Profile card -----------------------------------------------------------
 function IpProfile({
   ip, timeRangeParams, selectedPeer, onSelectPeer, onClear, onNavigateIp,
-  displayedConversations,
 }: {
   ip: string
   timeRangeParams: Record<string, string | number>
@@ -371,7 +370,6 @@ function IpProfile({
   onSelectPeer: (peer: string) => void
   onClear: () => void
   onNavigateIp: (ip: string) => void
-  displayedConversations: any[]
 }) {
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ip-profile', ip, timeRangeParams],
@@ -379,20 +377,13 @@ function IpProfile({
     enabled: !!ip,
   })
 
-  // Top Ports from conversations
+  // Top Ports from ip-profile API response
   const topPorts = useMemo(() => {
-    if (!displayedConversations || displayedConversations.length === 0) return []
-    const portMap: Record<number, number> = {}
-    for (const c of displayedConversations) {
-      if (c.dst_port != null) {
-        portMap[c.dst_port] = (portMap[c.dst_port] || 0) + (c.bytes || 0)
-      }
-    }
-    return Object.entries(portMap)
-      .map(([port, bytes]) => ({ port: Number(port), bytes, name: portName(Number(port)) }))
-      .sort((a, b) => b.bytes - a.bytes)
-      .slice(0, 8)
-  }, [displayedConversations])
+    if (!profile?.top_ports) return []
+    return profile.top_ports.map((p: any) => ({
+      port: p.port, bytes: p.bytes, name: portName(p.port),
+    }))
+  }, [profile])
 
   if (isLoading) {
     return (
@@ -677,11 +668,15 @@ export default function FlowsPage() {
     refetchInterval: 60_000,
   })
 
-  // When a peer is selected, filter conversations client-side
+  // When IP is searched, conversations are aggregated by peer.
+  // When a peer is selected from the traffic cards, filter to that peer.
+  const isAggregated = searchIp && conversations?.[0]?.aggregated
   const displayedConversations = selectedPeer
     ? (conversations || []).filter((f: any) =>
-        (f.src_ip === searchIp && f.dst_ip === selectedPeer) ||
-        (f.src_ip === selectedPeer && f.dst_ip === searchIp)
+        isAggregated
+          ? f.peer_ip === selectedPeer
+          : (f.src_ip === searchIp && f.dst_ip === selectedPeer) ||
+            (f.src_ip === selectedPeer && f.dst_ip === searchIp)
       )
     : (conversations || [])
 
@@ -760,7 +755,6 @@ export default function FlowsPage() {
           onSelectPeer={setSelectedPeer}
           onClear={() => { setSearchIp(''); setSelectedPeer('') }}
           onNavigateIp={handleSearchChange}
-          displayedConversations={displayedConversations}
         />
       )}
 
@@ -921,13 +915,13 @@ export default function FlowsPage() {
                     <span className="mono text-success">{selectedPeer}</span>
                   </>
                 ) : searchIp ? (
-                  <>Flows involving <span className="mono link-primary">{searchIp}</span></>
+                  <>Top Conversations with <span className="mono link-primary">{searchIp}</span></>
                 ) : (
                   'Top Conversations'
                 )}
               </h3>
               <span className="card-header__sub">
-                Showing {displayedConversations.length}{conversations ? ` of ${conversations.length}` : ''} flows
+                Showing {displayedConversations.length}{conversations ? ` of ${conversations.length}` : ''} {isAggregated ? 'peers' : 'flows'}
               </span>
               {selectedPeer && (
                 <button
@@ -954,84 +948,119 @@ export default function FlowsPage() {
               <table className="flow-table">
                 <thead>
                   <tr>
-                    {searchIp && <th className="flow-dir-col"></th>}
-                    <th>Source IP</th>
-                    <th></th>
-                    <th>Port / Service</th>
-                    <th></th>
-                    <th>Destination IP</th>
-                    <th>Protocol</th>
-                    <th>Bytes</th>
-                    <th>Packets</th>
-                    <th>Time</th>
+                    {isAggregated ? (
+                      <>
+                        <th>#</th>
+                        <th>Peer IP</th>
+                        <th>Total Bytes</th>
+                        <th>Packets</th>
+                        <th>Flows</th>
+                      </>
+                    ) : (
+                      <>
+                        {searchIp && <th className="flow-dir-col"></th>}
+                        <th>Source IP</th>
+                        <th></th>
+                        <th>Port / Service</th>
+                        <th></th>
+                        <th>Destination IP</th>
+                        <th>Protocol</th>
+                        <th>Bytes</th>
+                        <th>Packets</th>
+                        <th>Time</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedConversations.map((flow: any) => {
-                    const isOutgoing = flow.src_ip === searchIp
-                    const bytesPct = Math.round(((flow.bytes || 0) / maxBytesInView) * 100)
-                    return (
-                      <tr key={flow.id}>
-                        {searchIp && (
-                          <td title={isOutgoing ? 'Outgoing' : 'Incoming'} className="text-center">
-                            {isOutgoing
-                              ? <ArrowUpRight size={14} className="flow-direction-icon flow-direction-icon--out" />
-                              : <ArrowDownLeft size={14} className="flow-direction-icon flow-direction-icon--in" />
+                  {isAggregated ? (
+                    displayedConversations.map((flow: any, idx: number) => {
+                      const bytesPct = Math.round(((flow.bytes || 0) / maxBytesInView) * 100)
+                      return (
+                        <tr key={flow.peer_ip}>
+                          <td className="text-muted text-sm">{idx + 1}</td>
+                          <td>
+                            <button className="flow-ip-link" title="Click to investigate this IP"
+                              onClick={() => handleSearchChange(flow.peer_ip)}>
+                              {flow.peer_ip}
+                            </button>
+                          </td>
+                          <td className="mono text-sm">
+                            {formatBytes(flow.bytes)}
+                            <div className="flow-bytes-bar" style={{ width: `${bytesPct}%` }} />
+                          </td>
+                          <td className="text-muted">{flow.packets?.toLocaleString()}</td>
+                          <td className="text-muted">{flow.flow_count?.toLocaleString()}</td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    displayedConversations.map((flow: any) => {
+                      const isOutgoing = flow.src_ip === searchIp
+                      const bytesPct = Math.round(((flow.bytes || 0) / maxBytesInView) * 100)
+                      return (
+                        <tr key={flow.id}>
+                          {searchIp && (
+                            <td title={isOutgoing ? 'Outgoing' : 'Incoming'} className="text-center">
+                              {isOutgoing
+                                ? <ArrowUpRight size={14} className="flow-direction-icon flow-direction-icon--out" />
+                                : <ArrowDownLeft size={14} className="flow-direction-icon flow-direction-icon--in" />
+                              }
+                            </td>
+                          )}
+                          <td>
+                            {flow.src_ip === searchIp
+                              ? <span className="mono text-sm font-semibold link-primary">{flow.src_ip}</span>
+                              : (
+                                <button className="flow-ip-link" title="Click to investigate this IP"
+                                  onClick={() => handleSearchChange(flow.src_ip)}>
+                                  {flow.src_ip}
+                                </button>
+                              )
                             }
                           </td>
-                        )}
-                        <td>
-                          {flow.src_ip === searchIp
-                            ? <span className="mono text-sm font-semibold link-primary">{flow.src_ip}</span>
-                            : (
-                              <button className="flow-ip-link" title="Click to investigate this IP"
-                                onClick={() => handleSearchChange(flow.src_ip)}>
-                                {flow.src_ip}
-                              </button>
-                            )
-                          }
-                        </td>
-                        <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
-                          <ArrowRight size={14} />
-                        </td>
-                        <td className="mono text-sm text-center">
-                          {flow.dst_port != null ? (
-                            <>
-                              <span className="font-semibold">{flow.dst_port}</span>
-                              {' '}
-                              <span className="text-muted">[{PORT_NAMES[flow.dst_port] || flow.application || 'Unknown'}]</span>
-                            </>
-                          ) : '\u2014'}
-                        </td>
-                        <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
-                          <ArrowRight size={14} />
-                        </td>
-                        <td>
-                          {flow.dst_ip === searchIp
-                            ? <span className="mono text-sm font-semibold text-success">{flow.dst_ip}</span>
-                            : (
-                              <button className="flow-ip-link" title="Click to investigate this IP"
-                                onClick={() => handleSearchChange(flow.dst_ip)}>
-                                {flow.dst_ip}
-                              </button>
-                            )
-                          }
-                        </td>
-                        <td><span className="tag-blue">{flow.protocol}</span></td>
-                        <td className="mono text-sm">
-                          {formatBytes(flow.bytes)}
-                          <div className="flow-bytes-bar" style={{ width: `${bytesPct}%` }} />
-                        </td>
-                        <td className="text-muted">{flow.packets?.toLocaleString()}</td>
-                        <td className="text-xs text-light">
-                          {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '\u2014'}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                          <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
+                            <ArrowRight size={14} />
+                          </td>
+                          <td className="mono text-sm text-center">
+                            {flow.dst_port != null ? (
+                              <>
+                                <span className="font-semibold">{flow.dst_port}</span>
+                                {' '}
+                                <span className="text-muted">[{PORT_NAMES[flow.dst_port] || flow.application || 'Unknown'}]</span>
+                              </>
+                            ) : '\u2014'}
+                          </td>
+                          <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
+                            <ArrowRight size={14} />
+                          </td>
+                          <td>
+                            {flow.dst_ip === searchIp
+                              ? <span className="mono text-sm font-semibold text-success">{flow.dst_ip}</span>
+                              : (
+                                <button className="flow-ip-link" title="Click to investigate this IP"
+                                  onClick={() => handleSearchChange(flow.dst_ip)}>
+                                  {flow.dst_ip}
+                                </button>
+                              )
+                            }
+                          </td>
+                          <td><span className="tag-blue">{flow.protocol}</span></td>
+                          <td className="mono text-sm">
+                            {formatBytes(flow.bytes)}
+                            <div className="flow-bytes-bar" style={{ width: `${bytesPct}%` }} />
+                          </td>
+                          <td className="text-muted">{flow.packets?.toLocaleString()}</td>
+                          <td className="text-xs text-light">
+                            {flow.timestamp ? new Date(flow.timestamp).toLocaleTimeString() : '\u2014'}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                   {displayedConversations.length === 0 && (
                     <tr>
-                      <td colSpan={searchIp ? 9 : 8} className="empty-table-cell">
+                      <td colSpan={isAggregated ? 5 : (searchIp ? 9 : 8)} className="empty-table-cell">
                         {selectedPeer
                           ? `No flows between ${searchIp} and ${selectedPeer}`
                           : searchIp

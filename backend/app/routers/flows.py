@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc, or_, case
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
@@ -180,13 +180,51 @@ async def get_conversations(
     _: User = Depends(get_current_user),
 ):
     time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
-    query = select(FlowRecord).where(*time_filters)
+    device_filters = list(_device_filter(device_ids, device_id))
 
-    for clause in _device_filter(device_ids, device_id):
-        query = query.where(clause)
+    # When filtering by a specific IP, return aggregated top conversations
+    # grouped by peer IP with total bytes, instead of raw individual flows.
     if ip:
-        query = query.where(or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
-    elif src_ip:
+        peer_ip = case(
+            (FlowRecord.src_ip == ip, FlowRecord.dst_ip),
+            else_=FlowRecord.src_ip,
+        ).label("peer_ip")
+        query = (
+            select(
+                peer_ip,
+                func.sum(FlowRecord.bytes).label("bytes"),
+                func.sum(FlowRecord.packets).label("packets"),
+                func.count(FlowRecord.id).label("flow_count"),
+            )
+            .where(
+                *time_filters,
+                *device_filters,
+                or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip),
+            )
+            .group_by("peer_ip")
+            .order_by(desc("bytes"))
+            .limit(limit)
+        )
+        if protocol:
+            query = query.where(FlowRecord.protocol_name == protocol.upper())
+        result = await db.execute(query)
+        rows = result.all()
+        return [
+            {
+                "peer_ip": r.peer_ip,
+                "bytes": int(r.bytes or 0),
+                "packets": int(r.packets or 0),
+                "flow_count": int(r.flow_count or 0),
+                "aggregated": True,
+            }
+            for r in rows
+        ]
+
+    # No IP filter — return raw individual flow records
+    query = select(FlowRecord).where(*time_filters)
+    for clause in device_filters:
+        query = query.where(clause)
+    if src_ip:
         query = query.where(FlowRecord.src_ip == src_ip)
     elif dst_ip:
         query = query.where(FlowRecord.dst_ip == dst_ip)
@@ -279,6 +317,18 @@ async def get_ip_profile(
         for r in proto_rows
     ]
 
+    # Top ports for this IP (used by frontend Top Ports chart)
+    port_rows = (await db.execute(
+        select(FlowRecord.dst_port.label("port"),
+               func.sum(FlowRecord.bytes).label("bytes"))
+        .where(*time_filters, or_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == ip))
+        .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+        .group_by(FlowRecord.dst_port)
+        .order_by(desc("bytes"))
+        .limit(8)
+    )).all()
+    top_ports = [{"port": int(r.port), "bytes": int(r.bytes or 0)} for r in port_rows]
+
     top_out = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_src]
     top_in  = [{"ip": r.peer, "bytes": int(r.bytes or 0)} for r in as_dst]
 
@@ -310,5 +360,6 @@ async def get_ip_profile(
         "top_peers": top_peers,
         "top_out": top_out,
         "top_in": top_in,
+        "top_ports": top_ports,
         "protocol_distribution": protocols,
     }
