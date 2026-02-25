@@ -415,6 +415,10 @@ function PeerDetailView({
   }
   if (!data) return null
 
+  // Use the backend-corrected IPs (owned IP is always data.ip)
+  const localIp: string = data.ip || ip
+  const remoteIp: string = data.peer || peer
+
   const totalBytes = data.total_bytes || 0
   const sentPct = totalBytes > 0 ? (data.bytes_from_ip / totalBytes) * 100 : 50
   const rcvdPct = totalBytes > 0 ? (data.bytes_from_peer / totalBytes) * 100 : 50
@@ -427,10 +431,10 @@ function PeerDetailView({
   const timelineData = timeline.map((t: any) => {
     const d = new Date(t.timestamp)
     const label = isNaN(d.getTime()) ? t.timestamp : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-    return { time: label, [`From ${peer.split('.').slice(-2).join('.')}`]: t.bytes_from_peer, [`From ${ip.split('.').slice(-2).join('.')}`]: t.bytes_from_ip, flows: t.flows }
+    return { time: label, Inbound: t.bytes_from_peer, Outbound: t.bytes_from_ip, flows: t.flows }
   })
 
-  const peerLabel = peer + (data.peer_country ? ` (${data.peer_country})` : '')
+  const peerLabel = remoteIp + (data.peer_country ? ` (${data.peer_country})` : '')
 
   return (
     <div className="ip-profile">
@@ -443,9 +447,9 @@ function PeerDetailView({
               Conversation Detail
             </div>
             <div className="ip-profile__identity-row" style={{ gap: '8px', flexWrap: 'wrap' }}>
-              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(ip)}>{ip}</button>
+              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(localIp)}>{localIp}</button>
               <ArrowRight size={16} style={{ color: 'var(--neutral-400)' }} />
-              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(peer)}>{peerLabel}</button>
+              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(remoteIp)}>{peerLabel}</button>
             </div>
             <div className="ip-profile__summary" style={{ marginTop: '4px' }}>
               {data.total_flows?.toLocaleString()} flows &middot; {formatBytes(totalBytes)} &middot; {data.total_packets?.toLocaleString()} packets
@@ -464,17 +468,17 @@ function PeerDetailView({
         <div className="stat-card">
           <div className="stat-icon blue"><ArrowUpRight size={20} /></div>
           <div className="stat-body">
-            <div className="stat-label">From {ip.split('.').slice(-2).join('.')}</div>
+            <div className="stat-label">Outbound</div>
             <div className="stat-value">{formatBytes(data.bytes_from_ip)}</div>
-            <div className="stat-sub">{data.flows_from_ip?.toLocaleString()} flows</div>
+            <div className="stat-sub">{data.flows_from_ip?.toLocaleString()} flows &middot; {localIp.split('.').slice(-2).join('.')} → {remoteIp.split('.').slice(-2).join('.')}</div>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon green"><ArrowDownLeft size={20} /></div>
           <div className="stat-body">
-            <div className="stat-label">From {peer.split('.').slice(-2).join('.')}</div>
+            <div className="stat-label">Inbound</div>
             <div className="stat-value">{formatBytes(data.bytes_from_peer)}</div>
-            <div className="stat-sub">{data.flows_from_peer?.toLocaleString()} flows</div>
+            <div className="stat-sub">{data.flows_from_peer?.toLocaleString()} flows &middot; {remoteIp.split('.').slice(-2).join('.')} → {localIp.split('.').slice(-2).join('.')}</div>
           </div>
         </div>
         <div className="stat-card">
@@ -503,8 +507,8 @@ function PeerDetailView({
               <div className="traffic-balance__bar-received" style={{ width: `${totalBytes > 0 ? Math.max(rcvdPct, 0.5) : 50}%` }} />
             </div>
             <div className="traffic-balance__labels">
-              <span>{formatBytes(data.bytes_from_ip)} from {ip.split('.').slice(-2).join('.')}</span>
-              <span>{formatBytes(data.bytes_from_peer)} from {peer.split('.').slice(-2).join('.')}</span>
+              <span>{formatBytes(data.bytes_from_ip)} outbound</span>
+              <span>{formatBytes(data.bytes_from_peer)} inbound</span>
             </div>
             <div className="traffic-balance__pct">
               {sentPct.toFixed(1)}% &mdash; {rcvdPct.toFixed(1)}%
@@ -534,8 +538,8 @@ function PeerDetailView({
                 <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
                 <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
-                <Area type="monotone" dataKey={`From ${peer.split('.').slice(-2).join('.')}`} stroke="#22c55e" fill="url(#gradPeerIn)" strokeWidth={2} />
-                <Area type="monotone" dataKey={`From ${ip.split('.').slice(-2).join('.')}`} stroke="#0284c7" fill="url(#gradPeerOut)" strokeWidth={2} />
+                <Area type="monotone" dataKey="Inbound" stroke="#22c55e" fill="url(#gradPeerIn)" strokeWidth={2} />
+                <Area type="monotone" dataKey="Outbound" stroke="#0284c7" fill="url(#gradPeerOut)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -647,18 +651,18 @@ function PeerDetailView({
             </thead>
             <tbody>
               {recentFlows.map((f: any) => {
-                const isFromIp = f.src_ip === ip
+                const isOutbound = f.src_ip === localIp
                 const maxFlowBytes = recentFlows[0]?.bytes || 1
                 const barPct = Math.round((f.bytes / maxFlowBytes) * 100)
                 return (
                   <tr key={f.id}>
-                    <td className="text-center" title={isFromIp ? `From ${ip}` : `From ${peer}`}>
-                      {isFromIp
+                    <td className="text-center" title={isOutbound ? 'Outbound' : 'Inbound'}>
+                      {isOutbound
                         ? <ArrowUpRight size={14} className="flow-direction-icon flow-direction-icon--out" />
                         : <ArrowDownLeft size={14} className="flow-direction-icon flow-direction-icon--in" />}
                     </td>
                     <td>
-                      <span className={`mono text-sm ${isFromIp ? 'font-semibold link-primary' : ''}`}>
+                      <span className={`mono text-sm ${isOutbound ? 'font-semibold link-primary' : ''}`}>
                         {f.src_ip}
                       </span>
                     </td>
@@ -673,7 +677,7 @@ function PeerDetailView({
                       <ArrowRight size={14} />
                     </td>
                     <td>
-                      <span className={`mono text-sm ${!isFromIp ? 'font-semibold text-success' : ''}`}>
+                      <span className={`mono text-sm ${!isOutbound ? 'font-semibold text-success' : ''}`}>
                         {f.dst_ip}
                       </span>
                     </td>

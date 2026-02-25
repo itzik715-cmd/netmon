@@ -772,6 +772,13 @@ async def get_peer_detail(
     _: User = Depends(get_current_user),
 ):
     """Return detailed conversation analysis between two IPs."""
+    # Ensure the owned/local IP is always 'ip' (primary perspective)
+    owned_nets = await _load_owned_subnets(db)
+    ip_owned = _is_owned(ip, owned_nets)
+    peer_owned = _is_owned(peer, owned_nets)
+    if peer_owned and not ip_owned:
+        ip, peer = peer, ip
+
     # Cache check
     use_summary = _should_use_summary(hours, start, end)
     cp = f"peer_detail:{ip}:{peer}:{hours}:{start}:{end}"
