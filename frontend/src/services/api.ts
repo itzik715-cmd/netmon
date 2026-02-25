@@ -127,6 +127,8 @@ export const flowsApi = {
   createOwnedSubnet: (data: { subnet: string; note?: string }) => api.post('/flows/owned-subnets', data),
   toggleOwnedSubnet: (data: { subnet: string; is_active: boolean }) => api.post('/flows/owned-subnets/toggle', data),
   deleteOwnedSubnet: (id: number) => api.delete(`/flows/owned-subnets/${id}`),
+  peerDetail: (ip: string, peer: string, params?: object) =>
+    api.get('/flows/peer-detail', { params: { ip, peer, ...params } }),
 }
 
 // Users

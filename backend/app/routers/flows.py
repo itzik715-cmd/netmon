@@ -722,6 +722,213 @@ async def get_conversations(
     ]
 
 
+@router.get("/peer-detail")
+async def get_peer_detail(
+    ip: str,
+    peer: str,
+    hours: int = 1,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return detailed conversation analysis between two IPs."""
+    time_filters = _time_filter(FlowRecord.timestamp, hours, start, end)
+    pair_filter = [
+        *time_filters,
+        or_(
+            and_(FlowRecord.src_ip == ip, FlowRecord.dst_ip == peer),
+            and_(FlowRecord.src_ip == peer, FlowRecord.dst_ip == ip),
+        ),
+    ]
+
+    # ── 1. Direction totals ──
+    dir_row = (await db.execute(
+        select(
+            func.sum(case(
+                (FlowRecord.src_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_from_ip"),
+            func.sum(case(
+                (FlowRecord.src_ip == peer, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_from_peer"),
+            func.count(case(
+                (FlowRecord.src_ip == ip, FlowRecord.id), else_=None
+            )).label("flows_from_ip"),
+            func.count(case(
+                (FlowRecord.src_ip == peer, FlowRecord.id), else_=None
+            )).label("flows_from_peer"),
+            func.sum(FlowRecord.packets).label("total_packets"),
+        ).where(*pair_filter)
+    )).first()
+
+    bytes_from_ip = int(dir_row.bytes_from_ip or 0)
+    bytes_from_peer = int(dir_row.bytes_from_peer or 0)
+    flows_from_ip = int(dir_row.flows_from_ip or 0)
+    flows_from_peer = int(dir_row.flows_from_peer or 0)
+    total_bytes = bytes_from_ip + bytes_from_peer
+    total_flows = flows_from_ip + flows_from_peer
+
+    # ── 2. Services between them ──
+    # src_port when peer→ip (service the peer provides, accessed by ip = outbound from ip's perspective)
+    svc_out_rows = (await db.execute(
+        select(
+            FlowRecord.src_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*time_filters, FlowRecord.src_ip == peer, FlowRecord.dst_ip == ip)
+        .where(FlowRecord.src_port.isnot(None), FlowRecord.src_port > 0)
+        .group_by(FlowRecord.src_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(10)
+    )).all()
+    services_outbound = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0), "flows": int(r.flows or 0),
+         "direction": "outbound"}
+        for r in svc_out_rows
+    ]
+
+    # dst_port when peer→ip (service on ip's side = inbound to ip)
+    svc_in_rows = (await db.execute(
+        select(
+            FlowRecord.dst_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*time_filters, FlowRecord.src_ip == peer, FlowRecord.dst_ip == ip)
+        .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+        .group_by(FlowRecord.dst_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(10)
+    )).all()
+    services_inbound = [
+        {"port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+         "protocol": r.proto or "", "bytes": int(r.bytes or 0), "flows": int(r.flows or 0),
+         "direction": "inbound"}
+        for r in svc_in_rows
+    ]
+
+    # Also check reverse direction (ip→peer)
+    svc_rev_rows = (await db.execute(
+        select(
+            FlowRecord.dst_port.label("port"),
+            FlowRecord.protocol_name.label("proto"),
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*time_filters, FlowRecord.src_ip == ip, FlowRecord.dst_ip == peer)
+        .where(FlowRecord.dst_port.isnot(None), FlowRecord.dst_port > 0)
+        .group_by(FlowRecord.dst_port, FlowRecord.protocol_name)
+        .order_by(desc("bytes")).limit(10)
+    )).all()
+    for r in svc_rev_rows:
+        services_outbound.append({
+            "port": int(r.port), "service": PORT_SERVICE_MAP.get(int(r.port), f"port/{r.port}"),
+            "protocol": r.proto or "", "bytes": int(r.bytes or 0), "flows": int(r.flows or 0),
+            "direction": "outbound",
+        })
+
+    # Deduplicate and merge services
+    svc_merged: dict[str, dict] = {}
+    for s in services_outbound + services_inbound:
+        key = f"{s['port']}-{s['protocol']}-{s['direction']}"
+        if key in svc_merged:
+            svc_merged[key]["bytes"] += s["bytes"]
+            svc_merged[key]["flows"] += s["flows"]
+        else:
+            svc_merged[key] = dict(s)
+    services = sorted(svc_merged.values(), key=lambda x: -x["bytes"])[:12]
+
+    # ── 3. Timeline between them ──
+    if hours <= 6:
+        bucket_seconds = 300
+    elif hours <= 24:
+        bucket_seconds = 900
+    else:
+        bucket_seconds = 3600
+
+    epoch = extract("epoch", FlowRecord.timestamp)
+    bucket_ts = func.to_timestamp(func.floor(epoch / bucket_seconds) * bucket_seconds).label("bucket")
+
+    tl_rows = (await db.execute(
+        select(
+            bucket_ts,
+            func.sum(case(
+                (FlowRecord.src_ip == peer, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_from_peer"),
+            func.sum(case(
+                (FlowRecord.src_ip == ip, FlowRecord.bytes), else_=literal_column("0")
+            )).label("bytes_from_ip"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*pair_filter)
+        .group_by("bucket").order_by("bucket")
+    )).all()
+    timeline = [
+        {"timestamp": r.bucket.isoformat() if hasattr(r.bucket, "isoformat") else str(r.bucket),
+         "bytes_from_peer": int(r.bytes_from_peer or 0),
+         "bytes_from_ip": int(r.bytes_from_ip or 0),
+         "flows": int(r.flows or 0)}
+        for r in tl_rows
+    ]
+
+    # ── 4. Protocol breakdown ──
+    proto_rows = (await db.execute(
+        select(
+            FlowRecord.protocol_name,
+            func.sum(FlowRecord.bytes).label("bytes"),
+            func.count(FlowRecord.id).label("flows"),
+        ).where(*pair_filter)
+        .group_by(FlowRecord.protocol_name).order_by(desc("bytes"))
+    )).all()
+    protocols = [
+        {"protocol": r.protocol_name or "Unknown", "bytes": int(r.bytes or 0), "flows": int(r.flows or 0)}
+        for r in proto_rows
+    ]
+
+    # ── 5. Recent flows sample ──
+    recent_rows = (await db.execute(
+        select(FlowRecord).where(*pair_filter)
+        .order_by(desc(FlowRecord.bytes)).limit(50)
+    )).scalars().all()
+    recent_flows = [
+        {"id": f.id, "src_ip": f.src_ip, "dst_ip": f.dst_ip,
+         "src_port": f.src_port, "dst_port": f.dst_port,
+         "protocol": f.protocol_name, "bytes": f.bytes, "packets": f.packets,
+         "timestamp": f.timestamp.isoformat() if f.timestamp else None,
+         "src_service": PORT_SERVICE_MAP.get(f.src_port, "") if f.src_port else "",
+         "dst_service": PORT_SERVICE_MAP.get(f.dst_port, "") if f.dst_port else ""}
+        for f in recent_rows
+    ]
+
+    # ── 6. Country lookup for peer ──
+    country_row = (await db.execute(
+        select(func.max(FlowRecord.src_country).label("c"))
+        .where(FlowRecord.src_ip == peer, FlowRecord.src_country.isnot(None))
+    )).first()
+    peer_country = country_row.c if country_row and country_row.c else ""
+    if not peer_country:
+        country_row2 = (await db.execute(
+            select(func.max(FlowRecord.dst_country).label("c"))
+            .where(FlowRecord.dst_ip == peer, FlowRecord.dst_country.isnot(None))
+        )).first()
+        peer_country = country_row2.c if country_row2 and country_row2.c else ""
+
+    return {
+        "ip": ip,
+        "peer": peer,
+        "peer_country": peer_country,
+        "bytes_from_ip": bytes_from_ip,
+        "bytes_from_peer": bytes_from_peer,
+        "flows_from_ip": flows_from_ip,
+        "flows_from_peer": flows_from_peer,
+        "total_bytes": total_bytes,
+        "total_flows": total_flows,
+        "total_packets": int(dir_row.total_packets or 0),
+        "services": services,
+        "timeline": timeline,
+        "protocols": protocols,
+        "recent_flows": recent_flows,
+    }
+
+
 @router.get("/ip-profile")
 async def get_ip_profile(
     ip: str,

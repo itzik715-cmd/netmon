@@ -390,9 +390,326 @@ const ACTIVITY_COLORS: Record<string, string> = {
   'SNMP Monitoring': '#64748b', 'VoIP/STUN': '#6366f1', 'BGP Routing': '#475569',
 }
 
+// -- Peer Detail View -----------------------------------------------------------
+function PeerDetailView({
+  ip, peer, timeRangeParams, onBack, onNavigateIp,
+}: {
+  ip: string
+  peer: string
+  timeRangeParams: Record<string, string | number>
+  onBack: () => void
+  onNavigateIp: (ip: string) => void
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['peer-detail', ip, peer, timeRangeParams],
+    queryFn: () => flowsApi.peerDetail(ip, peer, timeRangeParams).then((r) => r.data),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="card card-body flex-row-gap">
+        <Loader2 size={16} className="animate-spin" />
+        Loading conversation between {ip} and {peer}...
+      </div>
+    )
+  }
+  if (!data) return null
+
+  const totalBytes = data.total_bytes || 0
+  const sentPct = totalBytes > 0 ? (data.bytes_from_ip / totalBytes) * 100 : 50
+  const rcvdPct = totalBytes > 0 ? (data.bytes_from_peer / totalBytes) * 100 : 50
+  const services: any[] = data.services || []
+  const timeline: any[] = data.timeline || []
+  const protocols: any[] = data.protocols || []
+  const recentFlows: any[] = data.recent_flows || []
+  const maxSvcBytes = services.length > 0 ? services[0].bytes : 1
+
+  const timelineData = timeline.map((t: any) => {
+    const d = new Date(t.timestamp)
+    const label = isNaN(d.getTime()) ? t.timestamp : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return { time: label, [`From ${peer.split('.').slice(-2).join('.')}`]: t.bytes_from_peer, [`From ${ip.split('.').slice(-2).join('.')}`]: t.bytes_from_ip, flows: t.flows }
+  })
+
+  const peerLabel = peer + (data.peer_country ? ` (${data.peer_country})` : '')
+
+  return (
+    <div className="ip-profile">
+      {/* ═══ Banner ═══ */}
+      <div className="ip-profile__banner">
+        <div className="ip-profile__identity-bar">
+          <div className="ip-profile__banner-icon"><Activity /></div>
+          <div className="ip-profile__banner-info">
+            <div className="ip-profile__ip-address" style={{ fontSize: '15px' }}>
+              Conversation Detail
+            </div>
+            <div className="ip-profile__identity-row" style={{ gap: '8px', flexWrap: 'wrap' }}>
+              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(ip)}>{ip}</button>
+              <ArrowRight size={16} style={{ color: 'var(--neutral-400)' }} />
+              <button className="flow-ip-link mono" style={{ fontSize: '14px', fontWeight: 700 }} onClick={() => onNavigateIp(peer)}>{peerLabel}</button>
+            </div>
+            <div className="ip-profile__summary" style={{ marginTop: '4px' }}>
+              {data.total_flows?.toLocaleString()} flows &middot; {formatBytes(totalBytes)} &middot; {data.total_packets?.toLocaleString()} packets
+            </div>
+          </div>
+          <div className="ip-profile__actions">
+            <button className="btn btn-outline btn-sm" onClick={onBack}>
+              <X size={12} /> Back to Profile
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Direction Summary ═══ */}
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className="stat-card">
+          <div className="stat-icon blue"><ArrowUpRight size={20} /></div>
+          <div className="stat-body">
+            <div className="stat-label">From {ip.split('.').slice(-2).join('.')}</div>
+            <div className="stat-value">{formatBytes(data.bytes_from_ip)}</div>
+            <div className="stat-sub">{data.flows_from_ip?.toLocaleString()} flows</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon green"><ArrowDownLeft size={20} /></div>
+          <div className="stat-body">
+            <div className="stat-label">From {peer.split('.').slice(-2).join('.')}</div>
+            <div className="stat-value">{formatBytes(data.bytes_from_peer)}</div>
+            <div className="stat-sub">{data.flows_from_peer?.toLocaleString()} flows</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#f3e8ff', color: '#7c3aed' }}><Activity size={20} /></div>
+          <div className="stat-body">
+            <div className="stat-label">Total Traffic</div>
+            <div className="stat-value">{formatBytes(totalBytes)}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}><BarChart3 size={20} /></div>
+          <div className="stat-body">
+            <div className="stat-label">Total Flows</div>
+            <div className="stat-value">{data.total_flows?.toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Traffic Balance Bar ═══ */}
+      <div className="card">
+        <div className="card-header"><Activity size={15} /><h3>Traffic Direction</h3></div>
+        <div className="card-body">
+          <div className="traffic-balance">
+            <div className="traffic-balance__bar">
+              <div className="traffic-balance__bar-sent" style={{ width: `${totalBytes > 0 ? Math.max(sentPct, 0.5) : 50}%` }} />
+              <div className="traffic-balance__bar-received" style={{ width: `${totalBytes > 0 ? Math.max(rcvdPct, 0.5) : 50}%` }} />
+            </div>
+            <div className="traffic-balance__labels">
+              <span>{formatBytes(data.bytes_from_ip)} from {ip.split('.').slice(-2).join('.')}</span>
+              <span>{formatBytes(data.bytes_from_peer)} from {peer.split('.').slice(-2).join('.')}</span>
+            </div>
+            <div className="traffic-balance__pct">
+              {sentPct.toFixed(1)}% &mdash; {rcvdPct.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Timeline ═══ */}
+      {timelineData.length > 0 && (
+        <div className="card">
+          <div className="card-header"><Activity size={15} /><h3>Traffic Timeline</h3></div>
+          <div className="card-body">
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={timelineData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="gradPeerIn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradPeerOut" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0284c7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                <Area type="monotone" dataKey={`From ${peer.split('.').slice(-2).join('.')}`} stroke="#22c55e" fill="url(#gradPeerIn)" strokeWidth={2} />
+                <Area type="monotone" dataKey={`From ${ip.split('.').slice(-2).join('.')}`} stroke="#0284c7" fill="url(#gradPeerOut)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Services + Protocols side by side ═══ */}
+      <div className="grid-2">
+        {/* Services */}
+        <div className="card">
+          <div className="card-header"><Shield size={15} /><h3>Services</h3></div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {services.length === 0 ? (
+              <div className="empty-state" style={{ padding: '20px' }}><p>No service data</p></div>
+            ) : (
+              <table className="services-table">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Port</th>
+                    <th>Direction</th>
+                    <th></th>
+                    <th>Traffic</th>
+                    <th>Flows</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.map((svc: any, i: number) => {
+                    const barPct = Math.round((svc.bytes / maxSvcBytes) * 100)
+                    const isIn = svc.direction === 'inbound'
+                    return (
+                      <tr key={`${svc.port}-${svc.direction}-${i}`}>
+                        <td className="services-table__name">{svc.service}</td>
+                        <td className="mono text-muted">{svc.port}</td>
+                        <td>
+                          {isIn
+                            ? <span className="tag-green" style={{ fontSize: '10px' }}><ArrowDownLeft size={9} style={{ marginRight: 2 }} />IN</span>
+                            : <span className="tag-blue" style={{ fontSize: '10px' }}><ArrowUpRight size={9} style={{ marginRight: 2 }} />OUT</span>
+                          }
+                        </td>
+                        <td className="services-table__bar-cell">
+                          <div className={`services-table__bar ${isIn ? 'services-table__bar--inbound' : 'services-table__bar--outbound'}`} style={{ width: `${barPct}%` }} />
+                        </td>
+                        <td className="mono">{formatBytes(svc.bytes)}</td>
+                        <td className="mono text-muted">{svc.flows?.toLocaleString()}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* Protocols */}
+        <div className="card">
+          <div className="card-header"><BarChart3 size={15} /><h3>Protocol Breakdown</h3></div>
+          <div className="card-body">
+            {protocols.length === 0 ? (
+              <div className="empty-state"><p>No protocol data</p></div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={protocols} dataKey="bytes" nameKey="protocol" cx="50%" cy="50%" innerRadius={40} outerRadius={70}>
+                      {protocols.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                      <Label value={formatBytes(totalBytes)} position="center" style={{ fontSize: 12, fontWeight: 700, fill: 'var(--text-main)' }} />
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+                  {protocols.map((p: any, i: number) => (
+                    <div key={p.protocol} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS[i % COLORS.length], flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{p.protocol}</span>
+                      <span className="mono text-muted">{formatBytes(p.bytes)}</span>
+                      <span className="mono text-muted">{p.flows} flows</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Recent Flows Table ═══ */}
+      <div className="card">
+        <div className="card-header">
+          <Activity size={15} />
+          <h3>Recent Flows <span className="text-muted text-sm">Top {recentFlows.length} by volume</span></h3>
+        </div>
+        <div className="table-wrap">
+          <table className="flow-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Source</th>
+                <th>Src Service</th>
+                <th></th>
+                <th>Destination</th>
+                <th>Dst Service</th>
+                <th>Protocol</th>
+                <th>Bytes</th>
+                <th>Packets</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentFlows.map((f: any) => {
+                const isFromIp = f.src_ip === ip
+                const maxFlowBytes = recentFlows[0]?.bytes || 1
+                const barPct = Math.round((f.bytes / maxFlowBytes) * 100)
+                return (
+                  <tr key={f.id}>
+                    <td className="text-center" title={isFromIp ? `From ${ip}` : `From ${peer}`}>
+                      {isFromIp
+                        ? <ArrowUpRight size={14} className="flow-direction-icon flow-direction-icon--out" />
+                        : <ArrowDownLeft size={14} className="flow-direction-icon flow-direction-icon--in" />}
+                    </td>
+                    <td>
+                      <span className={`mono text-sm ${isFromIp ? 'font-semibold link-primary' : ''}`}>
+                        {f.src_ip}
+                      </span>
+                    </td>
+                    <td className="mono text-sm">
+                      {f.src_port ? (
+                        f.src_service ? (
+                          <span className="services-table__svc-badge">{f.src_service}:{f.src_port}</span>
+                        ) : <span className="text-muted">:{f.src_port}</span>
+                      ) : <span className="text-muted">&mdash;</span>}
+                    </td>
+                    <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
+                      <ArrowRight size={14} />
+                    </td>
+                    <td>
+                      <span className={`mono text-sm ${!isFromIp ? 'font-semibold text-success' : ''}`}>
+                        {f.dst_ip}
+                      </span>
+                    </td>
+                    <td className="mono text-sm">
+                      {f.dst_port ? (
+                        f.dst_service ? (
+                          <span className="services-table__svc-badge">{f.dst_service}:{f.dst_port}</span>
+                        ) : <span className="text-muted">:{f.dst_port}</span>
+                      ) : <span className="text-muted">&mdash;</span>}
+                    </td>
+                    <td><span className="tag-blue">{f.protocol}</span></td>
+                    <td className="mono text-sm">
+                      {formatBytes(f.bytes)}
+                      <div className="flow-bytes-bar" style={{ width: `${barPct}%` }} />
+                    </td>
+                    <td className="text-muted">{f.packets?.toLocaleString()}</td>
+                    <td className="text-xs text-light">
+                      {f.timestamp ? new Date(f.timestamp).toLocaleTimeString() : '\u2014'}
+                    </td>
+                  </tr>
+                )
+              })}
+              {recentFlows.length === 0 && (
+                <tr><td colSpan={10} className="empty-table-cell">No flows between these IPs</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // -- IP Profile card -----------------------------------------------------------
 function IpProfile({
-  ip, timeRangeParams, selectedPeer, onSelectPeer, onClear, onNavigateIp,
+  ip, timeRangeParams, selectedPeer, onSelectPeer, onClear, onNavigateIp, onPeerDetail,
 }: {
   ip: string
   timeRangeParams: Record<string, string | number>
@@ -400,6 +717,7 @@ function IpProfile({
   onSelectPeer: (peer: string) => void
   onClear: () => void
   onNavigateIp: (ip: string) => void
+  onPeerDetail: (peer: string) => void
 }) {
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ip-profile', ip, timeRangeParams],
@@ -622,7 +940,7 @@ function IpProfile({
                     <tr key={peer.ip}>
                       <td className="text-muted">{i + 1}</td>
                       <td>
-                        <button className="flow-ip-link mono" onClick={() => onNavigateIp(peer.ip)}>{peer.ip}</button>
+                        <button className="flow-ip-link mono" onClick={() => onPeerDetail(peer.ip)}>{peer.ip}</button>
                         {peer.country && <span className="peer-detail-card__country" style={{ marginLeft: '6px' }}>{peer.country}</span>}
                       </td>
                       <td>
@@ -793,6 +1111,7 @@ export default function FlowsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 1 })
   const [searchIp, setSearchIp]     = useState('')
   const [selectedPeer, setSelectedPeer] = useState('')
+  const [peerDetailIp, setPeerDetailIp] = useState('')
   // null = "all selected" (no filter sent); otherwise a Set of selected device IDs
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number> | null>(null)
 
@@ -802,6 +1121,7 @@ export default function FlowsPage() {
     addRecentIp(ip)
     setSearchIp(ip)
     setSelectedPeer('')
+    setPeerDetailIp('')
   }
 
   // Fetch devices that have flow collection enabled
@@ -935,15 +1255,27 @@ export default function FlowsPage() {
         </div>
       )}
 
-      {/* IP Profile -- only shown when searching */}
-      {searchIp && (
+      {/* Peer Detail -- shown when drilling into a peer from IP Profile */}
+      {searchIp && peerDetailIp && (
+        <PeerDetailView
+          ip={searchIp}
+          peer={peerDetailIp}
+          timeRangeParams={trParams}
+          onBack={() => setPeerDetailIp('')}
+          onNavigateIp={handleSearchChange}
+        />
+      )}
+
+      {/* IP Profile -- only shown when searching and not in peer detail */}
+      {searchIp && !peerDetailIp && (
         <IpProfile
           ip={searchIp}
           timeRangeParams={trParams}
           selectedPeer={selectedPeer}
           onSelectPeer={setSelectedPeer}
-          onClear={() => { setSearchIp(''); setSelectedPeer('') }}
+          onClear={() => { setSearchIp(''); setSelectedPeer(''); setPeerDetailIp('') }}
           onNavigateIp={handleSearchChange}
+          onPeerDetail={(peer) => setPeerDetailIp(peer)}
         />
       )}
 
