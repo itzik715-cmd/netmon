@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Label,
 } from 'recharts'
 import {
-  Search, Globe, Copy, ExternalLink, X, ArrowUpRight, ArrowDownLeft,
+  Search, Globe, Copy, ExternalLink, X, ArrowUpRight, ArrowDownLeft, ArrowRight,
   Activity, HardDrive, BarChart3, Check, AlertTriangle, Clock,
   Filter, Loader2, Calendar,
 } from 'lucide-react'
@@ -120,10 +120,14 @@ function CustomRangePicker({
 }
 
 const PORT_NAMES: Record<number, string> = {
-  20: 'FTP-Data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
-  53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP', 443: 'HTTPS',
-  993: 'IMAPS', 995: 'POP3S', 3306: 'MySQL', 3389: 'RDP',
-  5432: 'PostgreSQL', 8080: 'HTTP-Alt', 8443: 'HTTPS-Alt',
+  20: 'FTP Data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
+  53: 'DNS', 67: 'DHCP Server', 68: 'DHCP Client', 69: 'TFTP',
+  80: 'HTTP', 110: 'POP3', 123: 'NTP', 143: 'IMAP', 161: 'SNMP',
+  162: 'SNMP Trap', 389: 'LDAP', 443: 'HTTPS', 445: 'Microsoft SMB',
+  465: 'SMTPS', 514: 'Syslog', 587: 'SMTP Submission', 636: 'LDAPS',
+  993: 'IMAPS', 995: 'POP3S', 1433: 'Microsoft SQL', 1521: 'Oracle DB',
+  3306: 'MySQL', 3389: 'Microsoft RDP', 5432: 'PostgreSQL', 5900: 'VNC',
+  6379: 'Redis', 8080: 'HTTP Alt', 8443: 'HTTPS Alt', 9090: 'Prometheus',
 }
 function portName(port: number): string {
   return PORT_NAMES[port] || `port/${port}`
@@ -952,10 +956,11 @@ export default function FlowsPage() {
                   <tr>
                     {searchIp && <th className="flow-dir-col"></th>}
                     <th>Source IP</th>
+                    <th></th>
+                    <th>Port / Service</th>
+                    <th></th>
                     <th>Destination IP</th>
                     <th>Protocol</th>
-                    <th>Dst Port</th>
-                    <th>Application</th>
                     <th>Bytes</th>
                     <th>Packets</th>
                     <th>Time</th>
@@ -986,6 +991,21 @@ export default function FlowsPage() {
                             )
                           }
                         </td>
+                        <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
+                          <ArrowRight size={14} />
+                        </td>
+                        <td className="mono text-sm text-center">
+                          {flow.dst_port != null ? (
+                            <>
+                              <span className="font-semibold">{flow.dst_port}</span>
+                              {' '}
+                              <span className="text-muted">[{PORT_NAMES[flow.dst_port] || flow.application || 'Unknown'}]</span>
+                            </>
+                          ) : '\u2014'}
+                        </td>
+                        <td className="text-center text-muted" style={{ padding: '0 2px', width: '20px' }}>
+                          <ArrowRight size={14} />
+                        </td>
                         <td>
                           {flow.dst_ip === searchIp
                             ? <span className="mono text-sm font-semibold text-success">{flow.dst_ip}</span>
@@ -998,8 +1018,6 @@ export default function FlowsPage() {
                           }
                         </td>
                         <td><span className="tag-blue">{flow.protocol}</span></td>
-                        <td className="mono text-sm text-muted">{flow.dst_port}</td>
-                        <td className="text-sm text-muted">{flow.application || '\u2014'}</td>
                         <td className="mono text-sm">
                           {formatBytes(flow.bytes)}
                           <div className="flow-bytes-bar" style={{ width: `${bytesPct}%` }} />
