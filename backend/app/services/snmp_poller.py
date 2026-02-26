@@ -435,6 +435,8 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
         admin_status = await snmp_bulk_walk(device, OID_IF_ADMIN, engine)
         speeds       = await snmp_bulk_walk(device, OID_IF_HIGH_SPEED, engine)
         aliases      = await snmp_bulk_walk(device, OID_IF_ALIAS, engine)
+        in_errors_walk  = await snmp_bulk_walk(device, OID_IF_IN_ERRORS, engine)
+        out_errors_walk = await snmp_bulk_walk(device, OID_IF_OUT_ERRORS, engine)
 
         if not in_octets:
             in_octets = await snmp_bulk_walk(device, OID_IF_IN_OCTETS, engine)
@@ -486,11 +488,17 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
 
                 oper_str  = "up" if str(oper) == "1" else "down"
                 admin_str = "up" if str(admin) == "1" else "down"
+                # Fetch error counters for this interface
+                in_err_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_IN_ERRORS)
+                out_err_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_OUT_ERRORS)
+                in_err_val  = int(in_errors_walk.get(in_err_key, 0) or 0)
+                out_err_val = int(out_errors_walk.get(out_err_key, 0) or 0)
                 db.add(InterfaceMetric(
                     interface_id=iface.id, timestamp=now,
                     in_octets=in_octets_val, out_octets=out_octets_val,
                     in_bps=in_bps, out_bps=out_bps,
                     utilization_in=utilization_in, utilization_out=utilization_out,
+                    in_errors=in_err_val, out_errors=out_err_val,
                     oper_status=oper_str,
                 ))
                 # Keep speed, alias, and admin/oper status in sync with live SNMP data

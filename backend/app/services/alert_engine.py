@@ -40,6 +40,7 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         device = result.scalar_one_or_none()
         if not device:
             return None
+        # 1.0 = device is down/unreachable, 0.0 = device is up
         return 0.0 if device.status == "up" else 1.0
 
     elif metric == "cpu_usage":
@@ -47,14 +48,18 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
             return None
         result = await db.execute(select(Device).where(Device.id == rule.device_id))
         device = result.scalar_one_or_none()
-        return device.cpu_usage if device else None
+        if not device or device.cpu_usage is None:
+            return None
+        return float(device.cpu_usage)
 
     elif metric == "memory_usage":
         if not rule.device_id:
             return None
         result = await db.execute(select(Device).where(Device.id == rule.device_id))
         device = result.scalar_one_or_none()
-        return device.memory_usage if device else None
+        if not device or device.memory_usage is None:
+            return None
+        return float(device.memory_usage)
 
     elif metric in ("if_utilization_in", "if_utilization_out", "if_status", "if_errors"):
         if not rule.interface_id:
@@ -73,11 +78,27 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         elif metric == "if_utilization_out":
             return m.utilization_out
         elif metric == "if_status":
+            # 1.0 = interface is down, 0.0 = interface is up
             return 0.0 if m.oper_status == "up" else 1.0
         elif metric == "if_errors":
             return float((m.in_errors or 0) + (m.out_errors or 0))
 
     return None
+
+
+async def get_all_device_metric_values(metric: str, db: AsyncSession) -> list:
+    """Get metric values for ALL active devices. Returns list of (device, value) tuples."""
+    result = await db.execute(select(Device).where(Device.status != "unknown"))
+    devices = result.scalars().all()
+    values = []
+    for device in devices:
+        if metric == "device_status":
+            values.append((device, 0.0 if device.status == "up" else 1.0))
+        elif metric == "cpu_usage" and device.cpu_usage is not None:
+            values.append((device, float(device.cpu_usage)))
+        elif metric == "memory_usage" and device.memory_usage is not None:
+            values.append((device, float(device.memory_usage)))
+    return values
 
 
 async def evaluate_rules(db: AsyncSession):
@@ -87,6 +108,16 @@ async def evaluate_rules(db: AsyncSession):
 
     for rule in rules:
         try:
+            # Global device-level rules (no device_id): evaluate against ALL devices
+            if not rule.device_id and rule.metric in ("device_status", "cpu_usage", "memory_usage"):
+                device_values = await get_all_device_metric_values(rule.metric, db)
+                for device, value in device_values:
+                    triggered = evaluate_condition(value, rule.condition, rule.threshold)
+                    if triggered:
+                        await handle_alert_trigger(rule, value, db, device=device)
+                    # Auto-resolve handled per-device below
+                continue
+
             value = await get_metric_value(rule, db)
             if value is None:
                 continue
@@ -102,18 +133,22 @@ async def evaluate_rules(db: AsyncSession):
             logger.error(f"Error evaluating rule {rule.id}: {e}")
 
 
-async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession):
+async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession, device: Optional[Device] = None):
     """Create or update alert event when threshold is exceeded."""
+    # Resolve the device_id: from explicit param (global rules) or from the rule
+    alert_device_id = device.id if device else rule.device_id
+
     # Check cooldown - don't re-alert within cooldown window
     cooldown_cutoff = datetime.now(timezone.utc) - timedelta(minutes=rule.cooldown_minutes)
+    cooldown_filters = [
+        AlertEvent.rule_id == rule.id,
+        AlertEvent.status.in_(["open", "acknowledged"]),
+        AlertEvent.triggered_at > cooldown_cutoff,
+    ]
+    if alert_device_id:
+        cooldown_filters.append(AlertEvent.device_id == alert_device_id)
     result = await db.execute(
-        select(AlertEvent).where(
-            and_(
-                AlertEvent.rule_id == rule.id,
-                AlertEvent.status.in_(["open", "acknowledged"]),
-                AlertEvent.triggered_at > cooldown_cutoff,
-            )
-        )
+        select(AlertEvent).where(and_(*cooldown_filters))
     )
     existing = result.scalar_one_or_none()
 
@@ -122,7 +157,9 @@ async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession):
 
     # Create new alert event
     device_name = "Unknown"
-    if rule.device_id:
+    if device:
+        device_name = device.hostname or str(device.id)
+    elif rule.device_id:
         d = await db.execute(select(Device).where(Device.id == rule.device_id))
         dev = d.scalar_one_or_none()
         device_name = dev.hostname if dev else str(rule.device_id)
@@ -134,7 +171,7 @@ async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession):
 
     event = AlertEvent(
         rule_id=rule.id,
-        device_id=rule.device_id,
+        device_id=alert_device_id,
         interface_id=rule.interface_id,
         severity=rule.severity,
         status="open",

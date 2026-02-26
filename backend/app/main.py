@@ -346,6 +346,67 @@ async def create_default_data():
             db.add(BackupSchedule(hour=2, minute=0, retention_days=90, is_active=True))
             await db.commit()
 
+        # Default alert rules — created once on fresh install
+        from app.models.alert import AlertRule
+        existing_rules = await db.execute(select(AlertRule).limit(1))
+        if not existing_rules.scalar_one_or_none():
+            default_rules = [
+                AlertRule(
+                    name="Device Down",
+                    description="Alert when any device becomes unreachable",
+                    metric="device_status",
+                    condition="gt",
+                    threshold=0.5,
+                    severity="critical",
+                    cooldown_minutes=5,
+                    is_active=True,
+                ),
+                AlertRule(
+                    name="High CPU Usage",
+                    description="Alert when any device CPU exceeds 90%",
+                    metric="cpu_usage",
+                    condition="gt",
+                    threshold=90.0,
+                    severity="warning",
+                    cooldown_minutes=15,
+                    is_active=True,
+                ),
+                AlertRule(
+                    name="Critical CPU Usage",
+                    description="Alert when any device CPU exceeds 98%",
+                    metric="cpu_usage",
+                    condition="gt",
+                    threshold=98.0,
+                    severity="critical",
+                    cooldown_minutes=10,
+                    is_active=True,
+                ),
+                AlertRule(
+                    name="High Memory Usage",
+                    description="Alert when any device memory exceeds 90%",
+                    metric="memory_usage",
+                    condition="gt",
+                    threshold=90.0,
+                    severity="warning",
+                    cooldown_minutes=15,
+                    is_active=True,
+                ),
+                AlertRule(
+                    name="Critical Memory Usage",
+                    description="Alert when any device memory exceeds 95%",
+                    metric="memory_usage",
+                    condition="gt",
+                    threshold=95.0,
+                    severity="critical",
+                    cooldown_minutes=10,
+                    is_active=True,
+                ),
+            ]
+            for rule in default_rules:
+                db.add(rule)
+            await db.commit()
+            logger.info("Default alert rules created (5 rules)")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
