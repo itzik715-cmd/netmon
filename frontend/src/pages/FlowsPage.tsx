@@ -1361,6 +1361,7 @@ export default function FlowsPage() {
                           <tr>
                             <th>#</th>
                             <th>Destination</th>
+                            <th>From (Internal)</th>
                             <th>Service</th>
                             <th></th>
                             <th>Traffic</th>
@@ -1376,6 +1377,15 @@ export default function FlowsPage() {
                                 <td className="text-muted">{i + 1}</td>
                                 <td>
                                   <button className="flow-ip-link mono" onClick={() => handleSearchChange(item.ip)}>{item.ip}</button>
+                                </td>
+                                <td>
+                                  <div className="internal-ips">
+                                    {(item.internal_ips || []).map((int_ip: any) => (
+                                      <button key={int_ip.ip} className="flow-ip-link mono internal-ip-chip" onClick={() => handleSearchChange(int_ip.ip)}>
+                                        {int_ip.ip} <span className="text-muted text-xs">({formatBytes(int_ip.bytes)})</span>
+                                      </button>
+                                    ))}
+                                  </div>
                                 </td>
                                 <td>
                                   {item.service_name ? (
@@ -1412,6 +1422,7 @@ export default function FlowsPage() {
                           <tr>
                             <th>#</th>
                             <th>Source</th>
+                            <th>To (Internal)</th>
                             <th>Service</th>
                             <th></th>
                             <th>Traffic</th>
@@ -1427,6 +1438,15 @@ export default function FlowsPage() {
                                 <td className="text-muted">{i + 1}</td>
                                 <td>
                                   <button className="flow-ip-link mono" onClick={() => handleSearchChange(item.ip)}>{item.ip}</button>
+                                </td>
+                                <td>
+                                  <div className="internal-ips">
+                                    {(item.internal_ips || []).map((int_ip: any) => (
+                                      <button key={int_ip.ip} className="flow-ip-link mono internal-ip-chip" onClick={() => handleSearchChange(int_ip.ip)}>
+                                        {int_ip.ip} <span className="text-muted text-xs">({formatBytes(int_ip.bytes)})</span>
+                                      </button>
+                                    ))}
+                                  </div>
                                 </td>
                                 <td>
                                   {item.service_name ? (

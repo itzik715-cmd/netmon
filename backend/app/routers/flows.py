@@ -533,6 +533,28 @@ async def get_flow_stats(
     total_inbound = 0
     total_outbound = 0
 
+    def _add_inbound(ext_ip: str, internal_ip: str, svc_port: int, b: int, f: int):
+        nonlocal total_inbound
+        if ext_ip not in inbound_by_ip:
+            inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}, "internal_ips": {}}
+        inbound_by_ip[ext_ip]["bytes"] += b
+        inbound_by_ip[ext_ip]["flows"] += f
+        if svc_port > 0:
+            inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+        inbound_by_ip[ext_ip]["internal_ips"][internal_ip] = inbound_by_ip[ext_ip]["internal_ips"].get(internal_ip, 0) + b
+        total_inbound += b
+
+    def _add_outbound(ext_ip: str, internal_ip: str, svc_port: int, b: int, f: int):
+        nonlocal total_outbound
+        if ext_ip not in outbound_by_ip:
+            outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}, "internal_ips": {}}
+        outbound_by_ip[ext_ip]["bytes"] += b
+        outbound_by_ip[ext_ip]["flows"] += f
+        if svc_port > 0:
+            outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
+        outbound_by_ip[ext_ip]["internal_ips"][internal_ip] = outbound_by_ip[ext_ip]["internal_ips"].get(internal_ip, 0) + b
+        total_outbound += b
+
     for r in flow_rows:
         src_owned = _is_owned(r.src_ip, owned_nets)
         dst_owned = _is_owned(r.dst_ip, owned_nets)
@@ -542,58 +564,25 @@ async def get_flow_stats(
         dst_port = int(r.dst_port) if r.dst_port else 0
 
         if dst_owned and not src_owned:
+            # dst is ours, src is external
+            internal_ip = r.dst_ip
             src_is_service = src_port in PORT_SERVICE_MAP and src_port < 10000
             dst_is_service = dst_port in PORT_SERVICE_MAP and dst_port < 10000
 
             if src_is_service and not dst_is_service:
-                ext_ip = r.src_ip
-                svc_port = src_port
-                if ext_ip not in outbound_by_ip:
-                    outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
-                outbound_by_ip[ext_ip]["bytes"] += b
-                outbound_by_ip[ext_ip]["flows"] += f
-                outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-                total_outbound += b
+                _add_outbound(r.src_ip, internal_ip, src_port, b, f)
             elif dst_is_service and not src_is_service:
-                ext_ip = r.src_ip
-                svc_port = dst_port
-                if ext_ip not in inbound_by_ip:
-                    inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
-                inbound_by_ip[ext_ip]["bytes"] += b
-                inbound_by_ip[ext_ip]["flows"] += f
-                inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-                total_inbound += b
+                _add_inbound(r.src_ip, internal_ip, dst_port, b, f)
             else:
                 if src_port > 0 and (dst_port == 0 or src_port < dst_port):
-                    ext_ip = r.src_ip
-                    svc_port = src_port
-                    if ext_ip not in outbound_by_ip:
-                        outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
-                    outbound_by_ip[ext_ip]["bytes"] += b
-                    outbound_by_ip[ext_ip]["flows"] += f
-                    outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-                    total_outbound += b
+                    _add_outbound(r.src_ip, internal_ip, src_port, b, f)
                 else:
-                    ext_ip = r.src_ip
-                    svc_port = dst_port
-                    if ext_ip not in inbound_by_ip:
-                        inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
-                    inbound_by_ip[ext_ip]["bytes"] += b
-                    inbound_by_ip[ext_ip]["flows"] += f
-                    if svc_port > 0:
-                        inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-                    total_inbound += b
+                    _add_inbound(r.src_ip, internal_ip, dst_port, b, f)
 
         elif src_owned and not dst_owned:
-            ext_ip = r.dst_ip
-            svc_port = dst_port
-            if ext_ip not in outbound_by_ip:
-                outbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}}
-            outbound_by_ip[ext_ip]["bytes"] += b
-            outbound_by_ip[ext_ip]["flows"] += f
-            if svc_port > 0:
-                outbound_by_ip[ext_ip]["services"][svc_port] = outbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-            total_outbound += b
+            # src is ours, dst is external
+            internal_ip = r.src_ip
+            _add_outbound(r.dst_ip, internal_ip, dst_port, b, f)
 
     def _build_top(by_ip: dict, total: int) -> list:
         items = sorted(by_ip.items(), key=lambda x: -x[1]["bytes"])[:limit]
@@ -606,10 +595,17 @@ async def get_flow_stats(
             else:
                 top_port = 0
                 svc_name = ""
+            # Internal IPs sorted by traffic (top 5)
+            int_ips = data.get("internal_ips", {})
+            top_internal = [
+                {"ip": ip, "bytes": byt}
+                for ip, byt in sorted(int_ips.items(), key=lambda x: -x[1])[:5]
+            ]
             result.append({
                 "ip": ext_ip, "bytes": data["bytes"], "flows": data["flows"],
                 "service_port": top_port, "service_name": svc_name,
                 "pct": round(data["bytes"] / total * 100, 1) if total > 0 else 0,
+                "internal_ips": top_internal,
             })
         return result
 
