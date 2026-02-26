@@ -42,8 +42,10 @@ class AlertRuleResponse(BaseModel):
     threshold: float
     severity: str
     is_active: bool
-    duration_seconds: int
-    cooldown_minutes: int
+    duration_seconds: Optional[int] = 0
+    cooldown_minutes: Optional[int] = 15
+    notification_email: Optional[str] = None
+    notification_webhook: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
