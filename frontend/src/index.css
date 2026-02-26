@@ -4151,3 +4151,74 @@ body.noc-fullscreen .noc-page {
   font-size: 10px !important;
   padding: 1px 4px !important;
 }
+
+/* ── PDU Detail Page ── */
+.pdu-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.pdu-phase-item {
+  background: var(--neutral-50);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  text-align: center;
+  border: 1px solid var(--neutral-200);
+}
+.pdu-phase-item__label {
+  font-weight: 700;
+  font-size: var(--text-lg);
+  color: var(--primary-600);
+  margin-bottom: 10px;
+}
+.pdu-phase-item__metrics {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+.pdu-phase-item__metric {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.pdu-phase-item__val {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  color: var(--neutral-800);
+}
+.pdu-phase-item__unit {
+  font-size: var(--text-sm);
+  color: var(--neutral-500);
+}
+
+.pdu-bank-card {
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  background: var(--neutral-50);
+}
+.pdu-bank-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pdu-bank-card__name {
+  font-weight: 700;
+  font-size: var(--text-md);
+  color: var(--neutral-800);
+}
+.pdu-bank-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--neutral-600);
+}
+.pdu-bank-card__stat strong {
+  color: var(--neutral-800);
+}
