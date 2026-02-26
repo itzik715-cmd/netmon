@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useThemeStore } from '../store/themeStore'
+import NocViewButton from '../components/NocViewButton'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TopoNode {
@@ -182,6 +183,11 @@ export default function TopologyPage() {
   const navigate = useNavigate()
   const svgRef = useRef<SVGSVGElement>(null)
   const { theme } = useThemeStore()
+
+  useEffect(() => {
+    const el = document.getElementById('noc-page-title')
+    if (el) el.textContent = 'Datacenter Topology'
+  }, [])
   const topoColors = useMemo(() => {
     const cs = getComputedStyle(document.documentElement)
     return {
@@ -680,6 +686,7 @@ export default function TopologyPage() {
             className="btn btn-outline"
             onClick={() => qc.invalidateQueries({ queryKey: ['topology'] })}
           >Refresh</button>
+          <NocViewButton pageId="topology" />
         </div>
       </div>
 

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Server,
-  Monitor,
+
   Network,
   Globe,
   Activity,
@@ -37,7 +37,6 @@ interface NavItem {
 
 const overviewItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={16} />, end: true },
-  { to: '/noc', label: 'NOC View', icon: <Monitor size={16} /> },
 ]
 
 const networkItems: NavItem[] = [

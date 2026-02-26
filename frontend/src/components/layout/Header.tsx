@@ -8,7 +8,7 @@ import { useThemeStore } from '../../store/themeStore'
 
 /* ── friendly names for every route segment ── */
 const SEGMENT_NAMES: Record<string, string> = {
-  '': 'Dashboard',
+  '': 'Main Dashboard',
   devices: 'Devices',
   interfaces: 'Interfaces',
   alerts: 'Alerts',

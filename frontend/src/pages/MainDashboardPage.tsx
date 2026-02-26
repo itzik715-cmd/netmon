@@ -5,6 +5,7 @@ import {
   Maximize, Minimize, RefreshCw, AlertTriangle, AlertCircle,
   Info, Server, Wifi, WifiOff, Clock, Zap, Thermometer, RotateCcw,
 } from 'lucide-react'
+import NocViewButton from '../components/NocViewButton'
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -66,7 +67,7 @@ function formatBytes(b: number): string {
   return `${b} B`
 }
 
-export default function NocPage() {
+export default function MainDashboardPage() {
   const chartTheme = useChartTheme()
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [now, setNow] = useState(new Date())
@@ -133,6 +134,12 @@ export default function NocPage() {
       document.removeEventListener('fullscreenchange', handler)
       document.body.classList.remove('noc-fullscreen')
     }
+  }, [])
+
+  // ── NOC popout title ──
+  useEffect(() => {
+    const el = document.getElementById('noc-page-title')
+    if (el) el.textContent = 'Main Dashboard'
   }, [])
 
   // ── Data Queries ──
@@ -310,6 +317,7 @@ export default function NocPage() {
             <Clock size={16} />
             <span>{now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
           </div>
+          <NocViewButton pageId="dashboard" />
           <button className="noc-fs-btn" onClick={resetLayout} title="Reset layout">
             <RotateCcw size={16} />
           </button>

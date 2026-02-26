@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { pduApi } from '../services/api'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -13,6 +13,7 @@ import {
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import { useChartTheme } from '../hooks/useChartTheme'
+import NocViewButton from '../components/NocViewButton'
 
 const TIME_RANGES = [
   { label: '1h', hours: 1 },
@@ -130,6 +131,11 @@ export default function PowerDashboardPage() {
   const [hours, setHours] = useState(24)
   const [selectedRack, setSelectedRack] = useState<number | null>(null)
 
+  useEffect(() => {
+    const el = document.getElementById('noc-page-title')
+    if (el) el.textContent = 'Power Dashboard'
+  }, [])
+
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
 
@@ -159,6 +165,7 @@ export default function PowerDashboardPage() {
       <div className="page-header">
         <h1><Zap size={22} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} />Power Dashboard</h1>
         <div className="time-range-bar">
+          <NocViewButton pageId="power" />
           {TIME_RANGES.map((r) => (
             <button
               key={r.hours}

@@ -4664,3 +4664,76 @@ body.noc-fullscreen .noc-page {
 .pdu-bank-card__stat strong {
   color: var(--neutral-800);
 }
+
+/* ─── NOC Popout Layout (chromeless window) ──────────── */
+.noc-popout-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg, #f5f7fa);
+  overflow: hidden;
+}
+
+.noc-popout-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 20px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.noc-popout-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.noc-popout-topbar__logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+}
+
+.noc-popout-topbar__sep {
+  color: #475569;
+  font-size: 16px;
+}
+
+.noc-popout-topbar__page {
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.noc-popout-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.noc-popout-topbar__clock {
+  font-family: 'DM Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.noc-popout-topbar__date {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.noc-popout-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+}

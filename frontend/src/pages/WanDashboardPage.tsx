@@ -11,6 +11,7 @@ import { format } from 'date-fns'
 import { Globe, Activity, Calendar, Network, Plus, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useChartTheme } from '../hooks/useChartTheme'
+import NocViewButton from '../components/NocViewButton'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -108,6 +109,11 @@ export default function WanDashboardPage() {
   const chartTheme = useChartTheme()
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 24 })
   const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const el = document.getElementById('noc-page-title')
+    if (el) el.textContent = 'WAN Dashboard'
+  }, [])
 
   const trParams = timeRange.mode === 'preset'
     ? { hours: timeRange.hours }
@@ -236,6 +242,7 @@ export default function WanDashboardPage() {
       <div className="page-header">
         <h1>WAN Dashboard</h1>
         <div className="time-range-bar">
+          <NocViewButton pageId="wan" />
           {TIME_RANGES.map((r) => (
             <button
               key={r.hours}
