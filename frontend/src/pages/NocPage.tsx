@@ -3,13 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Maximize, Minimize, RefreshCw, AlertTriangle, AlertCircle,
-  Info, Server, Wifi, WifiOff, Clock,
+  Info, Server, Wifi, WifiOff, Clock, Zap, Thermometer,
 } from 'lucide-react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar,
 } from 'recharts'
-import { devicesApi, alertsApi, interfacesApi, flowsApi } from '../services/api'
+import { devicesApi, alertsApi, interfacesApi, flowsApi, pduApi } from '../services/api'
 import { formatDistanceToNow } from 'date-fns'
 
 const REFRESH_MS = 15_000
@@ -125,6 +125,12 @@ export default function NocPage() {
     refetchInterval: REFRESH_MS,
   })
 
+  const { data: powerDashboard } = useQuery({
+    queryKey: ['noc-power-dashboard'],
+    queryFn: () => pduApi.dashboard(1).then(r => r.data),
+    refetchInterval: REFRESH_MS,
+  })
+
   // ── Derived data ──
   const devicesUp = summary?.devices_up ?? 0
   const devicesDown = summary?.devices_down ?? 0
@@ -132,6 +138,19 @@ export default function NocPage() {
   const critAlerts = alertSummary?.critical ?? 0
   const warnAlerts = alertSummary?.warning ?? 0
   const openAlerts = alertSummary?.open ?? 0
+
+  // Power derived data
+  const totalPowerKw = powerDashboard?.total_power_kw ?? 0
+  const avgLoadPct = powerDashboard?.avg_load_pct ?? 0
+  const pduCount = powerDashboard?.pdu_count ?? 0
+  const rackCount = powerDashboard?.rack_count ?? 0
+  const powerAlerts = powerDashboard?.alerts_active ?? 0
+  const powerRacks = powerDashboard?.racks ?? []
+
+  const powerChartData = (powerDashboard?.timeline || []).map((t: any) => ({
+    time: new Date(t.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    watts: t.total_watts,
+  }))
 
   // WAN chart data
   const wanChartData = (wanMetrics?.timeseries || []).map((m: any) => ({
@@ -197,6 +216,27 @@ export default function NocPage() {
               <span className="noc-counter-val">0</span>
               <span className="noc-counter-label">ALERTS</span>
             </div>
+          )}
+          {pduCount > 0 && (
+            <>
+              <div className="noc-divider" />
+              <div className="noc-counter amber">
+                <Zap size={18} />
+                <span className="noc-counter-val">{totalPowerKw.toFixed(1)}</span>
+                <span className="noc-counter-label">kW</span>
+              </div>
+              <div className={`noc-counter ${avgLoadPct >= 90 ? 'red noc-pulse' : avgLoadPct >= 75 ? 'orange' : 'green'}`}>
+                <span className="noc-counter-val">{avgLoadPct.toFixed(0)}%</span>
+                <span className="noc-counter-label">LOAD</span>
+              </div>
+              {powerAlerts > 0 && (
+                <div className="noc-counter red noc-pulse">
+                  <Zap size={18} />
+                  <span className="noc-counter-val">{powerAlerts}</span>
+                  <span className="noc-counter-label">PDU ALERTS</span>
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="noc-strip-right">
@@ -345,6 +385,53 @@ export default function NocPage() {
           </div>
         </div>
 
+        {/* ── Column 4: Power Consumption ── */}
+        <div className="noc-card">
+          <div className="noc-card-title">
+            <Zap size={14} />
+            POWER CONSUMPTION (1H)
+            {pduCount > 0 && <span className="noc-badge-count">{pduCount} PDUs</span>}
+          </div>
+          <div className="noc-power-chart">
+            {powerChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={powerChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="time" tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={55}
+                    tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}kW` : `${v}W`}
+                  />
+                  <Tooltip
+                    contentStyle={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 8, color: '#e2e8f0' }}
+                    formatter={(v: number) => [`${v.toFixed(0)} W`, 'Total Power']}
+                  />
+                  <Area type="monotone" dataKey="watts" stroke="#f59e0b" fill="#f59e0b20" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="noc-empty"><Zap size={32} strokeWidth={1} /><span>No power data</span></div>
+            )}
+          </div>
+          <div className="noc-power-summary">
+            <div className="noc-power-stat">
+              <span className="noc-power-stat-val">{totalPowerKw.toFixed(1)}</span>
+              <span className="noc-power-stat-unit">kW</span>
+            </div>
+            <div className="noc-power-stat">
+              <span className="noc-power-stat-val">{avgLoadPct.toFixed(0)}</span>
+              <span className="noc-power-stat-unit">% Load</span>
+            </div>
+            <div className="noc-power-stat">
+              <span className="noc-power-stat-val">{rackCount}</span>
+              <span className="noc-power-stat-unit">Racks</span>
+            </div>
+          </div>
+        </div>
+
         {/* ── Row 2, Column 1: Top Talkers ── */}
         <div className="noc-card noc-card-bottom">
           <div className="noc-card-title">
@@ -432,6 +519,53 @@ export default function NocPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* ── Row 2, Column 4: Rack Power ── */}
+        <div className="noc-card noc-card-bottom">
+          <div className="noc-card-title">
+            <Thermometer size={14} />
+            RACK POWER
+            {rackCount > 0 && <span className="noc-badge-count">{rackCount}</span>}
+          </div>
+          <div className="noc-rack-list">
+            {powerRacks.length === 0 ? (
+              <div className="noc-empty"><Zap size={32} strokeWidth={1} /><span>No rack data</span></div>
+            ) : (
+              powerRacks.map((rack: any) => (
+                <div key={rack.location_id || rack.location_name} className="noc-rack-row">
+                  <div className="noc-rack-header">
+                    <span className="noc-rack-name">{rack.location_name}</span>
+                    <span className="noc-rack-kw">{rack.total_kw} kW</span>
+                  </div>
+                  <div className="noc-rack-load-bar">
+                    <div
+                      className="noc-rack-load-fill"
+                      style={{
+                        width: `${Math.min(rack.avg_load_pct, 100)}%`,
+                        background: rack.avg_load_pct >= 90 ? '#ef4444'
+                          : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
+                      }}
+                    />
+                  </div>
+                  <div className="noc-rack-meta">
+                    <span className="noc-rack-load-pct" style={{
+                      color: rack.avg_load_pct >= 90 ? '#ef4444'
+                        : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
+                    }}>
+                      {rack.avg_load_pct}%
+                    </span>
+                    {rack.max_temperature_c != null && (
+                      <span className={`noc-rack-temp ${rack.max_temperature_c > 40 ? 'hot' : ''}`}>
+                        <Thermometer size={10} /> {rack.max_temperature_c.toFixed(1)}°C
+                      </span>
+                    )}
+                    <span className="noc-rack-pdu-count">{rack.pdus?.length ?? 0} PDU</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

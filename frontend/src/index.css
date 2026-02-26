@@ -3448,6 +3448,8 @@ body.noc-fullscreen .noc-page {
 .noc-counter.green { color: #22c55e; }
 .noc-counter.red { color: #ef4444; }
 .noc-counter.orange { color: #f59e0b; }
+.noc-counter.blue { color: #3b82f6; }
+.noc-counter.amber { color: #f59e0b; }
 .noc-divider {
   width: 1px;
   height: 28px;
@@ -3488,7 +3490,7 @@ body.noc-fullscreen .noc-page {
 /* ── Main Grid ── */
 .noc-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   grid-template-rows: 1fr auto;
   gap: 10px;
   flex: 1;
@@ -3506,11 +3508,14 @@ body.noc-fullscreen .noc-page {
 .noc-card-bottom {
   /* Bottom row spans */
 }
-.noc-grid > .noc-card:nth-child(4) {
+.noc-grid > .noc-card:nth-child(5) {
   grid-column: 1 / 2;
 }
-.noc-grid > .noc-card:nth-child(5) {
+.noc-grid > .noc-card:nth-child(6) {
   grid-column: 2 / 4;
+}
+.noc-grid > .noc-card:nth-child(7) {
+  grid-column: 4 / 5;
 }
 
 .noc-card-title {
@@ -3851,6 +3856,103 @@ body.noc-fullscreen .noc-page {
   50% { opacity: 0.5; }
 }
 .noc-pulse { animation: noc-pulse-anim 2s ease-in-out infinite; }
+
+/* ── NOC Power Chart ── */
+.noc-power-chart {
+  flex: 1;
+  min-height: 120px;
+  padding: 4px;
+}
+.noc-power-summary {
+  border-top: 1px solid #334155;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-around;
+}
+.noc-power-stat { text-align: center; }
+.noc-power-stat-val {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: #f59e0b;
+  display: block;
+  line-height: 1;
+}
+.noc-power-stat-unit {
+  font-size: 9px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── NOC Rack Power List ── */
+.noc-rack-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.noc-rack-row {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.noc-rack-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.noc-rack-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.noc-rack-kw {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: #f59e0b;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+.noc-rack-load-bar {
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.noc-rack-load-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.noc-rack-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+}
+.noc-rack-load-pct {
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.noc-rack-temp {
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.noc-rack-temp.hot { color: #ef4444; }
+.noc-rack-pdu-count { color: #64748b; }
 
 /* ═══════════════════════════════════════════════════════════
    POWER DASHBOARD
