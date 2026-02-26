@@ -123,19 +123,20 @@ async def _enrich_pdu_device_info(
             if not device.os_version:
                 updates["os_version"] = str(sys_descr)[:200].strip()
 
-    # Get APC model number from dedicated OID
+    # Get APC model number — Gen1 OID has the actual hardware SKU (e.g. APDU9981EU3),
+    # while Gen2 rPDU2IdentModelNumber often returns user-configured device name.
+    # Always try Gen1 first for the real model number.
     if not device.model:
-        model_oid = OID_APC_MODEL_GEN2 if is_gen2 else OID_APC_MODEL
-        model_raw = await snmp_get(device, model_oid, engine)
+        model_raw = await snmp_get(device, OID_APC_MODEL, engine)
         if model_raw and "No Such" not in str(model_raw):
             model_str = str(model_raw).strip()
-            if model_str:
+            if model_str and model_str.lower() != "unknown":
                 updates["model"] = model_str
 
-    # Get firmware version if os_version not set
+    # Firmware: sysDescr already contains full version info (preferred).
+    # Only try APC firmware OID if sysDescr wasn't available.
     if not device.os_version and "os_version" not in updates:
-        fw_oid = OID_APC_FW_VERSION_GEN2 if is_gen2 else OID_APC_FW_VERSION
-        fw_raw = await snmp_get(device, fw_oid, engine)
+        fw_raw = await snmp_get(device, OID_APC_FW_VERSION, engine)
         if fw_raw and "No Such" not in str(fw_raw):
             updates["os_version"] = str(fw_raw).strip()[:200]
 
