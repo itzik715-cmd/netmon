@@ -3487,18 +3487,14 @@ body.noc-fullscreen .noc-page {
 }
 .noc-fs-btn:hover { background: #475569; color: #e2e8f0; }
 
-/* ── Main Grid ── */
-.noc-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: minmax(0, auto);
-  gap: 10px;
+/* ── react-grid-layout container ── */
+.noc-grid-layout {
   flex: 1;
   min-height: 0;
 }
-/* Row 1 cards get a max height so charts don't stretch forever */
-.noc-grid > .noc-card:nth-child(-n+4) {
-  max-height: min(50vh, 420px);
+.noc-grid-layout > .react-grid-item > .noc-card {
+  height: 100%;
+  width: 100%;
 }
 .noc-card {
   background: #1e293b;
@@ -3509,44 +3505,47 @@ body.noc-fullscreen .noc-page {
   overflow: hidden;
   min-height: 0;
 }
-.noc-card-bottom {
-  /* Bottom row */
+/* ── Drag handle (title bar) ── */
+.noc-drag-handle {
+  cursor: grab;
 }
-/* Row 2 spans */
-.noc-grid > .noc-card:nth-child(5) {
-  grid-column: 1 / 2;
+.noc-drag-handle:active {
+  cursor: grabbing;
 }
-.noc-grid > .noc-card:nth-child(6) {
-  grid-column: 2 / 4;
+/* ── Placeholder ghost while dragging ── */
+.react-grid-placeholder {
+  background: #3b82f6 !important;
+  opacity: 0.15 !important;
+  border: 2px dashed #3b82f6 !important;
+  border-radius: 10px !important;
 }
-.noc-grid > .noc-card:nth-child(7) {
-  grid-column: 4 / 5;
+/* ── Resize handle (bottom-right corner) ── */
+.react-resizable-handle::after {
+  border-right-color: #475569 !important;
+  border-bottom-color: #475569 !important;
 }
-/* ── Responsive: 2-column on narrower screens ── */
-@media (max-width: 1400px) {
-  .noc-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .noc-grid > .noc-card:nth-child(-n+4) {
-    max-height: min(45vh, 380px);
-  }
-  .noc-grid > .noc-card:nth-child(5) { grid-column: 1 / 2; }
-  .noc-grid > .noc-card:nth-child(6) { grid-column: 2 / 3; }
-  .noc-grid > .noc-card:nth-child(7) { grid-column: 1 / 3; }
+.react-resizable-handle:hover::after {
+  border-right-color: #94a3b8 !important;
+  border-bottom-color: #94a3b8 !important;
 }
-/* ── Responsive: single column on small screens ── */
+/* ── Card being dragged ── */
+.react-draggable-dragging {
+  z-index: 100 !important;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+  opacity: 0.9;
+}
+/* ── Smooth repositioning transition ── */
+.react-grid-item {
+  transition: all 200ms ease;
+}
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+}
+/* ── Responsive: small-screen strip ── */
 @media (max-width: 900px) {
-  .noc-grid {
-    grid-template-columns: 1fr;
-  }
-  .noc-grid > .noc-card:nth-child(-n+4) {
-    max-height: min(50vh, 360px);
-  }
-  .noc-grid > .noc-card:nth-child(5),
-  .noc-grid > .noc-card:nth-child(6),
-  .noc-grid > .noc-card:nth-child(7) {
-    grid-column: 1 / -1;
-  }
   .noc-strip { flex-wrap: wrap; gap: 8px; }
   .noc-strip-left { flex-wrap: wrap; gap: 10px; }
 }
@@ -3702,7 +3701,6 @@ body.noc-fullscreen .noc-page {
 .noc-wan-chart {
   flex: 1;
   min-height: 100px;
-  max-height: 200px;
   padding: 4px;
 }
 .noc-wan-bars {
@@ -3895,7 +3893,6 @@ body.noc-fullscreen .noc-page {
 .noc-power-chart {
   flex: 1;
   min-height: 100px;
-  max-height: 200px;
   padding: 4px;
 }
 .noc-power-summary {

@@ -3,19 +3,59 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Maximize, Minimize, RefreshCw, AlertTriangle, AlertCircle,
-  Info, Server, Wifi, WifiOff, Clock, Zap, Thermometer,
+  Info, Server, Wifi, WifiOff, Clock, Zap, Thermometer, RotateCcw,
 } from 'lucide-react'
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
 import { devicesApi, alertsApi, interfacesApi, flowsApi, pduApi } from '../services/api'
 import { formatDistanceToNow } from 'date-fns'
+import { ResponsiveGridLayout, useContainerWidth, type Layouts } from 'react-grid-layout'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 
 const REFRESH_MS = 15_000
+const NOC_LAYOUT_KEY = 'netmon-noc-layout'
 
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, warning: 1, info: 2 }
 const PROTO_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#64748b', '#ec4899']
+
+const WIDGET_COUNT = 7
+
+const DEFAULT_LAYOUTS: Layouts = {
+  lg: [
+    { i: 'alerts',  x: 0, y: 0, w: 3, h: 4, minW: 2, minH: 2 },
+    { i: 'devices', x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 2 },
+    { i: 'wan',     x: 6, y: 0, w: 3, h: 4, minW: 2, minH: 2 },
+    { i: 'power',   x: 9, y: 0, w: 3, h: 4, minW: 2, minH: 2 },
+    { i: 'talkers', x: 0, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+    { i: 'traffic', x: 3, y: 4, w: 6, h: 3, minW: 3, minH: 2 },
+    { i: 'racks',   x: 9, y: 4, w: 3, h: 3, minW: 2, minH: 2 },
+  ],
+  md: [
+    { i: 'alerts',  x: 0, y: 0, w: 5, h: 4, minW: 2, minH: 2 },
+    { i: 'devices', x: 5, y: 0, w: 5, h: 4, minW: 2, minH: 2 },
+    { i: 'wan',     x: 0, y: 4, w: 5, h: 4, minW: 2, minH: 2 },
+    { i: 'power',   x: 5, y: 4, w: 5, h: 4, minW: 2, minH: 2 },
+    { i: 'talkers', x: 0, y: 8, w: 4, h: 3, minW: 2, minH: 2 },
+    { i: 'traffic', x: 4, y: 8, w: 6, h: 3, minW: 3, minH: 2 },
+    { i: 'racks',   x: 0, y: 11, w: 10, h: 3, minW: 2, minH: 2 },
+  ],
+  sm: [
+    { i: 'alerts',  x: 0, y: 0,  w: 6, h: 4, minW: 3, minH: 2 },
+    { i: 'devices', x: 0, y: 4,  w: 6, h: 4, minW: 3, minH: 2 },
+    { i: 'wan',     x: 0, y: 8,  w: 6, h: 4, minW: 3, minH: 2 },
+    { i: 'power',   x: 0, y: 12, w: 6, h: 4, minW: 3, minH: 2 },
+    { i: 'talkers', x: 0, y: 16, w: 6, h: 3, minW: 3, minH: 2 },
+    { i: 'traffic', x: 0, y: 19, w: 6, h: 3, minW: 3, minH: 2 },
+    { i: 'racks',   x: 0, y: 22, w: 6, h: 3, minW: 3, minH: 2 },
+  ],
+}
+
+const BREAKPOINTS = { lg: 1200, md: 900, sm: 0 }
+const COLS = { lg: 12, md: 10, sm: 6 }
+const ROW_HEIGHT = 70
 
 function formatBytes(b: number): string {
   if (b >= 1e12) return `${(b / 1e12).toFixed(1)} TB`
@@ -25,17 +65,41 @@ function formatBytes(b: number): string {
   return `${b} B`
 }
 
-function formatBps(bps: number): string {
-  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`
-  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`
-  if (bps >= 1e3) return `${(bps / 1e3).toFixed(0)} Kbps`
-  return `${bps.toFixed(0)} bps`
-}
-
 export default function NocPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [now, setNow] = useState(new Date())
   const [lastRefresh, setLastRefresh] = useState(new Date())
+
+  // ── Container width for react-grid-layout v2 ──
+  const { containerRef, width: containerWidth } = useContainerWidth({ initialWidth: 1280 })
+
+  // ── Layout state with localStorage persistence ──
+  const [layouts, setLayouts] = useState<Layouts>(() => {
+    try {
+      const saved = localStorage.getItem(NOC_LAYOUT_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.lg && Array.isArray(parsed.lg) && parsed.lg.length === WIDGET_COUNT) {
+          return parsed
+        }
+      }
+    } catch { /* ignore */ }
+    return DEFAULT_LAYOUTS
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem(NOC_LAYOUT_KEY, JSON.stringify(layouts)) }
+    catch { /* ignore */ }
+  }, [layouts])
+
+  const handleLayoutChange = useCallback((_current: any[], allLayouts: Layouts) => {
+    setLayouts(allLayouts)
+  }, [])
+
+  const resetLayout = useCallback(() => {
+    localStorage.removeItem(NOC_LAYOUT_KEY)
+    setLayouts(DEFAULT_LAYOUTS)
+  }, [])
 
   // Live clock
   useEffect(() => {
@@ -139,7 +203,6 @@ export default function NocPage() {
   const warnAlerts = alertSummary?.warning ?? 0
   const openAlerts = alertSummary?.open ?? 0
 
-  // Power derived data
   const totalPowerKw = powerDashboard?.total_power_kw ?? 0
   const avgLoadPct = powerDashboard?.avg_load_pct ?? 0
   const pduCount = powerDashboard?.pdu_count ?? 0
@@ -152,18 +215,15 @@ export default function NocPage() {
     watts: t.total_watts,
   }))
 
-  // WAN chart data
   const wanChartData = (wanMetrics?.timeseries || []).map((m: any) => ({
     time: new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
     in: m.in_bps / 1e6,
     out: m.out_bps / 1e6,
   }))
 
-  // Top talkers
   const topTalkers = (flowStats?.top_talkers || []).slice(0, 5)
   const maxTalkerBytes = topTalkers.length > 0 ? topTalkers[0].bytes : 1
 
-  // Protocol dist
   const protocolData = (flowStats?.protocol_distribution || []).slice(0, 6).map((p: any) => ({
     name: p.protocol || 'Unknown',
     value: p.bytes || 0,
@@ -248,17 +308,33 @@ export default function NocPage() {
             <Clock size={16} />
             <span>{now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
           </div>
+          <button className="noc-fs-btn" onClick={resetLayout} title="Reset layout">
+            <RotateCcw size={16} />
+          </button>
           <button className="noc-fs-btn" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
             {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </button>
         </div>
       </div>
 
-      {/* ── Main Grid ── */}
-      <div className="noc-grid">
-        {/* ── Column 1: Active Alerts ── */}
-        <div className="noc-card">
-          <div className="noc-card-title">
+      {/* ── Draggable / Resizable Widget Grid ── */}
+      <div ref={containerRef} className="noc-grid-layout">
+      <ResponsiveGridLayout
+        width={containerWidth}
+        layouts={layouts}
+        breakpoints={BREAKPOINTS}
+        cols={COLS}
+        rowHeight={ROW_HEIGHT}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".noc-drag-handle"
+        resizeHandles={['se']}
+        compactType="vertical"
+        margin={[10, 10] as [number, number]}
+        containerPadding={[0, 0] as [number, number]}
+      >
+        {/* ── Alerts ── */}
+        <div key="alerts" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <AlertTriangle size={14} />
             ACTIVE ALERTS
             {openAlerts > 0 && <span className="noc-badge-count">{openAlerts}</span>}
@@ -288,9 +364,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Column 2: Device Status Grid ── */}
-        <div className="noc-card">
-          <div className="noc-card-title">
+        {/* ── Device Status ── */}
+        <div key="devices" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Server size={14} />
             DEVICE STATUS
             <span className="noc-badge-count">{devices?.length ?? 0}</span>
@@ -307,13 +383,10 @@ export default function NocPage() {
                     <div className="noc-metric">
                       <span className="noc-metric-label">CPU</span>
                       <div className="noc-metric-bar">
-                        <div
-                          className="noc-metric-fill"
-                          style={{
-                            width: `${Math.min(d.cpu_usage, 100)}%`,
-                            background: d.cpu_usage > 90 ? '#ef4444' : d.cpu_usage > 75 ? '#f59e0b' : '#22c55e',
-                          }}
-                        />
+                        <div className="noc-metric-fill" style={{
+                          width: `${Math.min(d.cpu_usage, 100)}%`,
+                          background: d.cpu_usage > 90 ? '#ef4444' : d.cpu_usage > 75 ? '#f59e0b' : '#22c55e',
+                        }} />
                       </div>
                       <span className="noc-metric-val">{d.cpu_usage?.toFixed(0)}%</span>
                     </div>
@@ -322,13 +395,10 @@ export default function NocPage() {
                     <div className="noc-metric">
                       <span className="noc-metric-label">MEM</span>
                       <div className="noc-metric-bar">
-                        <div
-                          className="noc-metric-fill"
-                          style={{
-                            width: `${Math.min(d.memory_usage, 100)}%`,
-                            background: d.memory_usage > 90 ? '#ef4444' : d.memory_usage > 75 ? '#f59e0b' : '#22c55e',
-                          }}
-                        />
+                        <div className="noc-metric-fill" style={{
+                          width: `${Math.min(d.memory_usage, 100)}%`,
+                          background: d.memory_usage > 90 ? '#ef4444' : d.memory_usage > 75 ? '#f59e0b' : '#22c55e',
+                        }} />
                       </div>
                       <span className="noc-metric-val">{d.memory_usage?.toFixed(0)}%</span>
                     </div>
@@ -339,9 +409,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Column 3: WAN Throughput ── */}
-        <div className="noc-card">
-          <div className="noc-card-title">
+        {/* ── WAN Throughput ── */}
+        <div key="wan" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Wifi size={14} />
             WAN THROUGHPUT
           </div>
@@ -385,9 +455,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Column 4: Power Consumption ── */}
-        <div className="noc-card">
-          <div className="noc-card-title">
+        {/* ── Power Consumption ── */}
+        <div key="power" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Zap size={14} />
             POWER CONSUMPTION (1H)
             {pduCount > 0 && <span className="noc-badge-count">{pduCount} PDUs</span>}
@@ -398,11 +468,7 @@ export default function NocPage() {
                 <AreaChart data={powerChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis dataKey="time" tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={55}
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} width={55}
                     tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}kW` : `${v}W`}
                   />
                   <Tooltip
@@ -432,9 +498,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Row 2, Column 1: Top Talkers ── */}
-        <div className="noc-card noc-card-bottom">
-          <div className="noc-card-title">
+        {/* ── Top Talkers ── */}
+        <div key="talkers" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Wifi size={14} />
             TOP TALKERS (1H)
           </div>
@@ -456,9 +522,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Row 2, Column 2: Traffic Overview ── */}
-        <div className="noc-card noc-card-bottom">
-          <div className="noc-card-title">
+        {/* ── Traffic Overview ── */}
+        <div key="traffic" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Info size={14} />
             TRAFFIC OVERVIEW (1H)
           </div>
@@ -467,15 +533,7 @@ export default function NocPage() {
               {protocolData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={protocolData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius="55%"
-                      outerRadius="85%"
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
+                    <Pie data={protocolData} cx="50%" cy="50%" innerRadius="55%" outerRadius="85%" paddingAngle={2} dataKey="value">
                       {protocolData.map((_: any, i: number) => (
                         <Cell key={i} fill={PROTO_COLORS[i % PROTO_COLORS.length]} />
                       ))}
@@ -522,9 +580,9 @@ export default function NocPage() {
           </div>
         </div>
 
-        {/* ── Row 2, Column 4: Rack Power ── */}
-        <div className="noc-card noc-card-bottom">
-          <div className="noc-card-title">
+        {/* ── Rack Power ── */}
+        <div key="racks" className="noc-card">
+          <div className="noc-card-title noc-drag-handle">
             <Thermometer size={14} />
             RACK POWER
             {rackCount > 0 && <span className="noc-badge-count">{rackCount}</span>}
@@ -540,22 +598,15 @@ export default function NocPage() {
                     <span className="noc-rack-kw">{rack.total_kw} kW</span>
                   </div>
                   <div className="noc-rack-load-bar">
-                    <div
-                      className="noc-rack-load-fill"
-                      style={{
-                        width: `${Math.min(rack.avg_load_pct, 100)}%`,
-                        background: rack.avg_load_pct >= 90 ? '#ef4444'
-                          : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
-                      }}
-                    />
+                    <div className="noc-rack-load-fill" style={{
+                      width: `${Math.min(rack.avg_load_pct, 100)}%`,
+                      background: rack.avg_load_pct >= 90 ? '#ef4444' : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
+                    }} />
                   </div>
                   <div className="noc-rack-meta">
                     <span className="noc-rack-load-pct" style={{
-                      color: rack.avg_load_pct >= 90 ? '#ef4444'
-                        : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
-                    }}>
-                      {rack.avg_load_pct}%
-                    </span>
+                      color: rack.avg_load_pct >= 90 ? '#ef4444' : rack.avg_load_pct >= 75 ? '#f59e0b' : '#22c55e',
+                    }}>{rack.avg_load_pct}%</span>
                     {rack.max_temperature_c != null && (
                       <span className={`noc-rack-temp ${rack.max_temperature_c > 40 ? 'hot' : ''}`}>
                         <Thermometer size={10} /> {rack.max_temperature_c.toFixed(1)}°C
@@ -568,6 +619,7 @@ export default function NocPage() {
             )}
           </div>
         </div>
+      </ResponsiveGridLayout>
       </div>
     </div>
   )
