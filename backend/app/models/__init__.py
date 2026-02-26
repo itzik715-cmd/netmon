@@ -6,7 +6,7 @@ from app.models.flow import FlowRecord, FlowSummary5m
 from app.models.settings import SystemSetting
 from app.models.config_backup import ConfigBackup, BackupSchedule
 from app.models.owned_subnet import OwnedSubnet
-from app.models.pdu import PduMetric, PduOutlet  # noqa: F401
+from app.models.pdu import PduMetric, PduBank, PduBankMetric, PduOutlet  # noqa: F401
 
 __all__ = [
     "User", "Role", "AuditLog",
@@ -17,5 +17,5 @@ __all__ = [
     "SystemSetting",
     "ConfigBackup", "BackupSchedule",
     "OwnedSubnet",
-    "PduMetric", "PduOutlet",
+    "PduMetric", "PduBank", "PduBankMetric", "PduOutlet",
 ]

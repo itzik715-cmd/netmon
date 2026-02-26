@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { topologyApi } from '../services/api'
+import { topologyApi, pduApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -76,8 +76,9 @@ function statusColor(status: string): string {
   return '#94a3b8'
 }
 
-function deviceTier(type: string): 'spine' | 'firewall' | 'leaf' | 'other' {
+function deviceTier(type: string): 'spine' | 'firewall' | 'leaf' | 'pdu' | 'other' {
   const t = (type || '').toLowerCase()
+  if (t === 'pdu') return 'pdu'
   if (TIER_SPINE.some(k => t.includes(k))) return 'spine'
   if (TIER_FW.some(k => t.includes(k))) return 'firewall'
   if (TIER_LEAF.some(k => t.includes(k))) return 'leaf'
@@ -120,6 +121,7 @@ interface RackDef {
   firewalls: RackSection
   leaves: RackSection
   servers: string[]
+  pduNodes: TopoNode[]
 }
 
 function sectionRows(count: number): number {
@@ -128,7 +130,8 @@ function sectionRows(count: number): number {
 
 function computeRacks(
   nodes: TopoNode[],
-  savedPositions: Record<string, { x: number; y: number }>
+  savedPositions: Record<string, { x: number; y: number }>,
+  outletServerNames?: Record<string, string[]>,
 ): RackDef[] {
   // Group by location
   const groups: Record<string, TopoNode[]> = {}
@@ -147,11 +150,13 @@ function computeRacks(
 
   keys.forEach((key, idx) => {
     const gNodes = groups[key]
+    const pduNodes = gNodes.filter(n => deviceTier(n.device_type) === 'pdu')
     const spineNodes = gNodes.filter(n => deviceTier(n.device_type) === 'spine')
     const fwNodes = gNodes.filter(n => deviceTier(n.device_type) === 'firewall')
     const leafNodes = gNodes.filter(n => ['leaf', 'other'].includes(deviceTier(n.device_type)))
 
-    const servers = seededServers(key)
+    // Use outlet-derived server names if available, otherwise fall back to seeded
+    const servers = outletServerNames?.[key] || seededServers(key)
 
     // Calculate height
     const spineRows = sectionRows(spineNodes.length)
@@ -185,6 +190,7 @@ function computeRacks(
       firewalls: { nodes: fwNodes, rows: fwRows },
       leaves: { nodes: leafNodes, rows: leafRows },
       servers,
+      pduNodes,
     })
   })
 
@@ -258,6 +264,42 @@ export default function TopologyPage() {
     refetchInterval: 60_000,
   })
 
+  const { data: pduData } = useQuery({
+    queryKey: ['pdu-dashboard-topo'],
+    queryFn: () => pduApi.dashboard(1).then(r => r.data),
+    refetchInterval: 60_000,
+  })
+
+  const pduByLocation = useMemo(() => {
+    if (!pduData?.racks) return {} as Record<string, any>
+    const map: Record<string, any> = {}
+    pduData.racks.forEach((r: any) => { map[r.location_name] = r })
+    return map
+  }, [pduData])
+
+  // Derive server names from PDU outlet names
+  const outletServerNames = useMemo(() => {
+    if (!pduData?.racks) return undefined
+    const SERVER_PREFIXES = /^(VM|KV|NAS|ESX|HV|SRV|NODE|PM)/i
+    const result: Record<string, string[]> = {}
+    for (const rack of pduData.racks) {
+      const names = new Set<string>()
+      for (const pdu of rack.pdus) {
+        if (pdu.outlets) {
+          for (const outlet of pdu.outlets) {
+            if (outlet.name && SERVER_PREFIXES.test(outlet.name)) {
+              names.add(outlet.name)
+            }
+          }
+        }
+      }
+      if (names.size > 0) {
+        result[rack.location_name] = Array.from(names).sort()
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined
+  }, [pduData])
+
   const discoverMutation = useMutation({
     mutationFn: () => topologyApi.discover(),
     onSuccess: () => {
@@ -270,8 +312,8 @@ export default function TopologyPage() {
   const edges = data?.edges || []
 
   const racks = useMemo(
-    () => computeRacks(nodes, rackPositions),
-    [nodes, rackPositions]
+    () => computeRacks(nodes, rackPositions, outletServerNames),
+    [nodes, rackPositions, outletServerNames]
   )
 
   const filtered = search
@@ -549,6 +591,15 @@ export default function TopologyPage() {
         <rect x={0} y={RACK_HEADER_H - 8} width={RACK_W} height={8} className="topo-rack-header" />
         <text x={RACK_W / 2} y={RACK_HEADER_H / 2} textAnchor="middle" dominantBaseline="middle" className="topo-rack-header-text">
           {rack.label}
+          {(() => {
+            const rackPower = pduByLocation[rack.label]
+            if (!rackPower) return null
+            const loadPct = rackPower.avg_load_pct || 0
+            const color = loadPct > 80 ? '#ef4444' : loadPct > 60 ? '#f59e0b' : '#22c55e'
+            return (
+              <tspan fill={color} fontSize={9}> — {rackPower.total_kw} kW ({loadPct}%)</tspan>
+            )
+          })()}
         </text>
 
         {/* Footer */}
@@ -565,6 +616,55 @@ export default function TopologyPage() {
 
         {/* Decorative servers */}
         {serverElements}
+
+        {/* PDU strips on sides */}
+        {rack.pduNodes.map((pduNode, pIdx) => {
+          const stripW = 22
+          const stripH = Math.max(rack.height - RACK_HEADER_H - RACK_FOOTER_H - 40, 60)
+          const stripY = RACK_HEADER_H + 20
+          const stripX = pIdx === 0 ? -stripW - 4 : RACK_W + 4
+
+          // Get power data for this PDU
+          const rackPower = pduByLocation[rack.label]
+          const pduInfo = rackPower?.pdus?.find((p: any) => p.device_id === pduNode.id)
+          const loadPct = pduInfo?.load_pct || 0
+          const powerKw = pduInfo ? ((pduInfo.power_watts || 0) / 1000).toFixed(1) : '?'
+          const loadColor = loadPct > 80 ? '#ef4444' : loadPct > 60 ? '#f59e0b' : '#22c55e'
+          const loadH = (loadPct / 100) * (stripH - 30)
+          const pduLabel = pIdx === 0 ? 'PDU-A' : 'PDU-B'
+
+          return (
+            <g
+              key={pduNode.id}
+              transform={`translate(${stripX},${stripY})`}
+              style={{ cursor: 'pointer' }}
+              onClick={e => { e.stopPropagation(); navigate(`/devices/${pduNode.id}`) }}
+            >
+              <rect x={0} y={0} width={stripW} height={stripH} rx={3}
+                fill="#334155" stroke="#475569" strokeWidth={1} />
+              {/* Load bar */}
+              <rect x={6} y={stripH - loadH - 14} width={10} height={loadH} rx={2}
+                fill={loadColor} opacity={0.8} />
+              {/* Label (rotated) */}
+              <text
+                x={stripW / 2} y={14}
+                textAnchor="middle" fontSize={7} fill="#fff" fontWeight={700}
+              >
+                {pduLabel}
+              </text>
+              {/* Power text at bottom */}
+              <text
+                x={stripW / 2} y={stripH - 4}
+                textAnchor="middle" fontSize={7} fill="#94a3b8"
+              >
+                {powerKw}kW
+              </text>
+              {/* Status dot */}
+              <circle cx={stripW / 2} cy={24} r={3}
+                fill={pduNode.status === 'up' ? '#22c55e' : pduNode.status === 'down' ? '#ef4444' : '#94a3b8'} />
+            </g>
+          )
+        })}
       </g>
     )
   }
@@ -654,8 +754,8 @@ export default function TopologyPage() {
       {/* Header */}
       <div className="page-header">
         <div>
-          <h1>Network Topology</h1>
-          <p>Live view of device connectivity — drag racks to rearrange</p>
+          <h1>Datacenter Topology</h1>
+          <p>Live datacenter view — rack layout with PDU power & device connectivity</p>
         </div>
         <div className="flex-row-gap">
           <div className="search-bar">

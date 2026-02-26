@@ -74,9 +74,23 @@ function OutletGrid({
     return <div className="text-muted text-sm" style={{ padding: '8px 0' }}>No outlets discovered</div>
   }
 
+  // Group outlets by bank
+  const bankGroups: Record<string, any[]> = {}
+  outlets.forEach((o: any) => {
+    const key = o.bank_number != null ? `Bank ${o.bank_number}` : 'Unassigned'
+    ;(bankGroups[key] = bankGroups[key] || []).push(o)
+  })
+  const bankKeys = Object.keys(bankGroups).sort()
+
   return (
-    <div className="power-outlet-grid">
-      {outlets.map((o: any) => (
+    <div>
+      {bankKeys.map(bankLabel => (
+        <div key={bankLabel} style={{ marginBottom: '12px' }}>
+          {bankKeys.length > 1 && (
+            <div className="text-muted text-xs font-semibold" style={{ marginBottom: '6px' }}>{bankLabel}</div>
+          )}
+          <div className="power-outlet-grid">
+            {bankGroups[bankLabel].map((o: any) => (
         <div
           key={o.outlet_number}
           className={`power-outlet ${o.state === 'on' ? 'power-outlet--on' : 'power-outlet--off'}`}
@@ -107,6 +121,9 @@ function OutletGrid({
           )}
         </div>
       ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -120,13 +137,13 @@ export default function PowerDashboardPage() {
 
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['pdu-dashboard', hours],
-    queryFn: () => pduApi.dashboard({ hours }).then((r) => r.data),
+    queryFn: () => pduApi.dashboard(hours).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
   const { data: rackDetail } = useQuery({
     queryKey: ['pdu-rack-detail', selectedRack, hours],
-    queryFn: () => pduApi.rackDetail(selectedRack!, { hours }).then((r) => r.data),
+    queryFn: () => pduApi.rackDetail(selectedRack!, hours).then((r) => r.data),
     enabled: selectedRack !== null,
     refetchInterval: 60_000,
   })
@@ -269,9 +286,20 @@ export default function PowerDashboardPage() {
                 <LoadBar pct={rack.avg_load_pct} size="sm" />
                 <div className="power-rack-card__pdus">
                   {rack.pdus.map((p: any) => (
-                    <span key={p.device_id} className={`tag-${p.status === 'up' ? 'green' : 'red'}`} style={{ fontSize: '10px' }}>
-                      {p.hostname}
-                    </span>
+                    <div key={p.device_id} style={{ marginBottom: '4px' }}>
+                      <span className={`tag-${p.status === 'up' ? 'green' : 'red'}`} style={{ fontSize: '10px' }}>
+                        {p.hostname}
+                      </span>
+                      {p.banks && p.banks.length > 0 && (
+                        <div className="bank-row">
+                          {p.banks.map((b: any) => (
+                            <span key={b.bank_number} className="bank-value">
+                              B{b.bank_number}: {b.current_amps?.toFixed(1) ?? '—'}A · {((b.power_watts ?? 0) / 1000).toFixed(2)}kW
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -322,6 +350,22 @@ export default function PowerDashboardPage() {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+
+                {/* Bank breakdown */}
+                {pdu.banks && pdu.banks.length > 0 && (
+                  <div className="power-bank-grid">
+                    {pdu.banks.map((b: any) => (
+                      <div key={b.bank_number} className="power-bank-item">
+                        <span className="font-semibold">{b.name || `Bank ${b.bank_number}`}</span>
+                        <span className="bank-value">{b.current_amps?.toFixed(1) ?? '—'}A</span>
+                        <span className="bank-value">{b.power_watts?.toFixed(0) ?? '—'}W</span>
+                        {b.near_overload_amps != null && (
+                          <span className="text-muted text-xs">OL: {b.overload_amps?.toFixed(0)}A</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
 

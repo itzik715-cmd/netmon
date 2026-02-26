@@ -8,7 +8,7 @@ from sqlalchemy import select, func, desc, extract, text
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
-from app.models.pdu import PduMetric, PduOutlet
+from app.models.pdu import PduMetric, PduBank, PduBankMetric, PduOutlet
 from app.models.device import Device, DeviceLocation
 from app.models.alert import AlertEvent
 from app.models.user import User
@@ -62,12 +62,20 @@ async def pdu_dashboard(
     )).scalars().all()
     latest_by_device = {m.device_id: m for m in latest_rows}
 
-    # 3. Aggregate totals
+    # 3. Get all bank data
+    banks_rows = (await db.execute(
+        select(PduBank).where(PduBank.device_id.in_(device_ids)).order_by(PduBank.device_id, PduBank.bank_number)
+    )).scalars().all()
+    banks_by_device: dict[int, list] = {}
+    for b in banks_rows:
+        banks_by_device.setdefault(b.device_id, []).append(b)
+
+    # 4. Aggregate totals
     total_watts = 0.0
     total_kwh = 0.0
     load_values = []
 
-    # 4. Build rack structure
+    # 5. Build rack structure
     racks_map: dict[int, dict] = {}
     for device, location in pdu_rows:
         loc_id = location.id if location else 0
@@ -80,7 +88,7 @@ async def pdu_dashboard(
                 "total_watts": 0,
                 "total_kw": 0,
                 "avg_load_pct": 0,
-                "temperature_c": None,
+                "max_temperature_c": None,
                 "pdus": [],
                 "_load_values": [],
             }
@@ -89,8 +97,21 @@ async def pdu_dashboard(
         pdu_watts = m.power_watts if m and m.power_watts else 0
         pdu_load = m.load_pct if m and m.load_pct else 0
         pdu_temp = m.temperature_c if m else None
+        pdu_energy = m.energy_kwh if m and m.energy_kwh else 0
 
         racks_map[loc_id]["total_watts"] += pdu_watts
+
+        # Build bank data for this PDU
+        pdu_banks = []
+        for bank in banks_by_device.get(device.id, []):
+            pdu_banks.append({
+                "bank_number": bank.bank_number,
+                "current_amps": bank.current_amps,
+                "power_watts": bank.power_watts,
+                "near_overload_amps": bank.near_overload_amps,
+                "overload_amps": bank.overload_amps,
+            })
+
         racks_map[loc_id]["pdus"].append({
             "device_id": device.id,
             "hostname": device.hostname,
@@ -99,17 +120,20 @@ async def pdu_dashboard(
             "load_pct": pdu_load,
             "status": device.status or "unknown",
             "temperature_c": pdu_temp,
+            "energy_kwh": pdu_energy,
+            "banks": pdu_banks,
         })
         if pdu_load > 0:
             racks_map[loc_id]["_load_values"].append(pdu_load)
 
         total_watts += pdu_watts
-        if m and m.energy_kwh:
-            total_kwh += m.energy_kwh
+        total_kwh += pdu_energy
         if pdu_load > 0:
             load_values.append(pdu_load)
-        if pdu_temp is not None and racks_map[loc_id]["temperature_c"] is None:
-            racks_map[loc_id]["temperature_c"] = pdu_temp
+        if pdu_temp is not None:
+            cur_max = racks_map[loc_id]["max_temperature_c"]
+            if cur_max is None or pdu_temp > cur_max:
+                racks_map[loc_id]["max_temperature_c"] = pdu_temp
 
     # Finalize rack aggregates
     racks = []
@@ -122,7 +146,7 @@ async def pdu_dashboard(
 
     avg_load = round(sum(load_values) / len(load_values), 1) if load_values else 0
 
-    # 5. Active PDU-related alerts count
+    # 6. Active PDU-related alerts count
     alerts_count = 0
     try:
         alerts_row = (await db.execute(
@@ -136,8 +160,10 @@ async def pdu_dashboard(
     except Exception:
         pass
 
-    # 6. Aggregate timeline: sum power_watts per time bucket
-    if hours <= 6:
+    # 7. Aggregate timeline: sum power_watts per time bucket
+    if hours <= 1:
+        bucket_seconds = 60
+    elif hours <= 6:
         bucket_seconds = 300
     elif hours <= 24:
         bucket_seconds = 900
@@ -185,10 +211,10 @@ async def pdu_device_metrics(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Time-series metrics for a specific PDU."""
+    """Time-series metrics for a specific PDU + its banks."""
     since = _time_since(hours)
 
-    # Verify device exists and is a PDU
+    # Verify device exists
     device = (await db.execute(
         select(Device).where(Device.id == device_id)
     )).scalar_one_or_none()
@@ -209,6 +235,29 @@ async def pdu_device_metrics(
         .where(PduMetric.device_id == device_id, PduMetric.timestamp >= since)
         .order_by(PduMetric.timestamp)
     )).scalars().all()
+
+    # Get banks (current state)
+    banks = (await db.execute(
+        select(PduBank)
+        .where(PduBank.device_id == device_id)
+        .order_by(PduBank.bank_number)
+    )).scalars().all()
+
+    # Get bank timeseries
+    bank_metrics = (await db.execute(
+        select(PduBankMetric)
+        .where(PduBankMetric.device_id == device_id, PduBankMetric.timestamp >= since)
+        .order_by(PduBankMetric.bank_number, PduBankMetric.timestamp)
+    )).scalars().all()
+
+    # Group bank metrics by bank_number
+    bank_ts_map: dict[int, list] = {}
+    for bm in bank_metrics:
+        bank_ts_map.setdefault(bm.bank_number, []).append({
+            "timestamp": bm.timestamp.isoformat() if bm.timestamp else None,
+            "current_amps": bm.current_amps,
+            "power_watts": bm.power_watts,
+        })
 
     def _metric_dict(m: PduMetric) -> dict:
         return {
@@ -238,6 +287,18 @@ async def pdu_device_metrics(
         "device_id": device_id,
         "hostname": device.hostname,
         "latest": _metric_dict(latest) if latest else None,
+        "banks": [
+            {
+                "bank_number": b.bank_number,
+                "name": b.name,
+                "current_amps": b.current_amps,
+                "power_watts": b.power_watts,
+                "near_overload_amps": b.near_overload_amps,
+                "overload_amps": b.overload_amps,
+                "timeseries": bank_ts_map.get(b.bank_number, []),
+            }
+            for b in banks
+        ],
         "timeseries": [_metric_dict(m) for m in metrics],
     }
 
@@ -249,22 +310,31 @@ async def pdu_outlets(
     _: User = Depends(get_current_user),
 ):
     """Current outlet states for a specific PDU."""
+    device = (await db.execute(
+        select(Device).where(Device.id == device_id)
+    )).scalar_one_or_none()
+
     outlets = (await db.execute(
         select(PduOutlet)
         .where(PduOutlet.device_id == device_id)
         .order_by(PduOutlet.outlet_number)
     )).scalars().all()
 
-    return [
-        {
-            "outlet_number": o.outlet_number,
-            "name": o.name,
-            "state": o.state,
-            "current_amps": o.current_amps,
-            "power_watts": o.power_watts,
-        }
-        for o in outlets
-    ]
+    return {
+        "device_id": device_id,
+        "hostname": device.hostname if device else "Unknown",
+        "outlets": [
+            {
+                "outlet_number": o.outlet_number,
+                "bank_number": o.bank_number,
+                "name": o.name,
+                "state": o.state,
+                "current_amps": o.current_amps,
+                "power_watts": o.power_watts,
+            }
+            for o in outlets
+        ],
+    }
 
 
 @router.get("/rack/{location_id}")
@@ -308,6 +378,13 @@ async def pdu_rack_detail(
             .order_by(PduMetric.timestamp)
         )).scalars().all()
 
+        # Banks
+        banks = (await db.execute(
+            select(PduBank)
+            .where(PduBank.device_id == device.id)
+            .order_by(PduBank.bank_number)
+        )).scalars().all()
+
         # Outlets
         outlets = (await db.execute(
             select(PduOutlet)
@@ -330,6 +407,7 @@ async def pdu_rack_detail(
                 "phase3_current_amps": m.phase3_current_amps,
                 "phase3_voltage_v": m.phase3_voltage_v,
                 "temperature_c": m.temperature_c,
+                "humidity_pct": m.humidity_pct,
                 "load_pct": m.load_pct,
             }
 
@@ -338,10 +416,22 @@ async def pdu_rack_detail(
             "hostname": device.hostname,
             "ip_address": device.ip_address,
             "latest": _ts_dict(latest) if latest else None,
+            "banks": [
+                {
+                    "bank_number": b.bank_number,
+                    "name": b.name,
+                    "current_amps": b.current_amps,
+                    "power_watts": b.power_watts,
+                    "near_overload_amps": b.near_overload_amps,
+                    "overload_amps": b.overload_amps,
+                }
+                for b in banks
+            ],
             "timeseries": [_ts_dict(m) for m in ts_rows],
             "outlets": [
                 {
                     "outlet_number": o.outlet_number,
+                    "bank_number": o.bank_number,
                     "name": o.name,
                     "state": o.state,
                     "current_amps": o.current_amps,
@@ -384,24 +474,13 @@ async def toggle_outlet(
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     # 3. Determine new state
-    current_state = outlet.state
-    if current_state == "on":
-        new_cmd = 2   # off
-        new_state = "off"
-    else:
-        new_cmd = 1   # on
-        new_state = "on"
+    new_state = "off" if outlet.state == "on" else "on"
 
-    # 4. SNMP SET
-    from app.services.pdu_poller import snmp_set_pdu, OID_PDU2_OUTLET_STATE
-    oid = f"{OID_PDU2_OUTLET_STATE}.{outlet_number}"
-    success = await snmp_set_pdu(device, oid, Integer32(new_cmd))
+    # 4. Toggle via poller helper
+    from app.services.pdu_poller import toggle_pdu_outlet
+    success = await toggle_pdu_outlet(device, outlet_number, new_state, db)
 
     if not success:
         raise HTTPException(status_code=500, detail="SNMP SET failed — outlet may not be switched")
-
-    # 5. Update DB
-    outlet.state = new_state
-    await db.flush()
 
     return {"success": True, "outlet_number": outlet_number, "new_state": new_state}

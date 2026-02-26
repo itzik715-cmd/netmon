@@ -42,12 +42,16 @@ const overviewItems: NavItem[] = [
 
 const networkItems: NavItem[] = [
   { to: '/devices', label: 'Devices', icon: <Server size={16} /> },
-  { to: '/topology', label: 'Topology', icon: <Network size={16} /> },
 ]
 
 const trafficItems: NavItem[] = [
   { to: '/wan', label: 'WAN Dashboard', icon: <Globe size={16} /> },
   { to: '/flows', label: 'Flow Analysis', icon: <Activity size={16} /> },
+]
+
+const powerItems: NavItem[] = [
+  { to: '/power', label: 'Power Dashboard', icon: <Zap size={16} /> },
+  { to: '/power/racks', label: 'Rack Power Detail', icon: <Server size={16} /> },
 ]
 
 const securityItems: NavItem[] = [
@@ -56,7 +60,7 @@ const securityItems: NavItem[] = [
 ]
 
 const operationsItems: NavItem[] = [
-  { to: '/power', label: 'Power', icon: <Zap size={16} /> },
+  { to: '/topology', label: 'Datacenter Topology', icon: <Network size={16} /> },
   { to: '/backups', label: 'Config Backups', icon: <Archive size={16} /> },
   { to: '/reports', label: 'Reports', icon: <FileText size={16} /> },
 ]
@@ -157,6 +161,11 @@ export default function Sidebar() {
         <div className="nav-group">
           <div className="nav-section">Traffic</div>
           {renderItems(trafficItems)}
+        </div>
+
+        <div className="nav-group">
+          <div className="nav-section">Power & Cooling</div>
+          {renderItems(powerItems)}
         </div>
 
         <div className="nav-group">

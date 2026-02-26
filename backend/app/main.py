@@ -18,7 +18,7 @@ from app.routers import auth, users, devices, interfaces, alerts, flows, setting
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
 from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
-from app.models.pdu import PduMetric as _pdu_metric_model, PduOutlet as _pdu_outlet_model  # noqa: F401
+from app.models.pdu import PduMetric as _pdu_metric_model, PduBank as _pdu_bank_model, PduBankMetric as _pdu_bank_metric_model, PduOutlet as _pdu_outlet_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os
@@ -61,26 +61,43 @@ async def scheduled_polling():
     from sqlalchemy import select
     from app.services.snmp_poller import poll_device
 
+    # Regular device polling (excludes PDUs — they have their own poller)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(Device).where(Device.is_active == True, Device.polling_enabled == True)
+            select(Device).where(
+                Device.is_active == True,
+                Device.polling_enabled == True,
+                Device.device_type != "pdu",
+            )
         )
         devices = result.scalars().all()
-
-    if not devices:
-        return
-
-    from app.services.pdu_poller import poll_pdu
 
     for device in devices:
         try:
             async with AsyncSessionLocal() as dev_db:
-                if device.device_type == "pdu":
-                    await poll_pdu(device, dev_db)
-                else:
-                    await poll_device(device, dev_db)
+                await poll_device(device, dev_db)
         except Exception as e:
             logger.warning("Error polling %s: %s", device.hostname, e)
+
+    # === PDU Polling ===
+    from app.services.pdu_poller import poll_pdu
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Device).where(
+                Device.is_active == True,
+                Device.polling_enabled == True,
+                Device.device_type == "pdu",
+            )
+        )
+        pdu_devices = result.scalars().all()
+
+    for pdu_dev in pdu_devices:
+        try:
+            async with AsyncSessionLocal() as pdu_db:
+                await poll_pdu(pdu_dev, pdu_db)
+        except Exception as e:
+            logger.warning("Error polling PDU %s: %s", pdu_dev.hostname, e)
 
 
 async def scheduled_alerts():
@@ -95,22 +112,26 @@ async def scheduled_cleanup():
     from app.database import AsyncSessionLocal
     from app.services.snmp_poller import cleanup_old_metrics
     from sqlalchemy import delete, text
-    from app.models.pdu import PduMetric
+    from app.models.pdu import PduMetric, PduBankMetric
     from datetime import datetime, timedelta, timezone
 
     async with AsyncSessionLocal() as db:
         await cleanup_old_metrics(db)
 
-    # Prune pdu_metrics older than 90 days
+    # Prune pdu_metrics and pdu_bank_metrics older than 90 days
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=90)
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 delete(PduMetric).where(PduMetric.timestamp < cutoff)
             )
+            result2 = await db.execute(
+                delete(PduBankMetric).where(PduBankMetric.timestamp < cutoff)
+            )
             await db.commit()
-            if result.rowcount:
-                logger.info("Cleaned up %d old PDU metrics", result.rowcount)
+            total = (result.rowcount or 0) + (result2.rowcount or 0)
+            if total:
+                logger.info("Cleaned up %d old PDU metrics + %d bank metrics", result.rowcount or 0, result2.rowcount or 0)
     except Exception as e:
         logger.warning("PDU metrics cleanup failed: %s", e)
 
@@ -351,11 +372,40 @@ async def run_migrations():
         for idx_sql in [
             "CREATE INDEX IF NOT EXISTS ix_pdu_metrics_dev_ts ON pdu_metrics (device_id, timestamp DESC)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_pdu_outlets_dev_outlet ON pdu_outlets (device_id, outlet_number)",
+            "CREATE INDEX IF NOT EXISTS ix_pdu_banks_dev_bank ON pdu_banks (device_id, bank_number)",
+            "CREATE INDEX IF NOT EXISTS ix_pdu_bank_metrics_dev_ts ON pdu_bank_metrics (device_id, bank_number, timestamp DESC)",
         ]:
             try:
                 await conn.execute(text(idx_sql))
             except Exception as e:
                 logger.warning("Migration PDU index skipped: %s", e)
+
+    # PDU outlets: add bank_number column if missing
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE pdu_outlets ADD COLUMN IF NOT EXISTS bank_number INTEGER"
+            ))
+        except Exception as e:
+            logger.warning("Migration ALTER pdu_outlets.bank_number skipped: %s", e)
+
+    # PduBank unique constraint
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_pdu_bank_dev_num ON pdu_banks (device_id, bank_number)"
+            ))
+        except Exception as e:
+            logger.warning("Migration PDU bank unique index skipped: %s", e)
+
+    # PduOutlet unique constraint migration (from index to constraint)
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE pdu_outlets ADD CONSTRAINT uq_pdu_outlet_dev_num UNIQUE (device_id, outlet_number)"
+            ))
+        except Exception:
+            pass  # already exists
 
     logger.info("Database migrations applied")
 

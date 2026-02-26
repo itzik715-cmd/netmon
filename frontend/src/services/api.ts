@@ -208,12 +208,14 @@ export const systemEventsApi = {
 
 // PDU Power
 export const pduApi = {
-  dashboard: (params?: { hours?: number }) => api.get('/pdu/dashboard', { params }),
-  deviceMetrics: (deviceId: number, params?: { hours?: number }) =>
-    api.get(`/pdu/device/${deviceId}/metrics`, { params }),
-  outlets: (deviceId: number) => api.get(`/pdu/device/${deviceId}/outlets`),
-  rackDetail: (locationId: number, params?: { hours?: number }) =>
-    api.get(`/pdu/rack/${locationId}`, { params }),
+  dashboard: (hours: number = 1) =>
+    api.get('/pdu/dashboard', { params: { hours } }),
+  deviceMetrics: (deviceId: number, hours: number = 24) =>
+    api.get(`/pdu/device/${deviceId}/metrics`, { params: { hours } }),
+  deviceOutlets: (deviceId: number) =>
+    api.get(`/pdu/device/${deviceId}/outlets`),
+  rackDetail: (locationId: number, hours: number = 24) =>
+    api.get(`/pdu/rack/${locationId}`, { params: { hours } }),
   toggleOutlet: (deviceId: number, outletNumber: number) =>
     api.post(`/pdu/device/${deviceId}/outlet/${outletNumber}/toggle`),
 }

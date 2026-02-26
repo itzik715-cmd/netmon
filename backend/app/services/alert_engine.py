@@ -112,6 +112,31 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
     elif metric.startswith("pdu_"):
         if not rule.device_id:
             return None
+
+        # Bank-level metrics: pdu_bank1_current, pdu_bank2_power, etc.
+        if metric.startswith("pdu_bank"):
+            import re
+            match = re.match(r"pdu_bank(\d+)_(\w+)", metric)
+            if match:
+                from app.models.pdu import PduBank
+                bank_num = int(match.group(1))
+                field = match.group(2)
+                bank_result = await db.execute(
+                    select(PduBank).where(
+                        PduBank.device_id == rule.device_id,
+                        PduBank.bank_number == bank_num,
+                    )
+                )
+                bank = bank_result.scalar_one_or_none()
+                if bank:
+                    bank_map = {
+                        "current": bank.current_amps,
+                        "power": bank.power_watts,
+                    }
+                    return _safe_float(bank_map.get(field))
+            return None
+
+        # Device-level PDU metrics
         from app.models.pdu import PduMetric
         result = await db.execute(
             select(PduMetric)
@@ -122,14 +147,18 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         m = result.scalar_one_or_none()
         if not m:
             return None
-        if metric == "pdu_power_watts":
-            return _safe_float(m.power_watts)
-        elif metric == "pdu_load_pct":
-            return _safe_float(m.load_pct)
-        elif metric == "pdu_temperature_c":
-            return _safe_float(m.temperature_c)
-        elif metric == "pdu_energy_kwh":
-            return _safe_float(m.energy_kwh)
+        pdu_metric_map = {
+            "pdu_power_watts": m.power_watts,
+            "pdu_load_pct": m.load_pct,
+            "pdu_temperature": m.temperature_c,
+            "pdu_temperature_c": m.temperature_c,
+            "pdu_humidity": m.humidity_pct,
+            "pdu_energy_kwh": m.energy_kwh,
+            "pdu_phase1_current": m.phase1_current_amps,
+            "pdu_phase2_current": m.phase2_current_amps,
+            "pdu_phase3_current": m.phase3_current_amps,
+        }
+        return _safe_float(pdu_metric_map.get(metric))
 
     return None
 

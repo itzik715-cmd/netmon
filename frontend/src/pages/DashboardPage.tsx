@@ -82,7 +82,7 @@ export default function DashboardPage() {
 
   const { data: pduDashboard } = useQuery({
     queryKey: ['pdu-dashboard-summary'],
-    queryFn: () => pduApi.dashboard({ hours: 1 }).then((r) => r.data),
+    queryFn: () => pduApi.dashboard(1).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
