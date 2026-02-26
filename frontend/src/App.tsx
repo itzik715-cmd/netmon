@@ -18,6 +18,7 @@ import ReportsPage from './pages/ReportsPage'
 import BackupsPage from './pages/BackupsPage'
 import SystemEventsPage from './pages/SystemEventsPage'
 import WanDashboardPage from './pages/WanDashboardPage'
+import PowerDashboardPage from './pages/PowerDashboardPage'
 import NocPage from './pages/NocPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="flows" element={<FlowsPage />} />
         <Route path="wan" element={<WanDashboardPage />} />
+        <Route path="power" element={<PowerDashboardPage />} />
         <Route path="blocks" element={<BlocksPage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="reports" element={<ReportsPage />} />

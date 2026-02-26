@@ -206,6 +206,18 @@ export const systemEventsApi = {
     api.get('/system-events/', { params }),
 }
 
+// PDU Power
+export const pduApi = {
+  dashboard: (params?: { hours?: number }) => api.get('/pdu/dashboard', { params }),
+  deviceMetrics: (deviceId: number, params?: { hours?: number }) =>
+    api.get(`/pdu/device/${deviceId}/metrics`, { params }),
+  outlets: (deviceId: number) => api.get(`/pdu/device/${deviceId}/outlets`),
+  rackDetail: (locationId: number, params?: { hours?: number }) =>
+    api.get(`/pdu/rack/${locationId}`, { params }),
+  toggleOutlet: (deviceId: number, outletNumber: number) =>
+    api.post(`/pdu/device/${deviceId}/outlet/${outletNumber}/toggle`),
+}
+
 // Server Management
 export const serverMgmtApi = {
   getPorts: () => api.get('/server-mgmt/ports'),

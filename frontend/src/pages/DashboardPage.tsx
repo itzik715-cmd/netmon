@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { devicesApi, alertsApi, blocksApi, interfacesApi } from '../services/api'
+import { devicesApi, alertsApi, blocksApi, interfacesApi, pduApi } from '../services/api'
 import { Link } from 'react-router-dom'
 import { formatDistanceToNow, format } from 'date-fns'
 import { AlertEvent, Device } from '../types'
-import { Server, CheckCircle, ShieldAlert, Ban, AlertTriangle, XCircle, Activity } from 'lucide-react'
+import { Server, CheckCircle, ShieldAlert, Ban, AlertTriangle, XCircle, Activity, Zap } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend, ReferenceLine,
@@ -77,6 +77,12 @@ export default function DashboardPage() {
   const { data: wanData, isLoading: wanLoading } = useQuery({
     queryKey: ['wan-metrics', 24],
     queryFn: () => interfacesApi.wanMetrics({ hours: 24 }).then((r) => r.data),
+    refetchInterval: 60_000,
+  })
+
+  const { data: pduDashboard } = useQuery({
+    queryKey: ['pdu-dashboard-summary'],
+    queryFn: () => pduApi.dashboard({ hours: 1 }).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
@@ -175,6 +181,19 @@ export default function DashboardPage() {
             </div>
           </div>
         </Link>
+
+        {pduDashboard && pduDashboard.pdu_count > 0 && (
+          <Link to="/power" className="stat-card">
+            <div className="stat-icon orange">
+              <Zap size={20} />
+            </div>
+            <div className="stat-body">
+              <div className="stat-label">Total Power</div>
+              <div className="stat-value">{pduDashboard.total_power_kw?.toFixed(1) ?? 0} kW</div>
+              <div className="stat-sub">{pduDashboard.pdu_count} PDUs / {pduDashboard.rack_count} racks</div>
+            </div>
+          </Link>
+        )}
       </div>
 
       {/* Two-column row */}

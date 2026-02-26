@@ -16,6 +16,7 @@ import {
   Terminal,
   Users,
   Settings,
+  Zap,
   ChevronsLeft,
   ChevronsRight,
   LogOut,
@@ -55,6 +56,7 @@ const securityItems: NavItem[] = [
 ]
 
 const operationsItems: NavItem[] = [
+  { to: '/power', label: 'Power', icon: <Zap size={16} /> },
   { to: '/backups', label: 'Config Backups', icon: <Archive size={16} /> },
   { to: '/reports', label: 'Reports', icon: <FileText size={16} /> },
 ]

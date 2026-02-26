@@ -3830,3 +3830,183 @@ body.noc-fullscreen .noc-page {
   50% { opacity: 0.5; }
 }
 .noc-pulse { animation: noc-pulse-anim 2s ease-in-out infinite; }
+
+/* ═══════════════════════════════════════════════════════════
+   POWER DASHBOARD
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Rack cards grid ── */
+.power-rack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.power-rack-card {
+  background: var(--surface-card);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.power-rack-card:hover {
+  border-color: var(--primary-300);
+  box-shadow: var(--shadow-sm);
+}
+.power-rack-card--selected {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.power-rack-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.power-rack-card__name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--neutral-800);
+}
+.power-rack-card__arrow {
+  color: var(--neutral-400);
+  transition: transform var(--transition-fast);
+}
+.power-rack-card--selected .power-rack-card__arrow {
+  transform: rotate(90deg);
+  color: var(--primary-500);
+}
+
+.power-rack-card__stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.power-rack-card__stats > div {
+  display: flex;
+  flex-direction: column;
+}
+.power-rack-card__value {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--neutral-800);
+}
+.power-rack-card__label {
+  font-size: 10px;
+  color: var(--neutral-500);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.power-rack-card__pdus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+/* ── PDU detail section inside rack detail ── */
+.power-pdu-section {
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.power-pdu-section:last-child {
+  margin-bottom: 0;
+}
+.power-pdu-section__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Phase breakdown ── */
+.power-phase-grid {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--neutral-50);
+  border-radius: var(--radius-sm);
+}
+.power-phase-item {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--neutral-700);
+}
+
+/* ── Outlet grid ── */
+.power-outlet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.power-outlet {
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: var(--text-xs);
+  transition: border-color var(--transition-fast);
+}
+.power-outlet--on {
+  border-left: 3px solid var(--success-500);
+}
+.power-outlet--off {
+  border-left: 3px solid var(--neutral-300);
+  opacity: 0.7;
+}
+.power-outlet:hover {
+  border-color: var(--primary-300);
+}
+
+.power-outlet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.power-outlet__num {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--neutral-600);
+}
+.power-outlet__state {
+  font-size: 9px;
+  padding: 1px 6px;
+}
+.power-outlet__name {
+  font-size: 11px;
+  color: var(--neutral-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.power-outlet__metrics {
+  display: flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--neutral-500);
+  margin-bottom: 6px;
+}
+.power-outlet__toggle {
+  width: 100%;
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}

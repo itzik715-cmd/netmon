@@ -14,10 +14,11 @@ from app.extensions import limiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
 from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
+from app.models.pdu import PduMetric as _pdu_metric_model, PduOutlet as _pdu_outlet_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os
@@ -69,10 +70,15 @@ async def scheduled_polling():
     if not devices:
         return
 
+    from app.services.pdu_poller import poll_pdu
+
     for device in devices:
         try:
             async with AsyncSessionLocal() as dev_db:
-                await poll_device(device, dev_db)
+                if device.device_type == "pdu":
+                    await poll_pdu(device, dev_db)
+                else:
+                    await poll_device(device, dev_db)
         except Exception as e:
             logger.warning("Error polling %s: %s", device.hostname, e)
 
@@ -85,11 +91,28 @@ async def scheduled_alerts():
 
 
 async def scheduled_cleanup():
-    """Prune old interface_metrics, device_metric_history, and flow_records."""
+    """Prune old interface_metrics, device_metric_history, flow_records, and pdu_metrics."""
     from app.database import AsyncSessionLocal
     from app.services.snmp_poller import cleanup_old_metrics
+    from sqlalchemy import delete, text
+    from app.models.pdu import PduMetric
+    from datetime import datetime, timedelta, timezone
+
     async with AsyncSessionLocal() as db:
         await cleanup_old_metrics(db)
+
+    # Prune pdu_metrics older than 90 days
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                delete(PduMetric).where(PduMetric.timestamp < cutoff)
+            )
+            await db.commit()
+            if result.rowcount:
+                logger.info("Cleaned up %d old PDU metrics", result.rowcount)
+    except Exception as e:
+        logger.warning("PDU metrics cleanup failed: %s", e)
 
 
 async def scheduled_flow_rollup():
@@ -322,6 +345,17 @@ async def run_migrations():
             ))
         except Exception:
             pass  # already exists
+
+    # PDU tables and indexes
+    async with engine.begin() as conn:
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_pdu_metrics_dev_ts ON pdu_metrics (device_id, timestamp DESC)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_pdu_outlets_dev_outlet ON pdu_outlets (device_id, outlet_number)",
+        ]:
+            try:
+                await conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.warning("Migration PDU index skipped: %s", e)
 
     logger.info("Database migrations applied")
 
@@ -643,6 +677,7 @@ app.include_router(reports.router)
 app.include_router(backups_router.router)
 app.include_router(system_events_router.router)
 app.include_router(server_management.router)
+app.include_router(pdu_router.router)
 
 
 @app.get("/api/health")

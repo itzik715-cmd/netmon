@@ -109,7 +109,39 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         elif metric == "if_errors":
             return float((m.in_errors or 0) + (m.out_errors or 0))
 
+    elif metric.startswith("pdu_"):
+        if not rule.device_id:
+            return None
+        from app.models.pdu import PduMetric
+        result = await db.execute(
+            select(PduMetric)
+            .where(PduMetric.device_id == rule.device_id)
+            .order_by(PduMetric.timestamp.desc())
+            .limit(1)
+        )
+        m = result.scalar_one_or_none()
+        if not m:
+            return None
+        if metric == "pdu_power_watts":
+            return _safe_float(m.power_watts)
+        elif metric == "pdu_load_pct":
+            return _safe_float(m.load_pct)
+        elif metric == "pdu_temperature_c":
+            return _safe_float(m.temperature_c)
+        elif metric == "pdu_energy_kwh":
+            return _safe_float(m.energy_kwh)
+
     return None
+
+
+def _safe_float(val) -> Optional[float]:
+    """Convert to float or return None."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 async def get_all_device_metric_values(metric: str, db: AsyncSession) -> list:
