@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { settingsApi, authApi } from '../services/api'
-import { Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { settingsApi, authApi, serverMgmtApi } from '../services/api'
+import {
+  Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint,
+  Server, Play, Square, RotateCcw, Cpu, HardDrive, Wifi, MemoryStick, Activity,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 
-type Tab = 'ldap' | 'mfa' | 'security'
+type Tab = 'ldap' | 'mfa' | 'security' | 'services' | 'health'
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('ldap')
+  const [tab, setTab] = useState<Tab>('services')
   const [ldapConfig, setLdapConfig] = useState({
     enabled: false, server: '', port: 389, use_ssl: false, base_dn: '', bind_dn: '', bind_password: '',
     user_filter: '(sAMAccountName={username})', group_admin: '', group_operator: '', group_readonly: '', local_fallback: true,
@@ -77,6 +80,14 @@ export default function SettingsPage() {
       </div>
 
       <div className="tab-bar">
+        <button className={`tab-btn${tab === 'services' ? ' active' : ''}`} onClick={() => setTab('services')}>
+          <Server size={13} />
+          Services
+        </button>
+        <button className={`tab-btn${tab === 'health' ? ' active' : ''}`} onClick={() => setTab('health')}>
+          <Activity size={13} />
+          System Health
+        </button>
         <button className={`tab-btn${tab === 'ldap' ? ' active' : ''}`} onClick={() => setTab('ldap')}>
           LDAP / Active Directory
         </button>
@@ -89,6 +100,9 @@ export default function SettingsPage() {
           Security
         </button>
       </div>
+
+      {tab === 'services' && <ServicesPanel />}
+      {tab === 'health' && <SystemHealthPanel />}
 
       {tab === 'ldap' && (
         <div className="card settings-card">
@@ -200,6 +214,205 @@ export default function SettingsPage() {
   )
 }
 
+
+/* ── Helpers ── */
+function formatBytes(b: number): string {
+  if (b >= 1e12) return `${(b / 1e12).toFixed(1)} TB`
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`
+  if (b >= 1e6) return `${(b / 1e6).toFixed(1)} MB`
+  return `${(b / 1e3).toFixed(1)} KB`
+}
+
+function formatUptime(sec: number): string {
+  const d = Math.floor(sec / 86400)
+  const h = Math.floor((sec % 86400) / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  return `${h}h ${m}m`
+}
+
+function statusColor(status: string) {
+  if (status === 'running') return 'svc-status--running'
+  if (status === 'exited' || status === 'dead') return 'svc-status--stopped'
+  if (status === 'restarting') return 'svc-status--restarting'
+  return 'svc-status--unknown'
+}
+
+function pctColor(pct: number): string {
+  if (pct >= 85) return 'var(--danger-500, #ef4444)'
+  if (pct >= 60) return 'var(--warning-500, #f59e0b)'
+  return 'var(--success-500, #22c55e)'
+}
+
+/* ── Services Panel ── */
+function ServicesPanel() {
+  const qc = useQueryClient()
+  const { data: services, isLoading } = useQuery({
+    queryKey: ['admin-services'],
+    queryFn: () => serverMgmtApi.getServices().then(r => r.data),
+    refetchInterval: 10_000,
+  })
+
+  const restartMut = useMutation({
+    mutationFn: (id: string) => serverMgmtApi.restartService(id),
+    onSuccess: (_, id) => { toast.success(`Restarting ${id}...`); setTimeout(() => qc.invalidateQueries({ queryKey: ['admin-services'] }), 3000) },
+    onError: (err: any) => toast.error(err.response?.data?.detail || 'Restart failed'),
+  })
+
+  const stopMut = useMutation({
+    mutationFn: (id: string) => serverMgmtApi.stopService(id),
+    onSuccess: (_, id) => { toast.success(`Stopped ${id}`); qc.invalidateQueries({ queryKey: ['admin-services'] }) },
+    onError: (err: any) => toast.error(err.response?.data?.detail || 'Stop failed'),
+  })
+
+  const startMut = useMutation({
+    mutationFn: (id: string) => serverMgmtApi.startService(id),
+    onSuccess: (_, id) => { toast.success(`Started ${id}`); qc.invalidateQueries({ queryKey: ['admin-services'] }) },
+    onError: (err: any) => toast.error(err.response?.data?.detail || 'Start failed'),
+  })
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header">
+        <Server size={15} />
+        <h3>Platform Services</h3>
+      </div>
+      <div className="card-body">
+        {isLoading ? (
+          <div className="empty-state"><Loader2 size={24} className="animate-spin" /><p>Loading services...</p></div>
+        ) : (
+          <div className="table-wrap">
+            <table className="svc-table">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Status</th>
+                  <th>Container</th>
+                  <th>Port</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(services || []).map((svc: any) => (
+                  <tr key={svc.id}>
+                    <td className="svc-name">{svc.name}</td>
+                    <td>
+                      <span className={`svc-status ${statusColor(svc.status)}`}>
+                        <span className={`status-dot ${svc.status === 'running' ? 'dot-green' : svc.status === 'restarting' ? 'dot-orange' : 'dot-red'}`} />
+                        {svc.status}
+                      </span>
+                    </td>
+                    <td className="mono text-sm text-muted">{svc.container || '—'}</td>
+                    <td className="mono text-sm">{svc.port || '—'}</td>
+                    <td>
+                      {svc.container && (
+                        <div className="svc-actions">
+                          {svc.status === 'running' ? (
+                            <button
+                              className="btn btn-outline btn-sm btn--icon"
+                              title="Stop"
+                              disabled={svc.id === 'backend' || stopMut.isPending}
+                              onClick={() => { if (confirm(`Stop ${svc.name}?`)) stopMut.mutate(svc.id) }}
+                            >
+                              <Square size={12} />
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-outline btn-sm btn--icon"
+                              title="Start"
+                              disabled={startMut.isPending}
+                              onClick={() => startMut.mutate(svc.id)}
+                            >
+                              <Play size={12} />
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-outline btn-sm btn--icon"
+                            title="Restart"
+                            disabled={restartMut.isPending}
+                            onClick={() => { if (confirm(`Restart ${svc.name}?`)) restartMut.mutate(svc.id) }}
+                          >
+                            <RotateCcw size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── System Health Panel ── */
+function SystemHealthPanel() {
+  const { data: health, isLoading } = useQuery({
+    queryKey: ['admin-system-health'],
+    queryFn: () => serverMgmtApi.getSystemHealth().then(r => r.data),
+    refetchInterval: 5_000,
+  })
+
+  if (isLoading || !health) {
+    return (
+      <div className="card settings-card">
+        <div className="card-header"><Activity size={15} /><h3>System Health</h3></div>
+        <div className="card-body"><div className="empty-state"><Loader2 size={24} className="animate-spin" /><p>Loading system metrics...</p></div></div>
+      </div>
+    )
+  }
+
+  const cards = [
+    { label: 'CPU', value: health.cpu_percent, unit: '%', icon: <Cpu size={20} />, sub: `${health.cpu_count} cores` },
+    { label: 'Memory', value: health.memory_percent, unit: '%', icon: <MemoryStick size={20} />, sub: `${formatBytes(health.memory_used)} / ${formatBytes(health.memory_total)}` },
+    { label: 'Disk', value: health.disk_percent, unit: '%', icon: <HardDrive size={20} />, sub: `${formatBytes(health.disk_used)} / ${formatBytes(health.disk_total)}` },
+    { label: 'Network', value: null, unit: '', icon: <Wifi size={20} />, sub: `Sent: ${formatBytes(health.net_bytes_sent)} / Recv: ${formatBytes(health.net_bytes_recv)}` },
+  ]
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header">
+        <Activity size={15} />
+        <h3>System Health</h3>
+        <span className="text-muted text-sm" style={{ marginLeft: 'auto' }}>
+          {health.hostname} — up {formatUptime(health.uptime_seconds)}
+        </span>
+      </div>
+      <div className="card-body">
+        <div className="health-grid">
+          {cards.map((c) => (
+            <div key={c.label} className="health-card">
+              <div className="health-card__icon" style={{ color: c.value != null ? pctColor(c.value) : 'var(--primary-500, #3b82f6)' }}>
+                {c.icon}
+              </div>
+              <div className="health-card__body">
+                <div className="health-card__label">{c.label}</div>
+                {c.value != null ? (
+                  <>
+                    <div className="health-card__value" style={{ color: pctColor(c.value) }}>
+                      {c.value.toFixed(1)}<span className="health-card__unit">{c.unit}</span>
+                    </div>
+                    <div className="health-bar">
+                      <div className="health-bar__fill" style={{ width: `${Math.min(c.value, 100)}%`, background: pctColor(c.value) }} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="health-card__value" style={{ color: 'var(--primary-500, #3b82f6)', fontSize: '16px' }}>
+                    Active
+                  </div>
+                )}
+                <div className="health-card__sub">{c.sub}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function DuoStatusPanel() {
   const [duoConfig, setDuoConfig] = useState({

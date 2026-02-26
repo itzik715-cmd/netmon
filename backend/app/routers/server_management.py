@@ -4,14 +4,19 @@ All endpoints require admin role.
 """
 import logging
 import re
+import json
 import socket
 import http.client
 import smtplib
+import platform
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import psutil
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,23 +116,70 @@ async def save_setting(
         db.add(setting)
 
 
+def _docker_request(method: str, path: str) -> tuple[int, str]:
+    """Send a request to Docker Engine API over the unix socket."""
+    conn = http.client.HTTPConnection("localhost")
+    conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.sock.connect(DOCKER_SOCKET)
+    conn.request(method, path)
+    resp = conn.getresponse()
+    body = resp.read().decode()
+    conn.close()
+    return resp.status, body
+
+
 def _docker_restart(container_name: str, timeout: int = 30) -> bool:
     """Restart a container via Docker Engine API over the unix socket."""
     try:
-        conn = http.client.HTTPConnection("localhost")
-        conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.sock.connect(DOCKER_SOCKET)
-        conn.request("POST", f"/containers/{container_name}/restart?t={timeout}")
-        resp = conn.getresponse()
-        conn.close()
-        if resp.status == 204:
+        status, body = _docker_request("POST", f"/containers/{container_name}/restart?t={timeout}")
+        if status == 204:
             logger.info(f"Container '{container_name}' restarted successfully")
             return True
-        logger.error(f"Docker restart failed for '{container_name}': HTTP {resp.status} {resp.read().decode()}")
+        logger.error(f"Docker restart failed for '{container_name}': HTTP {status} {body}")
         return False
     except Exception as e:
         logger.error(f"Docker restart failed for '{container_name}': {e}")
         return False
+
+
+def _docker_stop(container_name: str, timeout: int = 10) -> bool:
+    """Stop a container via Docker Engine API."""
+    try:
+        status, body = _docker_request("POST", f"/containers/{container_name}/stop?t={timeout}")
+        if status in (204, 304):  # 304 = already stopped
+            logger.info(f"Container '{container_name}' stopped")
+            return True
+        logger.error(f"Docker stop failed for '{container_name}': HTTP {status} {body}")
+        return False
+    except Exception as e:
+        logger.error(f"Docker stop failed for '{container_name}': {e}")
+        return False
+
+
+def _docker_start(container_name: str) -> bool:
+    """Start a container via Docker Engine API."""
+    try:
+        status, body = _docker_request("POST", f"/containers/{container_name}/start")
+        if status in (204, 304):  # 304 = already running
+            logger.info(f"Container '{container_name}' started")
+            return True
+        logger.error(f"Docker start failed for '{container_name}': HTTP {status} {body}")
+        return False
+    except Exception as e:
+        logger.error(f"Docker start failed for '{container_name}': {e}")
+        return False
+
+
+def _docker_container_state(container_name: str) -> Optional[dict]:
+    """Get container state from Docker API. Returns State dict or None."""
+    try:
+        status, body = _docker_request("GET", f"/containers/{container_name}/json")
+        if status == 200:
+            data = json.loads(body)
+            return data.get("State", {})
+        return None
+    except Exception:
+        return None
 
 
 # ── 1. GET /ports ────────────────────────────────────────────────────────────
@@ -325,78 +377,39 @@ async def generate_self_signed(config: SelfSignedConfig):
 
 # ── 6. GET /services ────────────────────────────────────────────────────────
 
+SERVICE_DISPLAY = {
+    "backend":        {"name": "Backend API",      "port": 8000},
+    "db":             {"name": "PostgreSQL",        "port": 5432},
+    "redis":          {"name": "Redis",             "port": 6379},
+    "nginx":          {"name": "Nginx",             "port": 443},
+    "frontend":       {"name": "Frontend",          "port": 80},
+}
+
 
 @router.get("/services", dependencies=[Depends(require_admin())])
 async def get_services(db: AsyncSession = Depends(get_db)):
     services = []
 
-    # Backend (always running if we're handling this request)
-    services.append({
-        "id": "backend",
-        "name": "Backend API",
-        "status": "running",
-        "port": 8000,
-    })
+    for svc_id, container_name in SERVICE_TO_CONTAINER.items():
+        info = SERVICE_DISPLAY.get(svc_id, {"name": svc_id, "port": None})
+        state = _docker_container_state(container_name)
+        if state:
+            docker_status = state.get("Status", "unknown")  # running, exited, restarting, paused, dead
+            started_at = state.get("StartedAt", "")
+        else:
+            docker_status = "unknown"
+            started_at = ""
 
-    # PostgreSQL
-    try:
-        from sqlalchemy import text
-        await db.execute(text("SELECT 1"))
         services.append({
-            "id": "db",
-            "name": "PostgreSQL",
-            "status": "running",
-            "port": 5432,
-        })
-    except Exception:
-        services.append({
-            "id": "db",
-            "name": "PostgreSQL",
-            "status": "error",
-            "port": 5432,
+            "id": svc_id,
+            "name": info["name"],
+            "status": docker_status,
+            "port": info["port"],
+            "container": container_name,
+            "started_at": started_at,
         })
 
-    # Redis
-    try:
-        import redis.asyncio as aioredis
-        from app.config import settings
-        r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-        await r.ping()
-        await r.aclose()
-        services.append({
-            "id": "redis",
-            "name": "Redis",
-            "status": "running",
-            "port": 6379,
-        })
-    except Exception:
-        services.append({
-            "id": "redis",
-            "name": "Redis",
-            "status": "error",
-            "port": 6379,
-        })
-
-    # Nginx
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get("http://nginx:80/")
-            services.append({
-                "id": "nginx",
-                "name": "Nginx",
-                "status": "running" if resp.status_code < 500 else "error",
-                "port": 443,
-            })
-    except Exception:
-        services.append({
-            "id": "nginx",
-            "name": "Nginx",
-            "status": "error",
-            "port": 443,
-        })
-
-    # Flow Collector (check if the background task is running)
+    # Flow Collector (in-process, not a separate container)
     try:
         from app.services.flow_collector import collector_running
         services.append({
@@ -404,6 +417,8 @@ async def get_services(db: AsyncSession = Depends(get_db)):
             "name": "Flow Collector",
             "status": "running" if collector_running() else "stopped",
             "port": "2055/6343",
+            "container": None,
+            "started_at": "",
         })
     except Exception:
         services.append({
@@ -411,6 +426,8 @@ async def get_services(db: AsyncSession = Depends(get_db)):
             "name": "Flow Collector",
             "status": "unknown",
             "port": "2055/6343",
+            "container": None,
+            "started_at": "",
         })
 
     return services
@@ -430,8 +447,6 @@ async def restart_service(service_id: str):
     if not Path(DOCKER_SOCKET).exists():
         raise HTTPException(status_code=500, detail="Docker socket not available")
 
-    # Restart after a short delay so the HTTP response can be sent first.
-    # This is critical for nginx/backend since they proxy this very request.
     async def _delayed_restart():
         await asyncio.sleep(1)
         _docker_restart(container_name)
@@ -441,6 +456,76 @@ async def restart_service(service_id: str):
     return {
         "message": f"Service '{service_id}' restart initiated",
         "warning": "Backend restart will disconnect your session" if service_id == "backend" else None,
+    }
+
+
+# ── 7b. POST /services/{service_id}/stop ──────────────────────────────────
+
+
+@router.post("/services/{service_id}/stop", dependencies=[Depends(require_admin())])
+async def stop_service(service_id: str):
+    if service_id == "backend":
+        raise HTTPException(status_code=400, detail="Cannot stop the backend — it serves this API")
+
+    container_name = SERVICE_TO_CONTAINER.get(service_id)
+    if not container_name:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {service_id}")
+
+    if not Path(DOCKER_SOCKET).exists():
+        raise HTTPException(status_code=500, detail="Docker socket not available")
+
+    ok = _docker_stop(container_name)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to stop '{service_id}'")
+
+    return {"message": f"Service '{service_id}' stopped"}
+
+
+# ── 7c. POST /services/{service_id}/start ─────────────────────────────────
+
+
+@router.post("/services/{service_id}/start", dependencies=[Depends(require_admin())])
+async def start_service(service_id: str):
+    container_name = SERVICE_TO_CONTAINER.get(service_id)
+    if not container_name:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {service_id}")
+
+    if not Path(DOCKER_SOCKET).exists():
+        raise HTTPException(status_code=500, detail="Docker socket not available")
+
+    ok = _docker_start(container_name)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to start '{service_id}'")
+
+    return {"message": f"Service '{service_id}' started"}
+
+
+# ── 7d. GET /system-health ─────────────────────────────────────────────────
+
+
+@router.get("/system-health", dependencies=[Depends(require_admin())])
+async def get_system_health():
+    cpu_pct = psutil.cpu_percent(interval=0.5)
+    cpu_count = psutil.cpu_count() or 1
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    net = psutil.net_io_counters()
+    boot = psutil.boot_time()
+    uptime_sec = int(time.time() - boot)
+
+    return {
+        "hostname": platform.node(),
+        "uptime_seconds": uptime_sec,
+        "cpu_percent": round(cpu_pct, 1),
+        "cpu_count": cpu_count,
+        "memory_total": mem.total,
+        "memory_used": mem.used,
+        "memory_percent": round(mem.percent, 1),
+        "disk_total": disk.total,
+        "disk_used": disk.used,
+        "disk_percent": round(disk.percent, 1),
+        "net_bytes_sent": net.bytes_sent,
+        "net_bytes_recv": net.bytes_recv,
     }
 
 
