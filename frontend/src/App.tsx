@@ -18,6 +18,7 @@ import ReportsPage from './pages/ReportsPage'
 import BackupsPage from './pages/BackupsPage'
 import SystemEventsPage from './pages/SystemEventsPage'
 import WanDashboardPage from './pages/WanDashboardPage'
+import NocPage from './pages/NocPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore()
@@ -56,6 +57,7 @@ export default function App() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="noc" element={<NocPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="devices/:id" element={<DeviceDetailPage />} />
         <Route path="interfaces/:id" element={<InterfaceDetailPage />} />

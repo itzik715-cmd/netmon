@@ -123,11 +123,12 @@ export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),
   conversations: (params?: object) => api.get('/flows/conversations', { params }),
   ipProfile: (ip: string, params?: object) => api.get('/flows/ip-profile', { params: { ip, ...params } }),
-  peerDetail: (src: string, dst: string, params?: object) => api.get('/flows/peer-detail', { params: { src_ip: src, dst_ip: dst, ...params } }),
   ownedSubnets: () => api.get('/flows/owned-subnets'),
-  createOwnedSubnet: (data: object) => api.post('/flows/owned-subnets', data),
-  toggleOwnedSubnet: (data: object) => api.post('/flows/owned-subnets/toggle', data),
+  createOwnedSubnet: (data: { subnet: string; note?: string }) => api.post('/flows/owned-subnets', data),
+  toggleOwnedSubnet: (data: { subnet: string; is_active: boolean }) => api.post('/flows/owned-subnets/toggle', data),
   deleteOwnedSubnet: (id: number) => api.delete(`/flows/owned-subnets/${id}`),
+  peerDetail: (ip: string, peer: string, params?: object) =>
+    api.get('/flows/peer-detail', { params: { ip, peer, ...params } }),
 }
 
 // Users

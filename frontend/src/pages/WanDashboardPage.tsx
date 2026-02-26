@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
-import { interfacesApi } from '../services/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { interfacesApi, flowsApi } from '../services/api'
+import { OwnedSubnet } from '../types'
 import { Link } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
@@ -7,7 +8,8 @@ import {
   ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { format } from 'date-fns'
-import { Globe, Activity, Calendar } from 'lucide-react'
+import { Globe, Activity, Calendar, Network, Plus, Trash2, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -107,6 +109,7 @@ function CustomRangePicker({
 
 export default function WanDashboardPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 24 })
+  const queryClient = useQueryClient()
 
   const trParams = timeRange.mode === 'preset'
     ? { hours: timeRange.hours }
@@ -121,6 +124,36 @@ export default function WanDashboardPage() {
     queryKey: ['wan-metrics', trParams],
     queryFn: () => interfacesApi.wanMetrics(trParams).then((r) => r.data),
     refetchInterval: 60_000,
+  })
+
+  // Owned subnets
+  const { data: ownedSubnets = [], isLoading: subnetsLoading } = useQuery<OwnedSubnet[]>({
+    queryKey: ['owned-subnets'],
+    queryFn: () => flowsApi.ownedSubnets().then((r) => r.data),
+  })
+
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newSubnet, setNewSubnet] = useState('')
+  const [newNote, setNewNote] = useState('')
+
+  const toggleMutation = useMutation({
+    mutationFn: (data: { subnet: string; is_active: boolean }) => flowsApi.toggleOwnedSubnet(data),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Subnet updated') },
+    onError: () => toast.error('Failed to update subnet'),
+  })
+  const createMutation = useMutation({
+    mutationFn: (data: { subnet: string; note?: string }) => flowsApi.createOwnedSubnet(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['owned-subnets'] })
+      toast.success('Subnet added')
+      setNewSubnet(''); setNewNote(''); setShowAddForm(false)
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || 'Failed to add subnet'),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => flowsApi.deleteOwnedSubnet(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Subnet deleted') },
+    onError: () => toast.error('Failed to delete subnet'),
   })
 
   const p95In = wanData?.p95_in_bps || 0
@@ -267,26 +300,60 @@ export default function WanDashboardPage() {
           ) : (
             <table>
                 <thead>
-                  <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Status</th></tr>
+                  <tr><th>Interface</th><th>Device</th><th>Speed</th><th>Utilization</th><th>Status</th></tr>
                 </thead>
                 <tbody>
-                  {wanList.map((w: any) => (
-                    <tr key={w.id}>
-                      <td>
-                        <Link to={`/interfaces/${w.id}`} className="link-primary font-semibold">
-                          {w.name}
-                        </Link>
-                        {w.alias && <span className="text-muted text-sm ml-2">{w.alias}</span>}
-                      </td>
-                      <td>{w.device_hostname || `Device #${w.device_id}`}</td>
-                      <td>{w.speed ? formatBps(w.speed) : '-'}</td>
-                      <td>
-                        <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
-                          {w.oper_status || 'unknown'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {wanList.map((w: any) => {
+                    const utilIn = w.utilization_in ?? 0
+                    const utilOut = w.utilization_out ?? 0
+                    const maxUtil = Math.max(utilIn, utilOut)
+                    const utilColor = maxUtil >= 90 ? '#ef4444' : maxUtil >= 75 ? '#f59e0b' : '#22c55e'
+                    const utilBg = maxUtil >= 90 ? '#fef2f2' : maxUtil >= 75 ? '#fffbeb' : '#f0fdf4'
+                    return (
+                      <tr key={w.id}>
+                        <td>
+                          <Link to={`/interfaces/${w.id}`} className="link-primary font-semibold">
+                            {w.name}
+                          </Link>
+                          {w.alias && <span className="text-muted text-sm ml-2">{w.alias}</span>}
+                        </td>
+                        <td>{w.device_hostname || `Device #${w.device_id}`}</td>
+                        <td>{w.speed ? formatBps(w.speed) : '-'}</td>
+                        <td style={{ minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              flex: 1, height: '18px', background: utilBg,
+                              borderRadius: '4px', overflow: 'hidden', position: 'relative',
+                              border: `1px solid ${utilColor}22`,
+                            }}>
+                              <div style={{
+                                width: `${Math.min(maxUtil, 100)}%`, height: '100%',
+                                background: utilColor, borderRadius: '3px',
+                                transition: 'width 0.3s ease',
+                              }} />
+                              <span style={{
+                                position: 'absolute', top: '50%', left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                fontSize: '10px', fontWeight: 700,
+                                color: maxUtil > 50 ? '#fff' : utilColor,
+                                textShadow: maxUtil > 50 ? '0 0 2px rgba(0,0,0,0.3)' : 'none',
+                              }}>
+                                {maxUtil.toFixed(1)}%
+                              </span>
+                            </div>
+                            <span className="mono text-muted" style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                              {w.in_bps ? formatBps(w.in_bps) : ''}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={w.oper_status === 'up' ? 'tag-green' : 'tag-red'}>
+                            {w.oper_status || 'unknown'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
           )}
@@ -364,6 +431,93 @@ export default function WanDashboardPage() {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Owned Subnets management */}
+      <div className="card">
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Network size={15} />
+          <h3 style={{ flex: 1 }}>Owned Subnets</h3>
+          <span className="text-muted text-sm">
+            {ownedSubnets.filter((s) => s.is_active).length} active / {ownedSubnets.length} total
+          </span>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
+            <Plus size={12} /> Add Subnet
+          </button>
+        </div>
+        {showAddForm && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: '8px', alignItems: 'end' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">CIDR</label>
+              <input className="form-input" placeholder="e.g. 203.0.113.0/24" value={newSubnet} onChange={(e) => setNewSubnet(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label">Note (optional)</label>
+              <input className="form-input" placeholder="Description" value={newNote} onChange={(e) => setNewNote(e.target.value)} />
+            </div>
+            <button className="btn btn-primary btn-sm" disabled={!newSubnet.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate({ subnet: newSubnet.trim(), note: newNote.trim() || undefined })}>
+              {createMutation.isPending ? 'Adding...' : 'Add'}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => { setShowAddForm(false); setNewSubnet(''); setNewNote('') }}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
+        <div className="table-wrap">
+          {subnetsLoading ? (
+            <div className="empty-state"><p>Loading subnets...</p></div>
+          ) : ownedSubnets.length === 0 ? (
+            <div className="empty-state"><p>No owned subnets found. Discover routes on your Spine devices first.</p></div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Subnet</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Note</th>
+                  <th style={{ width: '60px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {ownedSubnets.map((s: OwnedSubnet) => (
+                  <tr key={s.subnet} style={{ opacity: s.is_active ? 1 : 0.45 }}>
+                    <td className="mono font-semibold">{s.subnet}</td>
+                    <td>
+                      {s.source === 'learned'
+                        ? <span className="text-muted text-sm">{s.source_devices.join(', ')}</span>
+                        : <span className="tag-blue">Manual</span>
+                      }
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          fontSize: '11px', padding: '2px 10px', minWidth: '75px',
+                          color: s.is_active ? 'var(--success-600)' : 'var(--text-muted)',
+                          borderColor: s.is_active ? 'var(--success-400)' : 'var(--border)',
+                        }}
+                        onClick={() => toggleMutation.mutate({ subnet: s.subnet, is_active: !s.is_active })}
+                        disabled={toggleMutation.isPending}
+                      >
+                        {s.is_active ? 'Active' : 'Ignored'}
+                      </button>
+                    </td>
+                    <td className="text-muted text-sm">{s.note || '\u2014'}</td>
+                    <td>
+                      {s.source === 'manual' && s.id && (
+                        <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteMutation.mutate(s.id!) }}>
+                          <Trash2 size={14} color="#ef4444" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>

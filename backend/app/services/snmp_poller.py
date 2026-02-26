@@ -802,11 +802,21 @@ async def cleanup_old_metrics(db: AsyncSession) -> None:
         )
         flow_deleted = result.rowcount
 
+        # flow_summary_5m — keep same retention as flow_records
+        try:
+            result = await db.execute(
+                text("DELETE FROM flow_summary_5m WHERE bucket < :cutoff"),
+                {"cutoff": flow_cutoff},
+            )
+            summary_deleted = result.rowcount
+        except Exception:
+            summary_deleted = 0
+
         await db.commit()
         logger.info(
             "Metrics cleanup: removed %d interface metrics, %d device metrics, "
-            "%d flow records (cutoff: %dd / %dd)",
-            im_deleted, dmh_deleted, flow_deleted, metric_days, flow_days,
+            "%d flow records, %d flow summaries (cutoff: %dd / %dd)",
+            im_deleted, dmh_deleted, flow_deleted, summary_deleted, metric_days, flow_days,
         )
     except Exception as e:
         logger.warning("Metrics cleanup error: %s", e)

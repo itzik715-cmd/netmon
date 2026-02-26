@@ -106,10 +106,8 @@ export default function LoginPage() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-logo">
-            <div className="auth-logo-icon">
-              <Shield size={28} color="white" />
-            </div>
-            <h1 className="auth-title">NMP</h1>
+            <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+            <h1 className="auth-title">CWM</h1>
             <p className="auth-subtitle">Completing MFA verification...</p>
           </div>
           <div className="duo-loading">
@@ -125,11 +123,9 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <div className="auth-logo-icon">
-            <Monitor size={28} color="white" />
-          </div>
-          <h1 className="auth-title">NMP</h1>
-          <p className="auth-subtitle">Network Monitoring Platform</p>
+          <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+          <h1 className="auth-title">CWM</h1>
+          <p className="auth-subtitle">Network Monitor</p>
         </div>
 
         {error && (
@@ -185,7 +181,7 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <p className="auth-subtitle">Secure Network Monitoring — NMP</p>
+        <p className="auth-subtitle">Secure Network Monitoring — CWM</p>
       </div>
     </div>
   )
