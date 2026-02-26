@@ -308,8 +308,20 @@ async def poll_pdu_outlets(device: Device, db: AsyncSession, engine: SnmpEngine,
         state_raw = await snmp_get(device, f"{state_oid}.{outlet_num}", engine)
         if state_raw is None:
             break  # No more outlets
+        # Stop on "No Such Instance" responses (SNMP returns string error)
+        state_str = str(state_raw)
+        if "No Such" in state_str or "noSuch" in state_str:
+            break
 
-        state = "on" if str(state_raw) == "1" else "off" if str(state_raw) == "2" else "unknown"
+        # APC rPDU2 outlet states: 1=on, 2=off
+        # State 3+ can occur on metered-only (non-switchable) outlets — treat as "on"
+        if state_str == "1":
+            state = "on"
+        elif state_str == "2":
+            state = "off"
+        else:
+            # State 3+ : metered outlet (always on, not switchable)
+            state = "on"
 
         current_raw = None
         power_raw = None
@@ -328,12 +340,19 @@ async def poll_pdu_outlets(device: Device, db: AsyncSession, engine: SnmpEngine,
         bank_number = None
         if bank_raw is not None:
             try:
-                bank_number = int(bank_raw)
+                bv = int(bank_raw)
+                if bv > 0:
+                    bank_number = bv
             except (ValueError, TypeError):
                 pass
 
         name_raw = await snmp_get(device, f"{name_oid}.{outlet_num}", engine)
-        name = str(name_raw) if name_raw else f"Outlet {outlet_num}"
+        name_str = str(name_raw) if name_raw else ""
+        # Skip invalid SNMP responses as names
+        if "No Such" in name_str or not name_str:
+            name = f"Outlet {outlet_num}"
+        else:
+            name = name_str
 
         # Upsert
         stmt = pg_insert(PduOutlet).values(
