@@ -49,8 +49,10 @@ OID_PDU2_OUTLET_POWER    = "1.3.6.1.4.1.318.1.1.26.9.2.2.1.7"  # Watts
 OID_PDU2_OUTLET_BANK     = "1.3.6.1.4.1.318.1.1.26.9.2.1.1.6"  # Bank assignment
 
 # Temperature/humidity sensor  (rPDU2SensorTempHumidityStatusEntry  .26.10.2.2.1)
+OID_PDU2_TEMP_STATUS     = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.5"  # 1=ok, 2=not present (col 5)
 OID_PDU2_TEMP            = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.8"  # °C × 10  (col 8)
-OID_PDU2_HUMIDITY        = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.9"  # % × 10   (col 9) — may be absent
+OID_PDU2_HUMID_STATUS    = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.6"  # 1=ok, 2=not present (col 6)
+OID_PDU2_HUMIDITY        = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.9"  # % × 10   (col 9)
 
 # ═══ APC rPDU Gen1 fallback OIDs ═══
 OID_PDU1_POWER           = "1.3.6.1.4.1.318.1.1.12.1.16.0"      # rPDUIdentDevicePowerWatts
@@ -148,16 +150,23 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
             apparent_power_va = total_va
             power_factor = power_watts / total_va if power_watts else None
 
-    # 6. Get temperature and humidity
-    temp_raw = await snmp_get(device, f"{OID_PDU2_TEMP}.1", engine) if is_gen2 else None
-    temperature = _safe_float(temp_raw)
-    if temperature is not None:
-        temperature /= 10.0  # °C × 10
+    # 6. Get temperature and humidity (check sensor status first)
+    temperature = None
+    humidity = None
+    if is_gen2:
+        temp_status = await snmp_get(device, f"{OID_PDU2_TEMP_STATUS}.1", engine)
+        if str(temp_status) == "1":  # 1 = sensor ok
+            temp_raw = await snmp_get(device, f"{OID_PDU2_TEMP}.1", engine)
+            temperature = _safe_float(temp_raw)
+            if temperature is not None:
+                temperature /= 10.0  # °C × 10
 
-    humidity_raw = await snmp_get(device, f"{OID_PDU2_HUMIDITY}.1", engine) if is_gen2 else None
-    humidity = _safe_float(humidity_raw)
-    if humidity is not None:
-        humidity /= 10.0  # % × 10
+        humid_status = await snmp_get(device, f"{OID_PDU2_HUMID_STATUS}.1", engine)
+        if str(humid_status) == "1":  # 1 = sensor ok
+            humidity_raw = await snmp_get(device, f"{OID_PDU2_HUMIDITY}.1", engine)
+            humidity = _safe_float(humidity_raw)
+            if humidity is not None:
+                humidity /= 10.0  # % × 10
 
     # 7. Get overload thresholds from phase config (Amps × 10)
     # Convert to Watts using average voltage for rated power calculation
