@@ -3490,11 +3490,15 @@ body.noc-fullscreen .noc-page {
 /* ── Main Grid ── */
 .noc-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
-  grid-template-rows: 1fr auto;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: minmax(0, auto);
   gap: 10px;
   flex: 1;
   min-height: 0;
+}
+/* Row 1 cards get a max height so charts don't stretch forever */
+.noc-grid > .noc-card:nth-child(-n+4) {
+  max-height: min(50vh, 420px);
 }
 .noc-card {
   background: #1e293b;
@@ -3506,8 +3510,9 @@ body.noc-fullscreen .noc-page {
   min-height: 0;
 }
 .noc-card-bottom {
-  /* Bottom row spans */
+  /* Bottom row */
 }
+/* Row 2 spans */
 .noc-grid > .noc-card:nth-child(5) {
   grid-column: 1 / 2;
 }
@@ -3516,6 +3521,34 @@ body.noc-fullscreen .noc-page {
 }
 .noc-grid > .noc-card:nth-child(7) {
   grid-column: 4 / 5;
+}
+/* ── Responsive: 2-column on narrower screens ── */
+@media (max-width: 1400px) {
+  .noc-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .noc-grid > .noc-card:nth-child(-n+4) {
+    max-height: min(45vh, 380px);
+  }
+  .noc-grid > .noc-card:nth-child(5) { grid-column: 1 / 2; }
+  .noc-grid > .noc-card:nth-child(6) { grid-column: 2 / 3; }
+  .noc-grid > .noc-card:nth-child(7) { grid-column: 1 / 3; }
+}
+/* ── Responsive: single column on small screens ── */
+@media (max-width: 900px) {
+  .noc-grid {
+    grid-template-columns: 1fr;
+  }
+  .noc-grid > .noc-card:nth-child(-n+4) {
+    max-height: min(50vh, 360px);
+  }
+  .noc-grid > .noc-card:nth-child(5),
+  .noc-grid > .noc-card:nth-child(6),
+  .noc-grid > .noc-card:nth-child(7) {
+    grid-column: 1 / -1;
+  }
+  .noc-strip { flex-wrap: wrap; gap: 8px; }
+  .noc-strip-left { flex-wrap: wrap; gap: 10px; }
 }
 
 .noc-card-title {
@@ -3668,14 +3701,15 @@ body.noc-fullscreen .noc-page {
 /* ── WAN Chart ── */
 .noc-wan-chart {
   flex: 1;
-  min-height: 120px;
+  min-height: 100px;
+  max-height: 200px;
   padding: 4px;
 }
 .noc-wan-bars {
   border-top: 1px solid #334155;
   padding: 6px 12px;
-  max-height: 120px;
   overflow-y: auto;
+  flex-shrink: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3860,7 +3894,8 @@ body.noc-fullscreen .noc-page {
 /* ── NOC Power Chart ── */
 .noc-power-chart {
   flex: 1;
-  min-height: 120px;
+  min-height: 100px;
+  max-height: 200px;
   padding: 4px;
 }
 .noc-power-summary {
