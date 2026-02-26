@@ -112,6 +112,13 @@ async def pdu_dashboard(
                 "overload_amps": bank.overload_amps,
             })
 
+        # Get outlets for this PDU (needed for topology server derivation)
+        pdu_outlets = (await db.execute(
+            select(PduOutlet)
+            .where(PduOutlet.device_id == device.id)
+            .order_by(PduOutlet.outlet_number)
+        )).scalars().all()
+
         racks_map[loc_id]["pdus"].append({
             "device_id": device.id,
             "hostname": device.hostname,
@@ -122,6 +129,10 @@ async def pdu_dashboard(
             "temperature_c": pdu_temp,
             "energy_kwh": pdu_energy,
             "banks": pdu_banks,
+            "outlets": [
+                {"outlet_number": o.outlet_number, "name": o.name, "state": o.state}
+                for o in pdu_outlets
+            ],
         })
         if pdu_load > 0:
             racks_map[loc_id]["_load_values"].append(pdu_load)
