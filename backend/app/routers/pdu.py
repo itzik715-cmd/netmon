@@ -119,6 +119,21 @@ async def pdu_dashboard(
             .order_by(PduOutlet.outlet_number)
         )).scalars().all()
 
+        # Build phase data for this PDU
+        pdu_phases = []
+        if m:
+            for ph in [1, 2, 3]:
+                c = getattr(m, f"phase{ph}_current_amps", None)
+                v = getattr(m, f"phase{ph}_voltage_v", None)
+                p = getattr(m, f"phase{ph}_power_watts", None)
+                if c is not None:
+                    pdu_phases.append({
+                        "phase": ph,
+                        "current_amps": c,
+                        "voltage_v": v,
+                        "power_watts": p,
+                    })
+
         racks_map[loc_id]["pdus"].append({
             "device_id": device.id,
             "hostname": device.hostname,
@@ -129,6 +144,7 @@ async def pdu_dashboard(
             "temperature_c": pdu_temp,
             "energy_kwh": pdu_energy,
             "banks": pdu_banks,
+            "phases": pdu_phases,
             "outlets": [
                 {"outlet_number": o.outlet_number, "name": o.name, "state": o.state}
                 for o in pdu_outlets

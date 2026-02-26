@@ -285,12 +285,62 @@ export default function PowerDashboardPage() {
                 </div>
                 <LoadBar pct={rack.avg_load_pct} size="sm" />
                 <div className="power-rack-card__pdus">
+                  {/* Combined totals row */}
+                  {(() => {
+                    const hasBanks = rack.pdus.some((p: any) => p.banks?.length > 0)
+                    const hasPhases = rack.pdus.some((p: any) => p.phases?.length > 0)
+                    if (hasBanks) {
+                      // Aggregate banks across PDUs
+                      const bankTotals: Record<number, { current: number; power: number }> = {}
+                      rack.pdus.forEach((p: any) =>
+                        (p.banks || []).forEach((b: any) => {
+                          if (!bankTotals[b.bank_number]) bankTotals[b.bank_number] = { current: 0, power: 0 }
+                          bankTotals[b.bank_number].current += b.current_amps ?? 0
+                          bankTotals[b.bank_number].power += b.power_watts ?? 0
+                        })
+                      )
+                      const nums = Object.keys(bankTotals).map(Number).sort((a, b) => a - b)
+                      if (nums.length > 0) return (
+                        <div className="rack-totals-row">
+                          <span className="rack-totals-label">TOTAL</span>
+                          {nums.map(n => (
+                            <span key={n} className="bank-value">
+                              B{n}: {bankTotals[n].current.toFixed(1)}A · {(bankTotals[n].power / 1000).toFixed(2)}kW
+                            </span>
+                          ))}
+                        </div>
+                      )
+                    } else if (hasPhases) {
+                      // Aggregate phases across PDUs
+                      const phaseTotals: Record<number, { current: number; power: number }> = {}
+                      rack.pdus.forEach((p: any) =>
+                        (p.phases || []).forEach((ph: any) => {
+                          if (!phaseTotals[ph.phase]) phaseTotals[ph.phase] = { current: 0, power: 0 }
+                          phaseTotals[ph.phase].current += ph.current_amps ?? 0
+                          phaseTotals[ph.phase].power += ph.power_watts ?? 0
+                        })
+                      )
+                      const nums = Object.keys(phaseTotals).map(Number).sort((a, b) => a - b)
+                      if (nums.length > 0) return (
+                        <div className="rack-totals-row">
+                          <span className="rack-totals-label">TOTAL</span>
+                          {nums.map(n => (
+                            <span key={n} className="bank-value">
+                              L{n}: {phaseTotals[n].current.toFixed(1)}A · {(phaseTotals[n].power / 1000).toFixed(2)}kW
+                            </span>
+                          ))}
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+                  {/* Per-PDU rows */}
                   {rack.pdus.map((p: any) => (
                     <div key={p.device_id} style={{ marginBottom: '4px' }}>
                       <span className={`tag-${p.status === 'up' ? 'green' : 'red'}`} style={{ fontSize: '10px' }}>
                         {p.hostname}
                       </span>
-                      {p.banks && p.banks.length > 0 && (
+                      {p.banks && p.banks.length > 0 ? (
                         <div className="bank-row">
                           {p.banks.map((b: any) => (
                             <span key={b.bank_number} className="bank-value">
@@ -298,7 +348,15 @@ export default function PowerDashboardPage() {
                             </span>
                           ))}
                         </div>
-                      )}
+                      ) : p.phases && p.phases.length > 0 ? (
+                        <div className="bank-row">
+                          {p.phases.map((ph: any) => (
+                            <span key={ph.phase} className="bank-value">
+                              L{ph.phase}: {ph.current_amps?.toFixed(1) ?? '—'}A · {((ph.power_watts ?? 0) / 1000).toFixed(2)}kW
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

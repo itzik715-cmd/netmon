@@ -4147,6 +4147,27 @@ body.noc-fullscreen .noc-page {
   font-size: 10px;
   color: var(--text-muted);
 }
+.rack-totals-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+}
+.rack-totals-row .bank-value {
+  color: #15803d;
+  font-weight: 600;
+}
+.rack-totals-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #15803d;
+  letter-spacing: 0.5px;
+}
 
 /* Power bank grid (rack detail) */
 .power-bank-grid {
