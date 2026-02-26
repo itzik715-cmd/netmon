@@ -1,5 +1,6 @@
 """
 Alert Engine - Evaluates alert rules against current metrics.
+Supports multi-threshold rules (warning + critical in one rule).
 """
 import logging
 import asyncio
@@ -29,6 +30,33 @@ def evaluate_condition(value: float, condition: str, threshold: float) -> bool:
     return fn(value, threshold) if fn else False
 
 
+def evaluate_severity(value: float, condition: str, rule: AlertRule) -> Optional[str]:
+    """
+    Returns the highest severity whose threshold is breached, or None.
+    Priority: critical > warning > legacy single-threshold.
+    """
+    if rule.critical_threshold is not None:
+        if evaluate_condition(value, condition, rule.critical_threshold):
+            return "critical"
+    if rule.warning_threshold is not None:
+        if evaluate_condition(value, condition, rule.warning_threshold):
+            return "warning"
+    # Legacy single-threshold path
+    if rule.threshold is not None:
+        if evaluate_condition(value, condition, rule.threshold):
+            return rule.severity
+    return None
+
+
+def _breached_threshold_for(rule: AlertRule, severity: str) -> float:
+    """Return the specific threshold value that produced the given severity."""
+    if severity == "critical" and rule.critical_threshold is not None:
+        return rule.critical_threshold
+    if severity == "warning" and rule.warning_threshold is not None:
+        return rule.warning_threshold
+    return rule.threshold or 0.0
+
+
 async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]:
     """Get current value for the metric defined in rule."""
     metric = rule.metric
@@ -40,7 +68,6 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         device = result.scalar_one_or_none()
         if not device:
             return None
-        # 1.0 = device is down/unreachable, 0.0 = device is up
         return 0.0 if device.status == "up" else 1.0
 
     elif metric == "cpu_usage":
@@ -78,7 +105,6 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
         elif metric == "if_utilization_out":
             return m.utilization_out
         elif metric == "if_status":
-            # 1.0 = interface is down, 0.0 = interface is up
             return 0.0 if m.oper_status == "up" else 1.0
         elif metric == "if_errors":
             return float((m.in_errors or 0) + (m.out_errors or 0))
@@ -112,20 +138,24 @@ async def evaluate_rules(db: AsyncSession):
             if not rule.device_id and rule.metric in ("device_status", "cpu_usage", "memory_usage"):
                 device_values = await get_all_device_metric_values(rule.metric, db)
                 for device, value in device_values:
-                    triggered = evaluate_condition(value, rule.condition, rule.threshold)
-                    if triggered:
-                        await handle_alert_trigger(rule, value, db, device=device)
-                    # Auto-resolve handled per-device below
+                    active_severity = evaluate_severity(value, rule.condition, rule)
+                    if active_severity:
+                        await handle_alert_trigger(rule, value, db, device=device,
+                                                   severity=active_severity)
+                    else:
+                        await handle_alert_resolve(rule, db, device_id=device.id)
                 continue
 
             value = await get_metric_value(rule, db)
             if value is None:
                 continue
 
-            triggered = evaluate_condition(value, rule.condition, rule.threshold)
-
-            if triggered:
-                await handle_alert_trigger(rule, value, db)
+            active_severity = evaluate_severity(value, rule.condition, rule)
+            if active_severity:
+                # If only warning is active, resolve any lingering critical events
+                if active_severity == "warning":
+                    await handle_alert_resolve(rule, db, severity="critical")
+                await handle_alert_trigger(rule, value, db, severity=active_severity)
             else:
                 await handle_alert_resolve(rule, db)
 
@@ -133,15 +163,25 @@ async def evaluate_rules(db: AsyncSession):
             logger.error(f"Error evaluating rule {rule.id}: {e}")
 
 
-async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession, device: Optional[Device] = None):
-    """Create or update alert event when threshold is exceeded."""
-    # Resolve the device_id: from explicit param (global rules) or from the rule
+async def handle_alert_trigger(
+    rule: AlertRule,
+    value: float,
+    db: AsyncSession,
+    device: Optional[Device] = None,
+    severity: Optional[str] = None,
+):
+    """Create alert event when threshold is exceeded."""
+    if severity is None:
+        severity = rule.severity
+
+    breached_threshold = _breached_threshold_for(rule, severity)
     alert_device_id = device.id if device else rule.device_id
 
-    # Check cooldown - don't re-alert within cooldown window
+    # Check cooldown — per-severity so a warning doesn't suppress a critical
     cooldown_cutoff = datetime.now(timezone.utc) - timedelta(minutes=rule.cooldown_minutes)
     cooldown_filters = [
         AlertEvent.rule_id == rule.id,
+        AlertEvent.severity == severity,
         AlertEvent.status.in_(["open", "acknowledged"]),
         AlertEvent.triggered_at > cooldown_cutoff,
     ]
@@ -166,53 +206,62 @@ async def handle_alert_trigger(rule: AlertRule, value: float, db: AsyncSession, 
 
     message = (
         f"Alert: {rule.name} | Device: {device_name} | "
-        f"Metric: {rule.metric} = {value:.2f} {rule.condition} {rule.threshold}"
+        f"Metric: {rule.metric} = {value:.2f} {rule.condition} {breached_threshold}"
     )
 
     event = AlertEvent(
         rule_id=rule.id,
         device_id=alert_device_id,
         interface_id=rule.interface_id,
-        severity=rule.severity,
+        severity=severity,
         status="open",
         message=message,
         metric_value=value,
-        threshold_value=rule.threshold,
+        threshold_value=breached_threshold,
     )
     db.add(event)
     await db.commit()
 
-    logger.warning(f"ALERT TRIGGERED: {message}")
+    logger.warning(f"ALERT TRIGGERED [{severity.upper()}]: {message}")
 
     # Send notifications
     if rule.notification_email:
-        asyncio.create_task(send_email_notification(rule, event, message))
+        asyncio.create_task(send_email_notification(rule, event, message, severity))
     if rule.notification_webhook:
-        asyncio.create_task(send_webhook_notification(rule, event, message))
+        asyncio.create_task(send_webhook_notification(rule, event, message, severity))
 
 
-async def handle_alert_resolve(rule: AlertRule, db: AsyncSession):
-    """Auto-resolve open alerts when condition clears."""
+async def handle_alert_resolve(
+    rule: AlertRule,
+    db: AsyncSession,
+    severity: Optional[str] = None,
+    device_id: Optional[int] = None,
+):
+    """Auto-resolve open alerts when condition clears. Optionally filter by severity/device."""
     now = datetime.now(timezone.utc)
+    filters = [
+        AlertEvent.rule_id == rule.id,
+        AlertEvent.status == "open",
+    ]
+    if severity:
+        filters.append(AlertEvent.severity == severity)
+    if device_id:
+        filters.append(AlertEvent.device_id == device_id)
+
     await db.execute(
         update(AlertEvent)
-        .where(
-            and_(
-                AlertEvent.rule_id == rule.id,
-                AlertEvent.status == "open",
-            )
-        )
+        .where(and_(*filters))
         .values(status="resolved", resolved_at=now)
     )
     await db.commit()
 
 
-async def send_webhook_notification(rule: AlertRule, event: AlertEvent, message: str):
+async def send_webhook_notification(rule: AlertRule, event: AlertEvent, message: str, severity: str = ""):
     """Send alert notification to webhook."""
     payload = {
         "alert_id": event.id,
         "rule_name": rule.name,
-        "severity": rule.severity,
+        "severity": severity or event.severity,
         "message": message,
         "metric_value": event.metric_value,
         "threshold": event.threshold_value,
@@ -225,16 +274,17 @@ async def send_webhook_notification(rule: AlertRule, event: AlertEvent, message:
         logger.error(f"Webhook notification failed: {e}")
 
 
-async def send_email_notification(rule: AlertRule, event: AlertEvent, message: str):
+async def send_email_notification(rule: AlertRule, event: AlertEvent, message: str, severity: str = ""):
     """Send alert email notification via configured SMTP."""
     from app.database import AsyncSessionLocal
     from app.services.email_sender import send_email
+    sev = severity or event.severity
     try:
         async with AsyncSessionLocal() as db:
-            subject = f"[NetMon Alert] {rule.severity.upper()}: {rule.name}"
+            subject = f"[NetMon Alert] {sev.upper()}: {rule.name}"
             body = f"""<h2>NetMon Alert Triggered</h2>
             <p><strong>Rule:</strong> {rule.name}</p>
-            <p><strong>Severity:</strong> {rule.severity}</p>
+            <p><strong>Severity:</strong> {sev}</p>
             <p><strong>Message:</strong> {message}</p>
             <p><strong>Value:</strong> {event.metric_value} (threshold: {event.threshold_value})</p>
             <p><strong>Time:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</p>"""

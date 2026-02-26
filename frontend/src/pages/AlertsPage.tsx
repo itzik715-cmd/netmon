@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { alertsApi } from '../services/api'
 import { AlertEvent, AlertRule } from '../types'
-import { ShieldAlert, Plus, Check, XCircle, Trash2, Loader2 } from 'lucide-react'
+import { ShieldAlert, Plus, Check, XCircle, Trash2, Loader2, Pencil } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import AddAlertRuleModal from '../components/forms/AddAlertRuleModal'
+import EditAlertRuleModal from '../components/forms/EditAlertRuleModal'
 
 type Tab = 'events' | 'rules'
 
@@ -26,6 +27,7 @@ export default function AlertsPage() {
   const [tab, setTab] = useState<Tab>('events')
   const [statusFilter, setStatusFilter] = useState('open')
   const [showAddRule, setShowAddRule] = useState(false)
+  const [editingRule, setEditingRule] = useState<AlertRule | null>(null)
   const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   const { data: events } = useQuery({
@@ -139,44 +141,66 @@ export default function AlertsPage() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Name</th><th>Metric</th><th>Condition</th><th>Threshold</th><th>Severity</th><th>Active</th><th>Actions</th></tr>
+                <tr><th>Name</th><th>Metric</th><th>Condition</th><th>Thresholds</th><th>Active</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                {(rules || []).map((rule) => (
-                  <tr key={rule.id}>
-                    <td><strong>{rule.name}</strong></td>
-                    <td className="mono">{rule.metric}</td>
-                    <td className="mono">{rule.condition}</td>
-                    <td className="mono">{rule.threshold}</td>
-                    <td>{severityTag(rule.severity)}</td>
-                    <td>
-                      {isOperator ? (
-                        <button
-                          onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
-                          className={`toggle${rule.is_active ? ' toggle--active' : ''}`}
-                        >
-                          <span className="toggle__knob" />
-                        </button>
-                      ) : (
-                        <span className={rule.is_active ? 'tag-green' : 'tag-gray'}>{rule.is_active ? 'Active' : 'Off'}</span>
-                      )}
-                    </td>
-                    <td>
-                      {user?.role === 'admin' && (
-                        <button
-                          onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMutation.mutate(rule.id) }}
-                          className="btn btn-outline btn--icon btn-sm btn-danger"
-                          title="Delete rule"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {(rules || []).map((rule) => {
+                  const hasMulti = rule.warning_threshold != null || rule.critical_threshold != null
+                  return (
+                    <tr key={rule.id}>
+                      <td><strong>{rule.name}</strong>{rule.description && <div className="text-muted text-xs">{rule.description}</div>}</td>
+                      <td className="mono">{rule.metric}</td>
+                      <td className="mono">{rule.condition}</td>
+                      <td className="mono">
+                        {hasMulti ? (
+                          <div className="threshold-multi">
+                            {rule.warning_threshold != null && <span className="tag-orange">warn: {rule.warning_threshold}</span>}
+                            {rule.critical_threshold != null && <span className="tag-red">crit: {rule.critical_threshold}</span>}
+                          </div>
+                        ) : (
+                          <>{rule.threshold} {severityTag(rule.severity)}</>
+                        )}
+                      </td>
+                      <td>
+                        {isOperator ? (
+                          <button
+                            onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
+                            className={`toggle${rule.is_active ? ' toggle--active' : ''}`}
+                          >
+                            <span className="toggle__knob" />
+                          </button>
+                        ) : (
+                          <span className={rule.is_active ? 'tag-green' : 'tag-gray'}>{rule.is_active ? 'Active' : 'Off'}</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="card__actions">
+                          {isOperator && (
+                            <button
+                              onClick={() => setEditingRule(rule)}
+                              className="btn btn-outline btn--icon btn-sm"
+                              title="Edit rule"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                          {user?.role === 'admin' && (
+                            <button
+                              onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMutation.mutate(rule.id) }}
+                              className="btn btn-outline btn--icon btn-sm btn-danger"
+                              title="Delete rule"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
                 {(!rules || rules.length === 0) && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={6}>
                       <div className="empty-state">
                         <div className="empty-state__icon"><ShieldAlert /></div>
                         <div className="empty-state__title">No alert rules configured</div>
@@ -192,6 +216,7 @@ export default function AlertsPage() {
       )}
 
       {showAddRule && <AddAlertRuleModal onClose={() => setShowAddRule(false)} />}
+      {editingRule && <EditAlertRuleModal rule={editingRule} onClose={() => setEditingRule(null)} />}
     </div>
   )
 }

@@ -1598,6 +1598,17 @@ tbody tr:hover td { background: var(--primary-50); }
   font-size: var(--text-xs);
   margin-top: 4px;
 }
+.form-hint {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  margin-top: 2px;
+  display: block;
+}
+.threshold-multi {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 
 /* Password rules checklist */
 .password-rules {

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional
 from datetime import datetime
 
@@ -10,21 +10,37 @@ class AlertRuleCreate(BaseModel):
     interface_id: Optional[int] = None
     metric: str
     condition: str
-    threshold: float
+    threshold: Optional[float] = None
     severity: str = "warning"
+    warning_threshold: Optional[float] = None
+    critical_threshold: Optional[float] = None
     duration_seconds: int = 0
     notification_email: Optional[str] = None
     notification_webhook: Optional[str] = None
     cooldown_minutes: int = 15
 
+    @model_validator(mode="after")
+    def at_least_one_threshold(self):
+        has_legacy = self.threshold is not None
+        has_new = self.warning_threshold is not None or self.critical_threshold is not None
+        if not has_legacy and not has_new:
+            raise ValueError(
+                "Must supply either threshold or warning_threshold/critical_threshold"
+            )
+        return self
+
 
 class AlertRuleUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    device_id: Optional[int] = None
+    interface_id: Optional[int] = None
     metric: Optional[str] = None
     condition: Optional[str] = None
     threshold: Optional[float] = None
     severity: Optional[str] = None
+    warning_threshold: Optional[float] = None
+    critical_threshold: Optional[float] = None
     is_active: Optional[bool] = None
     notification_email: Optional[str] = None
     notification_webhook: Optional[str] = None
@@ -39,8 +55,10 @@ class AlertRuleResponse(BaseModel):
     interface_id: Optional[int] = None
     metric: str
     condition: str
-    threshold: float
+    threshold: Optional[float] = None
     severity: str
+    warning_threshold: Optional[float] = None
+    critical_threshold: Optional[float] = None
     is_active: bool
     duration_seconds: Optional[int] = 0
     cooldown_minutes: Optional[int] = 15

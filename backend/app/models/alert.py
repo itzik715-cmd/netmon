@@ -14,9 +14,11 @@ class AlertRule(Base):
     interface_id = Column(Integer, ForeignKey("interfaces.id"), nullable=True)
     metric = Column(String(100), nullable=False)   # cpu, memory, if_utilization_in, if_status, etc.
     condition = Column(String(20), nullable=False)  # gt, lt, eq, ne, gte, lte
-    threshold = Column(Float, nullable=False)
-    severity = Column(String(20), default="warning")  # info, warning, critical
-    duration_seconds = Column(Integer, default=0)       # sustained for N seconds
+    threshold = Column(Float, nullable=True)             # legacy single-threshold
+    severity = Column(String(20), default="warning")     # info, warning, critical
+    warning_threshold = Column(Float, nullable=True)     # multi-threshold: warning level
+    critical_threshold = Column(Float, nullable=True)    # multi-threshold: critical level
+    duration_seconds = Column(Integer, default=0)        # sustained for N seconds
     is_active = Column(Boolean, default=True)
     notification_email = Column(String(255))
     notification_webhook = Column(String(512))

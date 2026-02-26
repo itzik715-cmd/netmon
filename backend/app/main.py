@@ -259,6 +259,27 @@ async def run_migrations():
             except Exception as e:
                 logger.warning("Migration ALTER config_backups.%s skipped: %s", col, e)
 
+    # alert_rules: add multi-threshold columns
+    async with engine.begin() as conn:
+        for col, col_type in [
+            ("warning_threshold", "FLOAT"),
+            ("critical_threshold", "FLOAT"),
+        ]:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER alert_rules.%s skipped: %s", col, e)
+
+        # Relax NOT NULL on legacy threshold so multi-threshold rules don't need it
+        try:
+            await conn.execute(
+                text("ALTER TABLE alert_rules ALTER COLUMN threshold DROP NOT NULL")
+            )
+        except Exception as e:
+            logger.warning("Migration ALTER alert_rules.threshold nullable skipped: %s", e)
+
     # flow_summary_5m table and composite indexes for flow queries
     async with engine.begin() as conn:
         await conn.execute(text("""
@@ -417,42 +438,24 @@ async def create_default_data():
                     is_active=True,
                 ),
                 AlertRule(
-                    name="High CPU Usage",
-                    description="Alert when any device CPU exceeds 90%",
+                    name="CPU Usage",
+                    description="Warning at 90%, critical at 98%",
                     metric="cpu_usage",
                     condition="gt",
-                    threshold=90.0,
+                    warning_threshold=90.0,
+                    critical_threshold=98.0,
                     severity="warning",
-                    cooldown_minutes=15,
-                    is_active=True,
-                ),
-                AlertRule(
-                    name="Critical CPU Usage",
-                    description="Alert when any device CPU exceeds 98%",
-                    metric="cpu_usage",
-                    condition="gt",
-                    threshold=98.0,
-                    severity="critical",
                     cooldown_minutes=10,
                     is_active=True,
                 ),
                 AlertRule(
-                    name="High Memory Usage",
-                    description="Alert when any device memory exceeds 90%",
+                    name="Memory Usage",
+                    description="Warning at 90%, critical at 95%",
                     metric="memory_usage",
                     condition="gt",
-                    threshold=90.0,
+                    warning_threshold=90.0,
+                    critical_threshold=95.0,
                     severity="warning",
-                    cooldown_minutes=15,
-                    is_active=True,
-                ),
-                AlertRule(
-                    name="Critical Memory Usage",
-                    description="Alert when any device memory exceeds 95%",
-                    metric="memory_usage",
-                    condition="gt",
-                    threshold=95.0,
-                    severity="critical",
                     cooldown_minutes=10,
                     is_active=True,
                 ),
@@ -460,7 +463,7 @@ async def create_default_data():
             for rule in default_rules:
                 db.add(rule)
             await db.commit()
-            logger.info("Default alert rules created (5 rules)")
+            logger.info("Default alert rules created (3 rules)")
 
         # One-time backfill of flow_summary_5m from existing flow_records
         backfill_row = await db.execute(

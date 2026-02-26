@@ -105,8 +105,10 @@ export interface AlertRule {
   interface_id?: number
   metric: string
   condition: string
-  threshold: number
+  threshold?: number | null
   severity: 'info' | 'warning' | 'critical'
+  warning_threshold?: number | null
+  critical_threshold?: number | null
   is_active: boolean
   duration_seconds: number
   cooldown_minutes: number
