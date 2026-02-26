@@ -16,6 +16,8 @@ from app.config import settings
 from app.database import init_db
 from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
+from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
+from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
 from app.services.flow_collector import FlowCollector
 import os

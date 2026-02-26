@@ -29,3 +29,20 @@ class FlowRecord(Base):
     dst_country = Column(String(5))
     application = Column(String(100))    # Detected application name
     flow_type = Column(String(20))       # netflow_v5, netflow_v9, ipfix, sflow
+
+
+class FlowSummary5m(Base):
+    __tablename__ = "flow_summaries_5m"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bucket = Column(DateTime(timezone=True), nullable=False, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=True, index=True)
+    src_ip = Column(String(50), index=True)
+    dst_ip = Column(String(50), index=True)
+    src_port = Column(Integer)
+    dst_port = Column(Integer)
+    protocol_name = Column(String(20))
+    application = Column(String(100))
+    bytes = Column(BigInteger, default=0)
+    packets = Column(Integer, default=0)
+    flow_count = Column(Integer, default=0)
