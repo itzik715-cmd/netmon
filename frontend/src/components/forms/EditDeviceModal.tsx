@@ -159,8 +159,8 @@ export default function EditDeviceModal({ device, onClose }: { device: Device; o
                     <label className="form-label">Device Type</label>
                     <select className="form-select" value={form.device_type} onChange={set('device_type')}>
                       <option value="">Select type...</option>
-                      {['spine', 'leaf', 'tor', 'router', 'switch', 'firewall', 'server', 'other'].map((t) => (
-                        <option key={t} value={t}>{t}</option>
+                      {['spine', 'leaf', 'tor', 'router', 'switch', 'firewall', 'pdu', 'ats', 'server', 'other'].map((t) => (
+                        <option key={t} value={t}>{t.toUpperCase()}</option>
                       ))}
                     </select>
                   </div>

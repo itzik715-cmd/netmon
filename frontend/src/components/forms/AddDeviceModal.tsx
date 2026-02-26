@@ -95,6 +95,7 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
             ['arista', 'Arista'], ['cisco', 'Cisco'], ['juniper', 'Juniper'],
             ['junos', 'Juniper'], ['mikrotik', 'MikroTik'], ['huawei', 'Huawei'],
             ['fortinet', 'Fortinet'], ['palo alto', 'Palo Alto'], ['aruba', 'HP/Aruba'],
+            ['apc', 'APC'], ['schneider', 'Schneider Electric'], ['raritan', 'Raritan'],
           ]
           const matched = vendorMap.find(([k]) => descr.includes(k))
           if (matched) setForm((p) => ({ ...p, vendor: matched[1] }))
@@ -152,8 +153,8 @@ export default function AddDeviceModal({ onClose }: { onClose: () => void }) {
                   <label className="form-label">Device Type</label>
                   <select className="form-select" value={form.device_type} onChange={set('device_type')}>
                     <option value="">Select type...</option>
-                    {['spine', 'leaf', 'tor', 'router', 'switch', 'firewall', 'server', 'other'].map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                    {['spine', 'leaf', 'tor', 'router', 'switch', 'firewall', 'pdu', 'ats', 'server', 'other'].map((t) => (
+                      <option key={t} value={t}>{t.toUpperCase()}</option>
                     ))}
                   </select>
                 </div>
