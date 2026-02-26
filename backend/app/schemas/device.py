@@ -145,6 +145,9 @@ class DeviceResponse(BaseModel):
     description: Optional[str] = None
     tags: Optional[str] = None
     interface_count: Optional[int] = 0
+    outlet_count: Optional[int] = None
+    power_watts: Optional[float] = None
+    load_pct: Optional[float] = None
     snmp_community: Optional[str] = None
     snmp_version: Optional[str] = None
     snmp_port: Optional[int] = None

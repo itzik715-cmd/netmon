@@ -1132,6 +1132,129 @@ tbody tr:hover td { background: var(--primary-50); }
 }
 .device-icon svg { width: 14px; height: 14px; color: var(--primary); }
 
+/* Device icon color variants */
+.device-icon--router { color: #3b82f6; }
+.device-icon--switch { color: var(--text-muted); }
+.device-icon--power { color: #f59e0b; }
+
+/* ── Device Category Sections ── */
+.device-section {
+  margin-bottom: 8px;
+}
+.device-section .card {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.device-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+.device-section-header:hover {
+  filter: brightness(0.97);
+}
+.device-section-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.device-section-header__icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.device-section-header__title {
+  font-size: 13px;
+  font-weight: 700;
+}
+.device-section-header__count {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.device-section-header__toggle {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: background var(--transition-fast);
+}
+.device-section-header__toggle:hover {
+  background: rgba(0,0,0,0.05);
+}
+
+/* Router section */
+.device-section-header--router {
+  background: rgba(59, 130, 246, 0.06);
+  border-left-color: #3b82f6;
+}
+.device-section-header--router .device-section-header__icon { color: #3b82f6; }
+.device-section-header--router .device-section-header__count {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+/* Switch section */
+.device-section-header--switch {
+  background: rgba(34, 197, 94, 0.06);
+  border-left-color: #22c55e;
+}
+.device-section-header--switch .device-section-header__icon { color: #22c55e; }
+.device-section-header--switch .device-section-header__count {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+}
+
+/* Power section */
+.device-section-header--power {
+  background: rgba(245, 158, 11, 0.06);
+  border-left-color: #f59e0b;
+}
+.device-section-header--power .device-section-header__icon { color: #f59e0b; }
+.device-section-header--power .device-section-header__count {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+/* Load bar in PDU table */
+.device-load-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.device-load-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  min-width: 32px;
+}
+.device-load-bar {
+  width: 48px;
+  height: 6px;
+  background: var(--neutral-200);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.device-load-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.device-load-bar__fill--ok { background: #22c55e; }
+.device-load-bar__fill--warning { background: #f59e0b; }
+.device-load-bar__fill--danger { background: #ef4444; }
+
 
 /* ═══════════════════════════════════════════════════════════
    ALERT ITEMS

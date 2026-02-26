@@ -44,6 +44,29 @@ async def list_devices(
         )
         d = DeviceResponse.model_validate(device)
         d.interface_count = count_result.scalar() or 0
+
+        # For PDU devices, fetch outlet count and latest power metrics
+        if device.device_type == "pdu":
+            try:
+                from app.models.pdu import PduOutlet, PduMetric
+                outlet_result = await db.execute(
+                    select(func.count(PduOutlet.id)).where(PduOutlet.device_id == device.id)
+                )
+                d.outlet_count = outlet_result.scalar() or 0
+
+                metric_result = await db.execute(
+                    select(PduMetric)
+                    .where(PduMetric.device_id == device.id)
+                    .order_by(PduMetric.timestamp.desc())
+                    .limit(1)
+                )
+                latest_metric = metric_result.scalar_one_or_none()
+                if latest_metric:
+                    d.power_watts = latest_metric.power_watts
+                    d.load_pct = latest_metric.load_pct
+            except Exception:
+                pass  # PDU tables may not exist yet
+
         device_list.append(d)
 
     return device_list

@@ -45,6 +45,9 @@ export interface Device {
   description?: string
   tags?: string
   interface_count?: number
+  outlet_count?: number
+  power_watts?: number
+  load_pct?: number
   snmp_community?: string
   snmp_version?: string
   snmp_port?: number
