@@ -170,32 +170,32 @@ async def handle_alert_trigger(
     device: Optional[Device] = None,
     severity: Optional[str] = None,
 ):
-    """Create alert event when threshold is exceeded."""
+    """Create or update alert event when threshold is exceeded.
+
+    Each rule+device+severity combination has at most ONE active event.
+    If an open/acknowledged event already exists, update its metric value
+    and message instead of creating a duplicate.
+    """
     if severity is None:
         severity = rule.severity
 
     breached_threshold = _breached_threshold_for(rule, severity)
     alert_device_id = device.id if device else rule.device_id
 
-    # Check cooldown — per-severity so a warning doesn't suppress a critical
-    cooldown_cutoff = datetime.now(timezone.utc) - timedelta(minutes=rule.cooldown_minutes)
-    cooldown_filters = [
+    # Check for any existing open/acknowledged event for this rule+device+severity
+    existing_filters = [
         AlertEvent.rule_id == rule.id,
         AlertEvent.severity == severity,
         AlertEvent.status.in_(["open", "acknowledged"]),
-        AlertEvent.triggered_at > cooldown_cutoff,
     ]
     if alert_device_id:
-        cooldown_filters.append(AlertEvent.device_id == alert_device_id)
+        existing_filters.append(AlertEvent.device_id == alert_device_id)
     result = await db.execute(
-        select(AlertEvent).where(and_(*cooldown_filters))
+        select(AlertEvent).where(and_(*existing_filters))
     )
     existing = result.scalar_one_or_none()
 
-    if existing:
-        return  # Already have an active alert within cooldown
-
-    # Create new alert event
+    # Resolve device name for the message
     device_name = "Unknown"
     if device:
         device_name = device.hostname or str(device.id)
@@ -209,6 +209,15 @@ async def handle_alert_trigger(
         f"Metric: {rule.metric} = {value:.2f} {rule.condition} {breached_threshold}"
     )
 
+    if existing:
+        # Update the existing event with latest metric value
+        existing.metric_value = value
+        existing.threshold_value = breached_threshold
+        existing.message = message
+        await db.commit()
+        return
+
+    # Create new alert event (first occurrence)
     event = AlertEvent(
         rule_id=rule.id,
         device_id=alert_device_id,
@@ -224,7 +233,7 @@ async def handle_alert_trigger(
 
     logger.warning(f"ALERT TRIGGERED [{severity.upper()}]: {message}")
 
-    # Send notifications
+    # Send notifications only on first trigger, not on updates
     if rule.notification_email:
         asyncio.create_task(send_email_notification(rule, event, message, severity))
     if rule.notification_webhook:
