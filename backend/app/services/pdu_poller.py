@@ -21,18 +21,18 @@ from app.services.snmp_poller import snmp_get, make_auth_data, _close_engine
 logger = logging.getLogger(__name__)
 
 # ═══ APC rPDU2 (Gen2) OIDs ═══
-# Device-level status
-OID_PDU2_POWER           = "1.3.6.1.4.1.318.1.1.26.4.3.1.5"     # Watts
+# Device-level status  (rPDU2DeviceStatusEntry  .26.4.3.1)
+OID_PDU2_POWER           = "1.3.6.1.4.1.318.1.1.26.4.3.1.5"     # decaWatts (×10 → Watts)
 OID_PDU2_ENERGY          = "1.3.6.1.4.1.318.1.1.26.4.3.1.6"     # kWh × 10
-OID_PDU2_VA              = "1.3.6.1.4.1.318.1.1.26.4.3.1.7"     # VA
-OID_PDU2_PF              = "1.3.6.1.4.1.318.1.1.26.4.3.1.8"     # PF × 1000
-OID_PDU2_NEAR_OVERLOAD   = "1.3.6.1.4.1.318.1.1.26.4.1.1.4"    # Watts threshold
-OID_PDU2_OVERLOAD        = "1.3.6.1.4.1.318.1.1.26.4.1.1.5"    # Watts threshold
 
-# Phase-level
+# Phase properties  (rPDU2PhaseConfigEntry  .26.6.1.1)
+OID_PDU2_PHASE_NEAR_OL   = "1.3.6.1.4.1.318.1.1.26.6.1.1.6"    # Near-overload Amps × 10
+OID_PDU2_PHASE_OVERLOAD  = "1.3.6.1.4.1.318.1.1.26.6.1.1.7"    # Overload Amps × 10
+
+# Phase-level status  (rPDU2PhaseStatusEntry  .26.6.3.1)
 OID_PDU2_PHASE_CURRENT   = "1.3.6.1.4.1.318.1.1.26.6.3.1.5"    # Amps × 10
 OID_PDU2_PHASE_VOLTAGE   = "1.3.6.1.4.1.318.1.1.26.6.3.1.6"    # Volts
-OID_PDU2_PHASE_POWER     = "1.3.6.1.4.1.318.1.1.26.6.3.1.7"    # Watts
+OID_PDU2_PHASE_POWER     = "1.3.6.1.4.1.318.1.1.26.6.3.1.7"    # decaWatts (×10 → Watts)
 
 # Bank-level
 OID_PDU2_BANK_CURRENT    = "1.3.6.1.4.1.318.1.1.26.8.3.1.5"    # Amps × 10
@@ -48,9 +48,9 @@ OID_PDU2_OUTLET_CURRENT  = "1.3.6.1.4.1.318.1.1.26.9.2.2.1.6"  # Amps × 10
 OID_PDU2_OUTLET_POWER    = "1.3.6.1.4.1.318.1.1.26.9.2.2.1.7"  # Watts
 OID_PDU2_OUTLET_BANK     = "1.3.6.1.4.1.318.1.1.26.9.2.1.1.6"  # Bank assignment
 
-# Temperature sensor
-OID_PDU2_TEMP            = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.5"  # °C × 10
-OID_PDU2_HUMIDITY        = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.6"  # % × 10
+# Temperature/humidity sensor  (rPDU2SensorTempHumidityStatusEntry  .26.10.2.2.1)
+OID_PDU2_TEMP            = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.8"  # °C × 10  (col 8)
+OID_PDU2_HUMIDITY        = "1.3.6.1.4.1.318.1.1.26.10.2.2.1.9"  # % × 10   (col 9) — may be absent
 
 # ═══ APC rPDU Gen1 fallback OIDs ═══
 OID_PDU1_POWER           = "1.3.6.1.4.1.318.1.1.12.1.16.0"      # rPDUIdentDevicePowerWatts
@@ -105,20 +105,19 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
         logger.warning("PDU %s: no power data from Gen1 or Gen2 OIDs", device.hostname)
         return False
 
+    # Gen2 power is in decaWatts (×10), convert to Watts
+    if is_gen2:
+        power_watts *= 10
+
     # 3. Get energy (kWh) — Gen2 returns kWh × 10
     energy_raw = await snmp_get(device, f"{OID_PDU2_ENERGY}.1", engine) if is_gen2 else None
     energy_kwh = _safe_float(energy_raw)
     if energy_kwh is not None:
         energy_kwh /= 10.0
 
-    # 4. Get apparent power and power factor
-    va_raw = await snmp_get(device, f"{OID_PDU2_VA}.1", engine) if is_gen2 else None
-    apparent_power_va = _safe_float(va_raw)
-
-    pf_raw = await snmp_get(device, f"{OID_PDU2_PF}.1", engine) if is_gen2 else None
-    power_factor = _safe_float(pf_raw)
-    if power_factor is not None:
-        power_factor /= 1000.0  # Stored as × 1000
+    # 4. Apparent power and power factor — compute from phase data below
+    apparent_power_va = None
+    power_factor = None
 
     # 5. Get phase data
     phases = {}
@@ -128,14 +127,26 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
             voltage = await snmp_get(device, f"{OID_PDU2_PHASE_VOLTAGE}.{phase_num}", engine)
             phase_power = await snmp_get(device, f"{OID_PDU2_PHASE_POWER}.{phase_num}", engine)
             if current is not None:
-                phases[phase_num] = {
-                    "current": _safe_float(current),
-                    "voltage": _safe_float(voltage),
-                    "power": _safe_float(phase_power),
-                }
+                c = _safe_float(current)
+                v = _safe_float(voltage)
+                p = _safe_float(phase_power)
                 # Current is Amps × 10
-                if phases[phase_num]["current"] is not None:
-                    phases[phase_num]["current"] /= 10.0
+                if c is not None:
+                    c /= 10.0
+                # Phase power is in decaWatts (×10), convert to Watts
+                if p is not None:
+                    p *= 10
+                phases[phase_num] = {"current": c, "voltage": v, "power": p}
+
+    # Compute apparent power (sum of V×I per phase) and power factor
+    if phases:
+        total_va = 0
+        for ph in phases.values():
+            if ph["current"] is not None and ph["voltage"] is not None:
+                total_va += ph["current"] * ph["voltage"]
+        if total_va > 0:
+            apparent_power_va = total_va
+            power_factor = power_watts / total_va if power_watts else None
 
     # 6. Get temperature and humidity
     temp_raw = await snmp_get(device, f"{OID_PDU2_TEMP}.1", engine) if is_gen2 else None
@@ -148,17 +159,33 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
     if humidity is not None:
         humidity /= 10.0  # % × 10
 
-    # 7. Get thresholds
-    near_overload_raw = await snmp_get(device, f"{OID_PDU2_NEAR_OVERLOAD}.1", engine) if is_gen2 else None
-    overload_raw = await snmp_get(device, f"{OID_PDU2_OVERLOAD}.1", engine) if is_gen2 else None
-    near_overload = _safe_float(near_overload_raw)
-    overload = _safe_float(overload_raw)
-    rated = overload  # Use overload threshold as rated capacity
+    # 7. Get overload thresholds from phase config (Amps × 10)
+    # Convert to Watts using average voltage for rated power calculation
+    near_overload = None
+    overload = None
+    rated = None
+    if is_gen2:
+        ol_raw = await snmp_get(device, f"{OID_PDU2_PHASE_OVERLOAD}.1", engine)
+        nol_raw = await snmp_get(device, f"{OID_PDU2_PHASE_NEAR_OL}.1", engine)
+        ol_amps = _safe_float(ol_raw)
+        nol_amps = _safe_float(nol_raw)
+        # Phase config thresholds are in whole Amps (NOT ×10)
+        # Convert to Watts using average voltage for rated power calculation
+        avg_voltage = 230.0  # default
+        voltages = [ph["voltage"] for ph in phases.values() if ph.get("voltage")]
+        if voltages:
+            avg_voltage = sum(voltages) / len(voltages)
+        num_phases = len(phases) or 1
+        if ol_amps is not None:
+            overload = ol_amps * avg_voltage * num_phases  # Watts
+            rated = overload
+        if nol_amps is not None:
+            near_overload = nol_amps * avg_voltage * num_phases  # Watts
 
     # 8. Calculate load percentage — CRITICAL: guard against division by zero
     load_pct = None
-    if power_watts is not None and overload is not None and overload > 0:
-        load_pct = (power_watts / overload) * 100
+    if power_watts is not None and rated is not None and rated > 0:
+        load_pct = (power_watts / rated) * 100
 
     # 9. Store metric
     metric = PduMetric(
@@ -218,6 +245,8 @@ async def poll_pdu_banks(device: Device, db: AsyncSession, engine: SnmpEngine):
 
         power_raw = await snmp_get(device, f"{OID_PDU2_BANK_POWER}.{bank_num}", engine)
         power_watts = _safe_float(power_raw)
+        if power_watts is not None:
+            power_watts *= 10  # decaWatts → Watts
 
         near_ol_raw = await snmp_get(device, f"{OID_PDU2_BANK_NEAR_OL}.{bank_num}", engine)
         near_ol = _safe_float(near_ol_raw)
