@@ -11,14 +11,24 @@ from pysnmp.hlapi.asyncio import (
     ObjectType, ObjectIdentity, Integer32,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update as sql_update
+from sqlalchemy import select, update as sql_update, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.config import settings
 from app.models.device import Device
 from app.models.pdu import PduMetric, PduBank, PduBankMetric, PduOutlet
-from app.services.snmp_poller import snmp_get, make_auth_data, _close_engine
+from app.services.snmp_poller import snmp_get, make_auth_data, _close_engine, VENDOR_PATTERNS
 
 logger = logging.getLogger(__name__)
+
+# Standard MIB OIDs for device identification
+OID_SYS_DESCR            = "1.3.6.1.2.1.1.1.0"
+OID_SYS_NAME             = "1.3.6.1.2.1.1.5.0"
+
+# APC-specific identification OIDs
+OID_APC_MODEL            = "1.3.6.1.4.1.318.1.1.4.1.4.0"    # sPDUIdentModelNumber
+OID_APC_MODEL_GEN2       = "1.3.6.1.4.1.318.1.1.26.2.1.3.1"  # rPDU2IdentModelNumber
+OID_APC_FW_VERSION       = "1.3.6.1.4.1.318.1.1.4.1.1.0"    # sPDUIdentFirmwareRev
+OID_APC_FW_VERSION_GEN2  = "1.3.6.1.4.1.318.1.1.26.2.1.5.1"  # rPDU2IdentFirmwareRev
 
 # ═══ APC rPDU2 (Gen2) OIDs ═══
 # Device-level status  (rPDU2DeviceStatusEntry  .26.4.3.1)
@@ -92,6 +102,58 @@ async def poll_pdu(device: Device, db: AsyncSession, engine: Optional[SnmpEngine
             _close_engine(engine)
 
 
+async def _enrich_pdu_device_info(
+    device: Device, db: AsyncSession, engine: SnmpEngine, is_gen2: bool
+) -> None:
+    """Detect and store vendor, model, and firmware for PDU devices via SNMP."""
+    updates = {}
+
+    # Detect vendor from sysDescr if not already set
+    if not device.vendor or not device.model:
+        sys_descr = await snmp_get(device, OID_SYS_DESCR, engine)
+        if sys_descr and "No Such" not in str(sys_descr):
+            descr_lower = str(sys_descr).lower()
+
+            if not device.vendor:
+                for pattern, vendor_name in VENDOR_PATTERNS:
+                    if pattern in descr_lower:
+                        updates["vendor"] = vendor_name
+                        break
+
+            if not device.os_version:
+                updates["os_version"] = str(sys_descr)[:200].strip()
+
+    # Get APC model number from dedicated OID
+    if not device.model:
+        model_oid = OID_APC_MODEL_GEN2 if is_gen2 else OID_APC_MODEL
+        model_raw = await snmp_get(device, model_oid, engine)
+        if model_raw and "No Such" not in str(model_raw):
+            model_str = str(model_raw).strip()
+            if model_str:
+                updates["model"] = model_str
+
+    # Get firmware version if os_version not set
+    if not device.os_version and "os_version" not in updates:
+        fw_oid = OID_APC_FW_VERSION_GEN2 if is_gen2 else OID_APC_FW_VERSION
+        fw_raw = await snmp_get(device, fw_oid, engine)
+        if fw_raw and "No Such" not in str(fw_raw):
+            updates["os_version"] = str(fw_raw).strip()[:200]
+
+    # Update hostname from sysName if currently set to IP
+    if device.hostname == device.ip_address or not device.hostname:
+        sys_name = await snmp_get(device, OID_SYS_NAME, engine)
+        if sys_name and "No Such" not in str(sys_name):
+            clean_name = str(sys_name).strip()
+            if clean_name:
+                updates["hostname"] = clean_name
+
+    if updates:
+        await db.execute(
+            sql_update(Device).where(Device.id == device.id).values(**updates)
+        )
+        logger.info("PDU %s enriched: %s", device.ip_address, list(updates.keys()))
+
+
 async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> bool:
     """Inner poll logic — engine lifecycle managed by caller."""
     # 1. Try Gen2 OIDs first (rPDU2)
@@ -103,6 +165,9 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
         power_raw = await snmp_get(device, OID_PDU1_POWER, engine)
 
     power_watts = _safe_float(power_raw)
+
+    # 2b. Detect vendor/model if not yet set
+    await _enrich_pdu_device_info(device, db, engine, is_gen2)
     if power_watts is None:
         logger.warning("PDU %s: no power data from Gen1 or Gen2 OIDs", device.hostname)
         return False
@@ -241,18 +306,32 @@ async def _do_poll_pdu(device: Device, db: AsyncSession, engine: SnmpEngine) -> 
 
 
 async def poll_pdu_banks(device: Device, db: AsyncSession, engine: SnmpEngine):
-    """Poll bank-level data and upsert into pdu_banks + pdu_bank_metrics tables."""
+    """Poll bank-level data and upsert into pdu_banks + pdu_bank_metrics tables.
+    Properly handles PDUs with no bank metering (e.g. switched-only models)
+    by checking for 'No Such Instance' responses and skipping phantom banks.
+    """
     bank_num = 1
+    real_banks_found = 0
     while bank_num <= 12:  # Max 12 banks
         current_raw = await snmp_get(device, f"{OID_PDU2_BANK_CURRENT}.{bank_num}", engine)
         if current_raw is None:
             break  # No more banks
+
+        # Check for "No Such Instance" — means bank OID doesn't exist on this PDU
+        current_str = str(current_raw)
+        if "No Such" in current_str or "noSuch" in current_str or "endOfMib" in current_str.lower():
+            break
 
         current_amps = _safe_float(current_raw)
         if current_amps is not None:
             current_amps /= 10.0  # Amps × 10
 
         power_raw = await snmp_get(device, f"{OID_PDU2_BANK_POWER}.{bank_num}", engine)
+        # Also check power for "No Such"
+        if power_raw is not None:
+            power_str = str(power_raw)
+            if "No Such" in power_str or "noSuch" in power_str:
+                power_raw = None
         power_watts = _safe_float(power_raw)
         if power_watts is not None:
             power_watts *= 10  # decaWatts → Watts
@@ -266,6 +345,8 @@ async def poll_pdu_banks(device: Device, db: AsyncSession, engine: SnmpEngine):
         overload = _safe_float(overload_raw)
         if overload is not None:
             overload /= 10.0  # Amps × 10
+
+        real_banks_found += 1
 
         # Upsert into PduBank
         stmt = pg_insert(PduBank).values(
@@ -296,6 +377,22 @@ async def poll_pdu_banks(device: Device, db: AsyncSession, engine: SnmpEngine):
         ))
 
         bank_num += 1
+
+    # Clean up phantom banks that were previously created beyond what actually exists
+    if real_banks_found == 0:
+        # No real banks — delete all bank records for this device
+        await db.execute(
+            delete(PduBank).where(PduBank.device_id == device.id)
+        )
+        logger.debug("PDU %s: no banks detected, cleaned up phantom records", device.hostname)
+    elif real_banks_found < 12:
+        # Delete any bank records beyond what we actually found
+        await db.execute(
+            delete(PduBank).where(
+                PduBank.device_id == device.id,
+                PduBank.bank_number > real_banks_found,
+            )
+        )
 
 
 async def poll_pdu_outlets(device: Device, db: AsyncSession, engine: SnmpEngine, is_gen2: bool = True):

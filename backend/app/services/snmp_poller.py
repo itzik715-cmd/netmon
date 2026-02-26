@@ -108,6 +108,8 @@ VENDOR_PATTERNS = [
     ("extreme",  "Extreme"),
     ("brocade",  "Brocade"),
     ("ubiquiti", "Ubiquiti"),
+    ("apc",      "APC"),
+    ("schneider","Schneider Electric"),
 ]
 
 
