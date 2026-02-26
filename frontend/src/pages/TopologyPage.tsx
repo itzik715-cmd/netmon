@@ -4,6 +4,7 @@ import { topologyApi, pduApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useThemeStore } from '../store/themeStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TopoNode {
@@ -180,6 +181,21 @@ export default function TopologyPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const svgRef = useRef<SVGSVGElement>(null)
+  const { theme } = useThemeStore()
+  const topoColors = useMemo(() => {
+    const cs = getComputedStyle(document.documentElement)
+    return {
+      gradTop: cs.getPropertyValue('--topo-rack-grad-top').trim() || '#f8fafc',
+      gradBottom: cs.getPropertyValue('--topo-rack-grad-bottom').trim() || '#f1f5f9',
+      pduStripBg: cs.getPropertyValue('--topo-pdu-strip-bg').trim() || '#334155',
+      pduStripBorder: cs.getPropertyValue('--topo-pdu-strip-border').trim() || '#475569',
+      pduText: cs.getPropertyValue('--topo-pdu-text').trim() || '#fff',
+      pduMeta: cs.getPropertyValue('--topo-pdu-meta').trim() || '#94a3b8',
+      linkLldp: cs.getPropertyValue('--topo-link-lldp').trim() || '#94a3b8',
+      serverFill: cs.getPropertyValue('--topo-server-fill').trim() || '#e2e8f0',
+      serverStroke: cs.getPropertyValue('--topo-server-stroke').trim() || '#cbd5e1',
+    }
+  }, [theme])
 
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -475,8 +491,8 @@ export default function TopologyPage() {
         {/* Gradient overlay */}
         <defs>
           <linearGradient id={`rack-grad-${rack.key}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f8fafc" />
-            <stop offset="100%" stopColor="#f1f5f9" />
+            <stop offset="0%" stopColor={topoColors.gradTop} />
+            <stop offset="100%" stopColor={topoColors.gradBottom} />
           </linearGradient>
         </defs>
         <rect x={1} y={RACK_HEADER_H} width={RACK_W - 2} height={rackBodyH} fill={`url(#rack-grad-${rack.key})`} />
@@ -537,13 +553,13 @@ export default function TopologyPage() {
               onClick={e => { e.stopPropagation(); navigate(`/devices/${pduNode.id}`) }}
             >
               <rect x={0} y={0} width={stripW} height={stripH} rx={3}
-                fill="#334155" stroke="#475569" strokeWidth={1} />
+                fill={topoColors.pduStripBg} stroke={topoColors.pduStripBorder} strokeWidth={1} />
               <rect x={6} y={stripH - loadH - 14} width={10} height={loadH} rx={2}
                 fill={loadColor} opacity={0.8} />
-              <text x={stripW / 2} y={14} textAnchor="middle" fontSize={7} fill="#fff" fontWeight={700}>
+              <text x={stripW / 2} y={14} textAnchor="middle" fontSize={7} fill={topoColors.pduText} fontWeight={700}>
                 {pduLabel}
               </text>
-              <text x={stripW / 2} y={stripH - 4} textAnchor="middle" fontSize={7} fill="#94a3b8">
+              <text x={stripW / 2} y={stripH - 4} textAnchor="middle" fontSize={7} fill={topoColors.pduMeta}>
                 {powerKw}kW
               </text>
               <circle cx={stripW / 2} cy={24} r={3}
@@ -617,7 +633,7 @@ export default function TopologyPage() {
         <g key={edge.id}>
           <path d={d} className={linkClass} opacity={isFaded ? 0.1 : undefined} />
           {isHighlighted && (edge.source_if || edge.target_if) && (
-            <text x={midX} y={midY - 6} textAnchor="middle" fontSize={8} fill="#94a3b8">
+            <text x={midX} y={midY - 6} textAnchor="middle" fontSize={8} fill={topoColors.pduMeta}>
               {[edge.source_if, edge.target_if].filter(Boolean).join(' \u2194 ')}
             </text>
           )}
@@ -686,7 +702,7 @@ export default function TopologyPage() {
           Switch (1U)
         </span>
         <span className="topo-legend__shape">
-          <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill="#e2e8f0" stroke="#cbd5e1" /></svg>
+          <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill={topoColors.serverFill} stroke={topoColors.serverStroke} /></svg>
           Server (2U)
         </span>
         <span className="topo-legend__shape">
@@ -698,7 +714,7 @@ export default function TopologyPage() {
           Single PDU
         </span>
         <span className="topo-legend__shape">
-          <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke="#94a3b8" strokeWidth={2} /></svg>
+          <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke={topoColors.linkLldp} strokeWidth={2} /></svg>
           LLDP
         </span>
         <span className="topo-legend__shape">

@@ -7,6 +7,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { format } from 'date-fns'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
+import { useChartTheme } from '../hooks/useChartTheme'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -20,11 +21,8 @@ const TIME_RANGES = [
   { label: '7d', hours: 168 }, { label: '30d', hours: 720 },
 ]
 
-const TOOLTIP_STYLE = {
-  background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b',
-}
-
 export default function InterfaceDetailPage() {
+  const chartTheme = useChartTheme()
   const { id } = useParams<{ id: string }>()
   const ifId = parseInt(id!)
   const [hours, setHours] = useState(24)
@@ -200,10 +198,10 @@ export default function InterfaceDetailPage() {
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${bpsUnit}`} width={80} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${bpsUnit}`} width={80} />
+                  <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                   <Line type="monotone" dataKey={inKey} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   <Line type="monotone" dataKey={outKey} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   <ReferenceLine
@@ -258,10 +256,10 @@ export default function InterfaceDetailPage() {
           <div className="card-body">
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} width={45} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} width={45} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                 <Legend />
                 <Line type="monotone" dataKey="In %" stroke="#27ae60" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="Out %" stroke="#f39c12" strokeWidth={2} dot={false} />

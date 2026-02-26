@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Bell, ChevronDown, KeyRound, LogOut, User } from 'lucide-react'
+import { Search, Bell, ChevronDown, KeyRound, LogOut, User, Sun, Moon } from 'lucide-react'
 import { alertsApi, authApi } from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
+import { useThemeStore } from '../../store/themeStore'
 
 /* ── friendly names for every route segment ── */
 const SEGMENT_NAMES: Record<string, string> = {
@@ -62,6 +63,7 @@ function buildBreadcrumbs(pathname: string) {
 
 export default function Header() {
   const { user } = useAuthStore()
+  const { theme, toggleTheme } = useThemeStore()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -159,6 +161,15 @@ export default function Header() {
         <button className="topbar-btn" onClick={() => navigate('/alerts')}>
           <Bell />
           {hasOpenAlerts && <div className="notif-dot" />}
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          className="topbar-btn"
+          onClick={toggleTheme}
+          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
         </button>
 
         {/* User dropdown */}

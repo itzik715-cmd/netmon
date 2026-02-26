@@ -10,6 +10,7 @@ import {
 import { format } from 'date-fns'
 import { Globe, Activity, Calendar, Network, Plus, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useChartTheme } from '../hooks/useChartTheme'
 
 function formatBps(bps: number): string {
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`
@@ -24,10 +25,6 @@ const TIME_RANGES = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 168 },
 ]
-
-const TOOLTIP_STYLE = {
-  background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b',
-}
 
 type TimeRange =
   | { mode: 'preset'; hours: number }
@@ -108,6 +105,7 @@ function CustomRangePicker({
 }
 
 export default function WanDashboardPage() {
+  const chartTheme = useChartTheme()
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 24 })
   const queryClient = useQueryClient()
 
@@ -386,10 +384,10 @@ export default function WanDashboardPage() {
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${unit}`} width={80} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${unit}`} width={80} />
+                  <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                   <Line type="monotone" dataKey={inKey} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   <Line type="monotone" dataKey={outKey} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   <ReferenceLine

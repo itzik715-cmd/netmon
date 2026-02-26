@@ -10,6 +10,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
 import { devicesApi, alertsApi, interfacesApi, flowsApi, pduApi } from '../services/api'
+import { useChartTheme } from '../hooks/useChartTheme'
 import { formatDistanceToNow } from 'date-fns'
 import { ResponsiveGridLayout, useContainerWidth, type Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -66,6 +67,7 @@ function formatBytes(b: number): string {
 }
 
 export default function NocPage() {
+  const chartTheme = useChartTheme()
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [now, setNow] = useState(new Date())
   const [lastRefresh, setLastRefresh] = useState(new Date())
@@ -419,13 +421,13 @@ export default function NocPage() {
             {wanChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={wanChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="time" tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} width={50}
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} axisLine={false} width={50}
                     tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}G` : `${v.toFixed(0)}M`}
                   />
                   <Tooltip
-                    contentStyle={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 8, color: '#e2e8f0' }}
+                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: 8, color: chartTheme.tooltipText }}
                     formatter={(v: number) => [`${v.toFixed(2)} Mbps`]}
                   />
                   <Line type="monotone" dataKey="in" stroke="#3b82f6" strokeWidth={2} dot={false} name="In" />
@@ -466,13 +468,13 @@ export default function NocPage() {
             {powerChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={powerChartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="time" tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} width={55}
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} axisLine={false} width={55}
                     tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}kW` : `${v}W`}
                   />
                   <Tooltip
-                    contentStyle={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 8, color: '#e2e8f0' }}
+                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: 8, color: chartTheme.tooltipText }}
                     formatter={(v: number) => [`${v.toFixed(0)} W`, 'Total Power']}
                   />
                   <Area type="monotone" dataKey="watts" stroke="#f59e0b" fill="#f59e0b20" strokeWidth={2} />
@@ -539,7 +541,7 @@ export default function NocPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 8, color: '#e2e8f0' }}
+                      contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: 8, color: chartTheme.tooltipText }}
                       formatter={(v: number) => [formatBytes(v)]}
                     />
                   </PieChart>

@@ -8,6 +8,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend, ReferenceLine,
 } from 'recharts'
+import { useChartTheme } from '../hooks/useChartTheme'
 
 function statusTag(status: string) {
   const map: Record<string, string> = {
@@ -44,6 +45,7 @@ function SeverityIcon({ severity }: { severity: string }) {
 }
 
 export default function DashboardPage() {
+  const chartTheme = useChartTheme()
   const { data: summary } = useQuery({
     queryKey: ['device-summary'],
     queryFn: () => devicesApi.summary().then((r) => r.data),
@@ -301,10 +303,10 @@ export default function DashboardPage() {
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={wanChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${wanUnit}`} width={80} />
-                <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit={` ${wanUnit}`} width={80} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                 <Legend />
                 <Line type="monotone" dataKey={`In (${wanUnit})`} stroke="#1a9dc8" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 <Line type="monotone" dataKey={`Out (${wanUnit})`} stroke="#a78bfa" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />

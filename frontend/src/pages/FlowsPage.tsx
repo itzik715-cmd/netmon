@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { flowsApi, devicesApi } from '../services/api'
+import { useChartTheme } from '../hooks/useChartTheme'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Label,
@@ -31,7 +32,6 @@ const TIME_RANGES = [
   { label: '7d',  hours: 168 },
 ]
 
-const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }
 
 type TimeRange =
   | { mode: 'preset'; hours: number }
@@ -236,6 +236,7 @@ function TrafficDirectionCard({
   onSelectPeer: (ip: string) => void
   onNavigateIp: (ip: string) => void
 }) {
+  const chartTheme = useChartTheme()
   if (totalBytes === 0 || peers.length === 0) {
     return (
       <div className="traffic-card traffic-card--empty">
@@ -279,7 +280,7 @@ function TrafficDirectionCard({
                   style={{ fontSize: 13, fontWeight: 700, fill: 'var(--text-main)' }}
                 />
               </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+              <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -400,6 +401,7 @@ function PeerDetailView({
   onBack: () => void
   onNavigateIp: (ip: string) => void
 }) {
+  const chartTheme = useChartTheme()
   const { data, isLoading } = useQuery({
     queryKey: ['peer-detail', ip, peer, timeRangeParams],
     queryFn: () => flowsApi.peerDetail(ip, peer, timeRangeParams).then((r) => r.data),
@@ -534,10 +536,10 @@ function PeerDetailView({
                     <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
                 <Area type="monotone" dataKey="Inbound" stroke="#22c55e" fill="url(#gradPeerIn)" strokeWidth={2} />
                 <Area type="monotone" dataKey="Outbound" stroke="#0284c7" fill="url(#gradPeerOut)" strokeWidth={2} />
               </AreaChart>
@@ -608,7 +610,7 @@ function PeerDetailView({
                       {protocols.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                       <Label value={formatBytes(totalBytes)} position="center" style={{ fontSize: 12, fontWeight: 700, fill: 'var(--text-main)' }} />
                     </Pie>
-                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                    <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
@@ -723,6 +725,7 @@ function IpProfile({
   onNavigateIp: (ip: string) => void
   onPeerDetail: (peer: string) => void
 }) {
+  const chartTheme = useChartTheme()
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ip-profile', ip, timeRangeParams],
     queryFn: () => flowsApi.ipProfile(ip, timeRangeParams).then((r) => r.data),
@@ -990,10 +993,10 @@ function IpProfile({
                     <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatBytes(v)} width={70} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
                 <Area type="monotone" dataKey="Bytes In" stroke="#22c55e" fill="url(#gradIn)" strokeWidth={2} />
                 <Area type="monotone" dataKey="Bytes Out" stroke="#0284c7" fill="url(#gradOut)" strokeWidth={2} />
               </AreaChart>
@@ -1112,6 +1115,7 @@ function IpProfile({
 
 // -- main page -----------------------------------------------------------------
 export default function FlowsPage() {
+  const chartTheme = useChartTheme()
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 1 })
   const [searchIp, setSearchIp]     = useState('')
   const [selectedPeer, setSelectedPeer] = useState('')
@@ -1482,7 +1486,7 @@ export default function FlowsPage() {
                           label={({ protocol, percent }: any) => `${protocol} ${(percent * 100).toFixed(1)}%`} labelLine={false}>
                           {stats.protocol_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                         </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                        <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -1499,7 +1503,7 @@ export default function FlowsPage() {
                         <Pie data={stats.application_distribution} dataKey="bytes" nameKey="app" cx="50%" cy="50%" outerRadius={80}>
                           {stats.application_distribution.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
                         </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatBytes(v)} />
+                        <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} formatter={(v: number) => formatBytes(v)} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>

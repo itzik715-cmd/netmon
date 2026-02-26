@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
+import { useChartTheme } from '../hooks/useChartTheme'
 
 const TIME_RANGES = [
   { label: '1h', hours: 1 },
@@ -19,10 +20,6 @@ const TIME_RANGES = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 168 },
 ]
-
-const TOOLTIP_STYLE = {
-  background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b',
-}
 
 function LoadBar({ pct, size = 'md' }: { pct: number; size?: 'sm' | 'md' }) {
   const color = pct >= 90 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e'
@@ -129,6 +126,7 @@ function OutletGrid({
 }
 
 export default function PowerDashboardPage() {
+  const chartTheme = useChartTheme()
   const [hours, setHours] = useState(24)
   const [selectedRack, setSelectedRack] = useState<number | null>(null)
 
@@ -235,10 +233,10 @@ export default function PowerDashboardPage() {
           ) : (
             <ResponsiveContainer width="100%" height={300}>
               <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} unit=" W" width={70} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit=" W" width={70} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                 <Area type="monotone" dataKey="Total Power (W)" stroke="#f59e0b" fill="#fef3c7" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -438,10 +436,10 @@ export default function PowerDashboardPage() {
                       }))}
                       margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                      <YAxis tick={{ fill: '#64748b', fontSize: 10 }} tickLine={false} axisLine={false} width={50} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                      <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} axisLine={false} width={50} />
+                      <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                       <Line type="monotone" dataKey="Power (W)" stroke="#f59e0b" strokeWidth={2} dot={false} />
                       <Line type="monotone" dataKey="Load %" stroke="#8b5cf6" strokeWidth={1.5} dot={false} />
                     </LineChart>

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
+import { useChartTheme } from '../hooks/useChartTheme'
 
 const TIME_RANGES = [
   { label: '1h', hours: 1 },
@@ -18,10 +19,6 @@ const TIME_RANGES = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 168 },
 ]
-
-const TOOLTIP_STYLE = {
-  background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b',
-}
 
 function LoadBar({ pct }: { pct: number }) {
   const cls = pct >= 90 ? 'load-bar__fill--danger' : pct >= 75 ? 'load-bar__fill--warning' : 'load-bar__fill--ok'
@@ -33,6 +30,7 @@ function LoadBar({ pct }: { pct: number }) {
 }
 
 export default function RackPowerPage() {
+  const chartTheme = useChartTheme()
   const [hours, setHours] = useState(24)
   const [expandedRack, setExpandedRack] = useState<number | null>(null)
   const { user } = useAuthStore()
@@ -170,10 +168,10 @@ export default function RackPowerPage() {
                               }))}
                               margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
                             >
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                              <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} interval="preserveStartEnd" />
-                              <YAxis tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={45} />
-                              <Tooltip contentStyle={TOOLTIP_STYLE} />
+                              <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                              <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 9 }} tickLine={false} interval="preserveStartEnd" />
+                              <YAxis tick={{ fill: chartTheme.tick, fontSize: 9 }} tickLine={false} axisLine={false} width={45} />
+                              <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
                               <Line type="monotone" dataKey="Power (W)" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
                             </LineChart>
                           </ResponsiveContainer>
