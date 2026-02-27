@@ -171,6 +171,24 @@ def _normalize_config(config: str) -> str:
     return "\n".join(lines)
 
 
+def _strip_dynamic_lines(config: str) -> str:
+    """
+    Remove dynamic / volatile lines before diffing so that transient data
+    (ARP table entries, etc.) does not pollute config diffs.
+    The raw backup is kept intact — this only affects diff display.
+    """
+    skip_patterns = [
+        " arpa",           # ARP table entries  (e.g. "arp 10.0.0.1 00:16:3e:xx arpa")
+    ]
+    lines = []
+    for line in config.splitlines():
+        lower = line.lower().strip()
+        if any(p in lower for p in skip_patterns):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def diff_configs(
     config_a: str,
     config_b: str,
@@ -189,8 +207,10 @@ def diff_configs(
             "identical": bool,
         }
     """
-    lines_a = (config_a or "").splitlines(keepends=True)
-    lines_b = (config_b or "").splitlines(keepends=True)
+    cleaned_a = _strip_dynamic_lines(config_a or "")
+    cleaned_b = _strip_dynamic_lines(config_b or "")
+    lines_a = cleaned_a.splitlines(keepends=True)
+    lines_b = cleaned_b.splitlines(keepends=True)
 
     diff = list(
         difflib.unified_diff(
