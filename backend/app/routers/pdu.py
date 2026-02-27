@@ -201,14 +201,25 @@ async def pdu_dashboard(
     epoch = extract("epoch", PduMetric.timestamp)
     bucket_ts = func.to_timestamp(func.floor(epoch / bucket_seconds) * bucket_seconds).label("bucket")
 
-    tl_rows = (await db.execute(
+    # First: average power per device per bucket (collapses multiple polls)
+    # Then: sum those averages across devices per bucket = true total power
+    device_avg = (
         select(
             bucket_ts,
-            func.sum(PduMetric.power_watts).label("total_watts"),
+            PduMetric.device_id,
+            func.avg(PduMetric.power_watts).label("avg_watts"),
         )
         .where(PduMetric.device_id.in_(device_ids), PduMetric.timestamp >= since)
-        .group_by("bucket")
-        .order_by("bucket")
+        .group_by("bucket", PduMetric.device_id)
+        .subquery()
+    )
+    tl_rows = (await db.execute(
+        select(
+            device_avg.c.bucket,
+            func.sum(device_avg.c.avg_watts).label("total_watts"),
+        )
+        .group_by(device_avg.c.bucket)
+        .order_by(device_avg.c.bucket)
     )).all()
 
     timeline = [
