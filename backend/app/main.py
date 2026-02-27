@@ -566,6 +566,33 @@ async def create_default_data():
             logger.info("Flow summary backfill complete")
 
 
+async def _recalc_configs_match():
+    """Re-evaluate configs_match for all backups using the current
+    normalization rules (which now strip ARP lines).  Runs once on startup
+    so that existing records reflect the updated filter."""
+    from app.database import AsyncSessionLocal
+    from app.models.config_backup import ConfigBackup
+    from app.services.config_fetcher import _normalize_config
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ConfigBackup).where(
+                ConfigBackup.config_text != None,
+                ConfigBackup.startup_config != None,
+            )
+        )
+        backups = result.scalars().all()
+        updated = 0
+        for b in backups:
+            new_match = _normalize_config(b.config_text) == _normalize_config(b.startup_config)
+            if b.configs_match != new_match:
+                b.configs_match = new_match
+                updated += 1
+        if updated:
+            await db.commit()
+            logger.info("Recalculated configs_match for %d backups (ARP filter)", updated)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -573,6 +600,7 @@ async def lifespan(app: FastAPI):
     await init_db()          # creates any missing tables
     await run_migrations()   # adds missing columns to existing tables
     await create_default_data()
+    await _recalc_configs_match()   # one-time: re-evaluate with ARP filter
 
     # Start schedulers.
     # max_instances=1 prevents a second run from starting within the same
