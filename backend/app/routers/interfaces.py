@@ -8,6 +8,7 @@ import math
 from app.database import get_db
 from app.models.interface import Interface, InterfaceMetric
 from app.models.device import Device
+from app.models.settings import SystemSetting
 from app.middleware.rbac import get_current_user
 from app.schemas.interface import InterfaceResponse, InterfaceMetricResponse
 from app.models.user import User
@@ -216,12 +217,25 @@ async def get_wan_metrics(
     p95_in = percentile_95(all_in)
     p95_out = percentile_95(all_out)
 
+    # Fetch commitment_bps from settings
+    commitment_bps = None
+    setting_result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == "wan_commitment_bps")
+    )
+    setting = setting_result.scalar_one_or_none()
+    if setting and setting.value:
+        try:
+            commitment_bps = float(setting.value)
+        except (ValueError, TypeError):
+            pass
+
     return {
         "timeseries": timeseries,
         "p95_in_bps": round(p95_in, 2),
         "p95_out_bps": round(p95_out, 2),
         "total_speed_bps": total_speed,
         "wan_count": len(wan_ids),
+        "commitment_bps": commitment_bps,
     }
 
 

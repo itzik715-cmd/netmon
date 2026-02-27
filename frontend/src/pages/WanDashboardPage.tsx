@@ -1,16 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { interfacesApi, flowsApi } from '../services/api'
-import { OwnedSubnet } from '../types'
+import { interfacesApi, flowsApi, settingsApi, wanAlertsApi } from '../services/api'
+import { OwnedSubnet, WanAlertRule, AlertEvent } from '../types'
 import { Link } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, ReferenceArea,
 } from 'recharts'
-import { format } from 'date-fns'
-import { Globe, Activity, Calendar, Network, Plus, Trash2, X } from 'lucide-react'
+import { format, formatDistanceToNow } from 'date-fns'
+import { Globe, Activity, Calendar, Network, Plus, Trash2, X, Settings, ShieldAlert, Check, XCircle, Pencil, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useChartTheme } from '../hooks/useChartTheme'
+import { useAuthStore } from '../store/authStore'
 import NocViewButton from '../components/NocViewButton'
 
 function formatBps(bps: number): string {
@@ -105,10 +106,128 @@ function CustomRangePicker({
   )
 }
 
+/* ── WAN Alert metric definitions ───────────────── */
+
+const WAN_METRICS = [
+  { value: 'p95_in', label: '95th Percentile In', unit: 'bps' },
+  { value: 'p95_out', label: '95th Percentile Out', unit: 'bps' },
+  { value: 'p95_max', label: '95th Percentile Max', unit: 'bps' },
+  { value: 'max_in', label: 'Max In', unit: 'bps' },
+  { value: 'max_out', label: 'Max Out', unit: 'bps' },
+  { value: 'avg_in', label: 'Average In', unit: 'bps' },
+  { value: 'avg_out', label: 'Average Out', unit: 'bps' },
+  { value: 'commitment_pct', label: 'Commitment %', unit: '%' },
+]
+
+const CONDITIONS = [
+  { value: 'gt', label: '>' },
+  { value: 'gte', label: '>=' },
+  { value: 'lt', label: '<' },
+  { value: 'lte', label: '<=' },
+]
+
+const LOOKBACK_PRESETS = [
+  { label: '10 min', minutes: 10 },
+  { label: '30 min', minutes: 30 },
+  { label: '1 hour', minutes: 60 },
+  { label: '6 hours', minutes: 360 },
+  { label: '24 hours', minutes: 1440 },
+  { label: '7 days', minutes: 10080 },
+  { label: '30 days', minutes: 43200 },
+]
+
+function formatLookback(minutes: number): string {
+  const preset = LOOKBACK_PRESETS.find((p) => p.minutes === minutes)
+  if (preset) return preset.label
+  if (minutes < 60) return `${minutes} min`
+  if (minutes < 1440) return `${(minutes / 60).toFixed(0)}h`
+  return `${(minutes / 1440).toFixed(0)}d`
+}
+
+function metricLabel(metric: string): string {
+  return WAN_METRICS.find((m) => m.value === metric)?.label || metric
+}
+
+function metricUnit(metric: string): string {
+  return WAN_METRICS.find((m) => m.value === metric)?.unit || ''
+}
+
+function formatThreshold(metric: string, val: number | null | undefined): string {
+  if (val == null) return '-'
+  if (metricUnit(metric) === '%') return `${val}%`
+  return formatBps(val)
+}
+
+function severityTag(severity: string) {
+  const map: Record<string, string> = { critical: 'tag-red', warning: 'tag-orange', info: 'tag-blue' }
+  return <span className={map[severity] || 'tag-gray'}>{severity}</span>
+}
+
+function statusTag(status: string) {
+  const map: Record<string, string> = { open: 'tag-red', acknowledged: 'tag-orange', resolved: 'tag-green' }
+  return <span className={map[status] || 'tag-gray'}>{status}</span>
+}
+
+/* ── Empty form for WAN alert rule ────────────── */
+
+interface WanAlertForm {
+  name: string
+  metric: string
+  condition: string
+  warning_threshold: string
+  critical_threshold: string
+  lookback_minutes: string
+  notification_email: string
+  notification_webhook: string
+}
+
+const EMPTY_WAN_FORM: WanAlertForm = {
+  name: '',
+  metric: 'p95_max',
+  condition: 'gt',
+  warning_threshold: '',
+  critical_threshold: '',
+  lookback_minutes: '1440',
+  notification_email: '',
+  notification_webhook: '',
+}
+
+function formToPayload(form: WanAlertForm) {
+  const isBps = metricUnit(form.metric) === 'bps'
+  return {
+    name: form.name,
+    metric: form.metric,
+    condition: form.condition,
+    warning_threshold: form.warning_threshold ? (isBps ? parseFloat(form.warning_threshold) * 1_000_000_000 : parseFloat(form.warning_threshold)) : undefined,
+    critical_threshold: form.critical_threshold ? (isBps ? parseFloat(form.critical_threshold) * 1_000_000_000 : parseFloat(form.critical_threshold)) : undefined,
+    lookback_minutes: parseInt(form.lookback_minutes) || 1440,
+    notification_email: form.notification_email || undefined,
+    notification_webhook: form.notification_webhook || undefined,
+  }
+}
+
+function ruleToForm(rule: WanAlertRule): WanAlertForm {
+  const isBps = metricUnit(rule.metric) === 'bps'
+  return {
+    name: rule.name,
+    metric: rule.metric,
+    condition: rule.condition,
+    warning_threshold: rule.warning_threshold != null ? (isBps ? (rule.warning_threshold / 1_000_000_000).toString() : rule.warning_threshold.toString()) : '',
+    critical_threshold: rule.critical_threshold != null ? (isBps ? (rule.critical_threshold / 1_000_000_000).toString() : rule.critical_threshold.toString()) : '',
+    lookback_minutes: String(rule.lookback_minutes),
+    notification_email: rule.notification_email || '',
+    notification_webhook: rule.notification_webhook || '',
+  }
+}
+
+/* ── Main component ───────────────────────────── */
+
 export default function WanDashboardPage() {
   const chartTheme = useChartTheme()
+  const { user } = useAuthStore()
   const [timeRange, setTimeRange] = useState<TimeRange>({ mode: 'preset', hours: 24 })
   const queryClient = useQueryClient()
+  const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   useEffect(() => {
     const el = document.getElementById('noc-page-title')
@@ -130,6 +249,18 @@ export default function WanDashboardPage() {
     refetchInterval: 60_000,
   })
 
+  // WAN alert rules & events
+  const { data: wanRules = [] } = useQuery<WanAlertRule[]>({
+    queryKey: ['wan-alert-rules'],
+    queryFn: () => wanAlertsApi.listRules().then((r) => r.data),
+  })
+
+  const { data: wanEvents = [] } = useQuery<AlertEvent[]>({
+    queryKey: ['wan-alert-events'],
+    queryFn: () => wanAlertsApi.listEvents({ status: 'open' }).then((r) => r.data),
+    refetchInterval: 30_000,
+  })
+
   // Owned subnets
   const { data: ownedSubnets = [], isLoading: subnetsLoading } = useQuery<OwnedSubnet[]>({
     queryKey: ['owned-subnets'],
@@ -140,12 +271,92 @@ export default function WanDashboardPage() {
   const [newSubnet, setNewSubnet] = useState('')
   const [newNote, setNewNote] = useState('')
 
+  // Commitment traffic popover
+  const [showCommitment, setShowCommitment] = useState(false)
+  const [commitmentInput, setCommitmentInput] = useState('')
+  const commitmentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (commitmentRef.current && !commitmentRef.current.contains(e.target as Node)) setShowCommitment(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const commitmentBps = wanData?.commitment_bps || 0
+
+  const saveCommitmentMutation = useMutation({
+    mutationFn: (gbps: string) => {
+      const bps = parseFloat(gbps) * 1_000_000_000
+      return settingsApi.update('wan_commitment_bps', String(bps))
+    },
+    onSuccess: () => {
+      toast.success('Commitment traffic updated')
+      queryClient.invalidateQueries({ queryKey: ['wan-metrics'] })
+      setShowCommitment(false)
+    },
+    onError: () => toast.error('Failed to update commitment'),
+  })
+
+  // WAN alert CRUD mutations
+  const [showAlertForm, setShowAlertForm] = useState(false)
+  const [editingRule, setEditingRule] = useState<WanAlertRule | null>(null)
+  const [alertForm, setAlertForm] = useState<WanAlertForm>(EMPTY_WAN_FORM)
+
+  const createRuleMutation = useMutation({
+    mutationFn: (data: object) => wanAlertsApi.createRule(data),
+    onSuccess: () => {
+      toast.success('WAN alert rule created')
+      queryClient.invalidateQueries({ queryKey: ['wan-alert-rules'] })
+      setShowAlertForm(false)
+      setAlertForm(EMPTY_WAN_FORM)
+    },
+    onError: () => toast.error('Failed to create rule'),
+  })
+
+  const updateRuleMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: object }) => wanAlertsApi.updateRule(id, data),
+    onSuccess: () => {
+      toast.success('WAN alert rule updated')
+      queryClient.invalidateQueries({ queryKey: ['wan-alert-rules'] })
+      setEditingRule(null)
+      setShowAlertForm(false)
+      setAlertForm(EMPTY_WAN_FORM)
+    },
+    onError: () => toast.error('Failed to update rule'),
+  })
+
+  const deleteRuleMutation = useMutation({
+    mutationFn: (id: number) => wanAlertsApi.deleteRule(id),
+    onSuccess: () => {
+      toast.success('WAN alert rule deleted')
+      queryClient.invalidateQueries({ queryKey: ['wan-alert-rules'] })
+    },
+  })
+
+  const toggleRuleMutation = useMutation({
+    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) => wanAlertsApi.updateRule(id, { is_active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['wan-alert-rules'] }),
+  })
+
+  const ackMutation = useMutation({
+    mutationFn: (id: number) => wanAlertsApi.acknowledge(id),
+    onSuccess: () => { toast.success('Alert acknowledged'); queryClient.invalidateQueries({ queryKey: ['wan-alert-events'] }) },
+  })
+
+  const resolveMutation = useMutation({
+    mutationFn: (id: number) => wanAlertsApi.resolve(id),
+    onSuccess: () => { toast.success('Alert resolved'); queryClient.invalidateQueries({ queryKey: ['wan-alert-events'] }) },
+  })
+
+  // Subnet mutations
   const toggleMutation = useMutation({
     mutationFn: (data: { subnet: string; is_active: boolean }) => flowsApi.toggleOwnedSubnet(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Subnet updated') },
     onError: () => toast.error('Failed to update subnet'),
   })
-  const createMutation = useMutation({
+  const createSubnetMutation = useMutation({
     mutationFn: (data: { subnet: string; note?: string }) => flowsApi.createOwnedSubnet(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['owned-subnets'] })
@@ -154,7 +365,7 @@ export default function WanDashboardPage() {
     },
     onError: (err: any) => toast.error(err?.response?.data?.detail || 'Failed to add subnet'),
   })
-  const deleteMutation = useMutation({
+  const deleteSubnetMutation = useMutation({
     mutationFn: (id: number) => flowsApi.deleteOwnedSubnet(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Subnet deleted') },
     onError: () => toast.error('Failed to delete subnet'),
@@ -166,7 +377,7 @@ export default function WanDashboardPage() {
   // Determine if we should display in Gbps (when max value exceeds 1024 Mbps)
   const allInMbps = (wanData?.timeseries || []).map((m: any) => m.in_bps / 1_000_000)
   const allOutMbps = (wanData?.timeseries || []).map((m: any) => m.out_bps / 1_000_000)
-  const maxMbps = Math.max(0, ...allInMbps, ...allOutMbps, p95In / 1_000_000, p95Out / 1_000_000)
+  const maxMbps = Math.max(0, ...allInMbps, ...allOutMbps, p95In / 1_000_000, p95Out / 1_000_000, commitmentBps / 1_000_000)
   const useGbps = maxMbps > 1024
   const divisor = useGbps ? 1_000_000_000 : 1_000_000
   const unit = useGbps ? 'Gbps' : 'Mbps'
@@ -185,6 +396,7 @@ export default function WanDashboardPage() {
   const p95InChart = +(p95In / divisor).toFixed(3)
   const p95OutChart = +(p95Out / divisor).toFixed(3)
   const p95MaxChart = Math.max(p95InChart, p95OutChart)
+  const commitmentChart = commitmentBps > 0 ? +(commitmentBps / divisor).toFixed(3) : null
 
   // Zoom state
   const [refLeft, setRefLeft] = useState<string | null>(null)
@@ -237,6 +449,34 @@ export default function WanDashboardPage() {
     ? (timeRange.hours <= 24 ? `${timeRange.hours}h` : `${timeRange.hours / 24}d`)
     : 'Custom Range'
 
+  const handleAlertSubmit = () => {
+    if (!alertForm.name) return
+    if (!alertForm.warning_threshold && !alertForm.critical_threshold) return
+    const payload = formToPayload(alertForm)
+    if (editingRule) {
+      updateRuleMutation.mutate({ id: editingRule.id, data: payload })
+    } else {
+      createRuleMutation.mutate(payload)
+    }
+  }
+
+  const handleEditRule = (rule: WanAlertRule) => {
+    setEditingRule(rule)
+    setAlertForm(ruleToForm(rule))
+    setShowAlertForm(true)
+  }
+
+  const handleCancelAlert = () => {
+    setShowAlertForm(false)
+    setEditingRule(null)
+    setAlertForm(EMPTY_WAN_FORM)
+  }
+
+  const setField = (key: keyof WanAlertForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setAlertForm((p) => ({ ...p, [key]: e.target.value }))
+
+  const isMutating = createRuleMutation.isPending || updateRuleMutation.isPending
+
   return (
     <div className="flex-col-gap">
       <div className="page-header">
@@ -288,6 +528,52 @@ export default function WanDashboardPage() {
             <div className="stat-label">95th Percentile ({timeLabel})</div>
             <div className="stat-value">{formatBps(Math.max(p95In, p95Out))}</div>
           </div>
+        </div>
+        {/* Commitment stat card */}
+        <div className="stat-card" ref={commitmentRef} style={{ position: 'relative' }}>
+          <div className="stat-icon" style={{ background: 'var(--primary-50)', color: 'var(--primary-600)' }}>
+            <Settings size={20} />
+          </div>
+          <div className="stat-body" style={{ flex: 1 }}>
+            <div className="stat-label">Commitment</div>
+            <div className="stat-value">{commitmentBps > 0 ? formatBps(commitmentBps) : 'Not set'}</div>
+          </div>
+          {isOperator && (
+            <button
+              className="btn btn-outline btn--icon btn-sm"
+              style={{ position: 'absolute', top: 8, right: 8 }}
+              onClick={() => { setCommitmentInput(commitmentBps > 0 ? (commitmentBps / 1_000_000_000).toString() : ''); setShowCommitment(!showCommitment) }}
+              title="Set commitment traffic"
+            >
+              <Settings size={13} />
+            </button>
+          )}
+          {showCommitment && (
+            <div className="time-range-popover" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: 4 }}>
+              <div className="time-range-popover__title">Set Commitment Traffic</div>
+              <div className="time-range-popover__field">
+                <label className="form-label">Commitment (Gbps)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-input"
+                  value={commitmentInput}
+                  onChange={(e) => setCommitmentInput(e.target.value)}
+                  placeholder="e.g. 5"
+                />
+              </div>
+              <div className="time-range-popover__actions">
+                <button className="btn btn-outline btn-sm" onClick={() => setShowCommitment(false)}>Cancel</button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={!commitmentInput || saveCommitmentMutation.isPending}
+                  onClick={() => saveCommitmentMutation.mutate(commitmentInput)}
+                >
+                  {saveCommitmentMutation.isPending ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -365,7 +651,7 @@ export default function WanDashboardPage() {
         </div>
       </div>
 
-      {/* Throughput graph with 95th percentile */}
+      {/* Throughput graph with 95th percentile + commitment */}
       <div className="card">
         <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Activity size={15} />
@@ -404,6 +690,15 @@ export default function WanDashboardPage() {
                     strokeWidth={2}
                     label={{ value: `95th: ${formatBps(Math.max(p95In, p95Out))}`, position: 'insideTopRight', fill: '#e74c3c', fontSize: 12, fontWeight: 600 }}
                   />
+                  {commitmentChart != null && (
+                    <ReferenceLine
+                      y={commitmentChart}
+                      stroke="#22c55e"
+                      strokeDasharray="8 4"
+                      strokeWidth={2}
+                      label={{ value: `Commit: ${formatBps(commitmentBps)}`, position: 'insideBottomRight', fill: '#22c55e', fontSize: 12, fontWeight: 600 }}
+                    />
+                  )}
                   {refLeft && refRight && (
                     <ReferenceArea x1={refLeft} x2={refRight} fill="#1a9dc8" fillOpacity={0.15} />
                   )}
@@ -434,8 +729,189 @@ export default function WanDashboardPage() {
                   <span style={{ marginLeft: '16px', fontWeight: 600 }}>95th Out:</span>
                   <span>{formatBps(p95Out)}</span>
                 </div>
+                {commitmentBps > 0 && (
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#22c55e', fontWeight: 600 }}>▲</span>
+                    <span style={{ minWidth: '70px', fontWeight: 600 }}>Commitment:</span>
+                    <span>{formatBps(commitmentBps)}</span>
+                    <span style={{ marginLeft: '16px', fontWeight: 600 }}>Usage:</span>
+                    <span>{Math.max(p95In, p95Out) > 0 ? ((Math.max(p95In, p95Out) / commitmentBps) * 100).toFixed(1) : '0'}%</span>
+                  </div>
+                )}
               </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* WAN Alerts */}
+      <div className="card">
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ShieldAlert size={15} />
+          <h3 style={{ flex: 1 }}>WAN Alerts</h3>
+          <span className="text-muted text-sm">
+            {wanEvents.length > 0 && <span className="tag-red" style={{ marginRight: 6 }}>{wanEvents.length} open</span>}
+            {wanRules.length} rules
+          </span>
+          {isOperator && (
+            <button className="btn btn-primary btn-sm" onClick={() => { if (showAlertForm && !editingRule) { handleCancelAlert() } else { setEditingRule(null); setAlertForm(EMPTY_WAN_FORM); setShowAlertForm(true) } }}>
+              <Plus size={12} /> Add Alert
+            </button>
+          )}
+        </div>
+
+        {/* Open events */}
+        {wanEvents.length > 0 && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', background: 'var(--danger-50, #fef2f2)' }}>
+            <div className="text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>Active Alerts</div>
+            {wanEvents.map((ev) => (
+              <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: '13px' }}>
+                {severityTag(ev.severity)}
+                {statusTag(ev.status)}
+                <span className="truncate" style={{ flex: 1 }}>{ev.message}</span>
+                <span className="text-muted text-xs">{formatDistanceToNow(new Date(ev.triggered_at), { addSuffix: true })}</span>
+                {isOperator && ev.status === 'open' && (
+                  <div className="card__actions">
+                    <button onClick={() => ackMutation.mutate(ev.id)} className="btn btn-outline btn--icon btn-sm" title="Acknowledge">
+                      <Check size={12} />
+                    </button>
+                    <button onClick={() => resolveMutation.mutate(ev.id)} className="btn btn-outline btn--icon btn-sm" title="Resolve">
+                      <XCircle size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add/Edit alert form */}
+        {showAlertForm && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-page)' }}>
+            <div className="text-sm" style={{ fontWeight: 600, marginBottom: 8 }}>{editingRule ? `Edit: ${editingRule.name}` : 'New WAN Alert Rule'}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+              <div className="form-field">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={alertForm.name} onChange={setField('name')} placeholder="e.g. High 95th" />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Metric *</label>
+                <select className="form-select" value={alertForm.metric} onChange={setField('metric')}>
+                  {WAN_METRICS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label className="form-label">Condition *</label>
+                <select className="form-select" value={alertForm.condition} onChange={setField('condition')}>
+                  {CONDITIONS.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label className="form-label">Warning ({metricUnit(alertForm.metric) === 'bps' ? 'Gbps' : '%'})</label>
+                <input className="form-input" type="number" step="any" value={alertForm.warning_threshold} onChange={setField('warning_threshold')} placeholder="e.g. 4" />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Critical ({metricUnit(alertForm.metric) === 'bps' ? 'Gbps' : '%'})</label>
+                <input className="form-input" type="number" step="any" value={alertForm.critical_threshold} onChange={setField('critical_threshold')} placeholder="e.g. 5" />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Time Window *</label>
+                <select className="form-select" value={alertForm.lookback_minutes} onChange={setField('lookback_minutes')}>
+                  {LOOKBACK_PRESETS.map((p) => (
+                    <option key={p.minutes} value={p.minutes}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label className="form-label">Email</label>
+                <input className="form-input" type="email" value={alertForm.notification_email} onChange={setField('notification_email')} placeholder="Optional" />
+              </div>
+              <div className="form-field">
+                <label className="form-label">Webhook</label>
+                <input className="form-input" value={alertForm.notification_webhook} onChange={setField('notification_webhook')} placeholder="Optional" />
+              </div>
+            </div>
+            {!alertForm.warning_threshold && !alertForm.critical_threshold && (
+              <p className="form-error" style={{ marginTop: 4 }}>Set at least one threshold</p>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!alertForm.name || (!alertForm.warning_threshold && !alertForm.critical_threshold) || isMutating}
+                onClick={handleAlertSubmit}
+              >
+                {isMutating && <Loader2 size={12} className="animate-spin" />}
+                {editingRule ? 'Save Changes' : 'Create Rule'}
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={handleCancelAlert}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Rules table */}
+        <div className="table-wrap">
+          {wanRules.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state__icon"><ShieldAlert /></div>
+              <div className="empty-state__title">No WAN alert rules</div>
+              <div className="empty-state__description">Create a rule to monitor aggregate WAN traffic.</div>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr><th>Name</th><th>Metric</th><th>Window</th><th>Condition</th><th>Thresholds</th><th>Active</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {wanRules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td><strong>{rule.name}</strong></td>
+                    <td className="text-sm">{metricLabel(rule.metric)}</td>
+                    <td className="mono text-sm">{formatLookback(rule.lookback_minutes)}</td>
+                    <td className="mono">{CONDITIONS.find((c) => c.value === rule.condition)?.label || rule.condition}</td>
+                    <td className="mono">
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {rule.warning_threshold != null && <span className="tag-orange">warn: {formatThreshold(rule.metric, rule.warning_threshold)}</span>}
+                        {rule.critical_threshold != null && <span className="tag-red">crit: {formatThreshold(rule.metric, rule.critical_threshold)}</span>}
+                      </div>
+                    </td>
+                    <td>
+                      {isOperator ? (
+                        <button
+                          onClick={() => toggleRuleMutation.mutate({ id: rule.id, is_active: !rule.is_active })}
+                          className={`toggle${rule.is_active ? ' toggle--active' : ''}`}
+                        >
+                          <span className="toggle__knob" />
+                        </button>
+                      ) : (
+                        <span className={rule.is_active ? 'tag-green' : 'tag-gray'}>{rule.is_active ? 'Active' : 'Off'}</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="card__actions">
+                        {isOperator && (
+                          <button onClick={() => handleEditRule(rule)} className="btn btn-outline btn--icon btn-sm" title="Edit">
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                        {isOperator && (
+                          <button
+                            onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMutation.mutate(rule.id) }}
+                            className="btn btn-outline btn--icon btn-sm btn-danger"
+                            title="Delete"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
@@ -462,9 +938,9 @@ export default function WanDashboardPage() {
               <label className="form-label">Note (optional)</label>
               <input className="form-input" placeholder="Description" value={newNote} onChange={(e) => setNewNote(e.target.value)} />
             </div>
-            <button className="btn btn-primary btn-sm" disabled={!newSubnet.trim() || createMutation.isPending}
-              onClick={() => createMutation.mutate({ subnet: newSubnet.trim(), note: newNote.trim() || undefined })}>
-              {createMutation.isPending ? 'Adding...' : 'Add'}
+            <button className="btn btn-primary btn-sm" disabled={!newSubnet.trim() || createSubnetMutation.isPending}
+              onClick={() => createSubnetMutation.mutate({ subnet: newSubnet.trim(), note: newNote.trim() || undefined })}>
+              {createSubnetMutation.isPending ? 'Adding...' : 'Add'}
             </button>
             <button className="btn btn-outline btn-sm" onClick={() => { setShowAddForm(false); setNewSubnet(''); setNewNote('') }}>
               <X size={12} />
@@ -514,7 +990,7 @@ export default function WanDashboardPage() {
                     <td className="text-muted text-sm">{s.note || '\u2014'}</td>
                     <td>
                       {s.source === 'manual' && s.id && (
-                        <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteMutation.mutate(s.id!) }}>
+                        <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteSubnetMutation.mutate(s.id!) }}>
                           <Trash2 size={14} color="#ef4444" />
                         </button>
                       )}

@@ -14,12 +14,14 @@ from app.extensions import limiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router, wan_alerts as wan_alerts_router
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
 from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
 from app.models.pdu import PduMetric as _pdu_metric_model, PduBank as _pdu_bank_model, PduBankMetric as _pdu_bank_metric_model, PduOutlet as _pdu_outlet_model  # noqa: F401
+from app.models.wan_alert import WanAlertRule as _wan_alert_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
+from app.services.wan_alert_engine import evaluate_wan_rules
 from app.services.flow_collector import FlowCollector
 import os
 
@@ -101,10 +103,12 @@ async def scheduled_polling():
 
 
 async def scheduled_alerts():
-    """Evaluate alert rules."""
+    """Evaluate alert rules (device/interface + WAN aggregate)."""
     from app.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         await evaluate_rules(db)
+    async with AsyncSessionLocal() as db:
+        await evaluate_wan_rules(db)
 
 
 async def scheduled_cleanup():
@@ -756,6 +760,7 @@ app.include_router(backups_router.router)
 app.include_router(system_events_router.router)
 app.include_router(server_management.router)
 app.include_router(pdu_router.router)
+app.include_router(wan_alerts_router.router)
 
 
 @app.get("/api/health")
