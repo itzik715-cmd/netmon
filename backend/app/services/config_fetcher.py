@@ -153,14 +153,15 @@ async def fetch_device_configs(device) -> tuple[Optional[str], Optional[str]]:
 
 def _normalize_config(config: str) -> str:
     """
-    Strip lines that change on every save (timestamps, ntp clock-period, etc.)
-    so that running==startup comparison is meaningful.
+    Strip lines that change on every save (timestamps, ntp clock-period,
+    ARP table entries, etc.) so that running==startup comparison is meaningful.
     """
     skip_patterns = [
         "last configuration change",
         "ntp clock-period",
         "! time:",
         "! last",
+        " arpa",            # dynamic ARP table entries
     ]
     lines = []
     for line in config.splitlines():
