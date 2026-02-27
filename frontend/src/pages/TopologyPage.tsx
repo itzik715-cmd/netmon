@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { topologyApi, pduApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw } from 'lucide-react'
+import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw, Focus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useThemeStore } from '../store/themeStore'
 import NocViewButton from '../components/NocViewButton'
@@ -365,7 +365,11 @@ export default function TopologyPage() {
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
-    setZoom(z => Math.max(0.2, Math.min(3, z - e.deltaY * 0.001)))
+    if (e.ctrlKey || e.metaKey) {
+      setZoom(z => Math.max(0.2, Math.min(3, z - e.deltaY * 0.001)))
+    } else {
+      setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }))
+    }
   }, [])
 
   const resetLayout = useCallback(() => {
@@ -376,6 +380,59 @@ export default function TopologyPage() {
     setZoom(1)
     setPan({ x: 0, y: 0 })
   }, [])
+
+  const fitAll = useCallback(() => {
+    if (racks.length === 0) return
+    const svgEl = svgRef.current
+    if (!svgEl) return
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const rack of racks) {
+      const hasPdu = rack.pduNodes.length > 0
+      const rx = hasPdu ? rack.x - 26 : rack.x
+      const rw = rack.pduNodes.length > 1 ? rack.width + 52 : hasPdu ? rack.width + 26 : rack.width
+      minX = Math.min(minX, rx)
+      minY = Math.min(minY, rack.y)
+      maxX = Math.max(maxX, rx + rw)
+      maxY = Math.max(maxY, rack.y + rack.height)
+    }
+
+    const contentW = maxX - minX
+    const contentH = maxY - minY
+    const svgRect = svgEl.getBoundingClientRect()
+    const pad = 0.9
+
+    const scaleX = (svgRect.width * pad) / contentW
+    const scaleY = (svgRect.height * pad) / contentH
+    const newZoom = Math.min(scaleX, scaleY, 1.5)
+
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    const newPanX = svgRect.width / 2 - centerX * newZoom
+    const newPanY = svgRect.height / 2 - centerY * newZoom
+
+    setZoom(newZoom)
+    setPan({ x: newPanX, y: newPanY })
+  }, [racks])
+
+  // Keyboard shortcut: F = Fit All
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'f' || e.key === 'F') fitAll()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [fitAll])
+
+  // First-visit hint
+  const [showHint, setShowHint] = useState(() => !localStorage.getItem('topology-hint-shown'))
+  useEffect(() => {
+    if (!showHint) return
+    localStorage.setItem('topology-hint-shown', '1')
+    const timer = setTimeout(() => setShowHint(false), 5500)
+    return () => clearTimeout(timer)
+  }, [showHint])
 
   // ─── Render helpers ──────────────────────────────────────────────────────
 
@@ -661,11 +718,18 @@ export default function TopologyPage() {
             <Search size={13} />
             <input placeholder="Search devices..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
+          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} title="Zoom out">
+            <ZoomOut size={14} />
+          </button>
+          <span style={{ fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center', color: 'var(--text-muted)' }}>
+            {Math.round(zoom * 100)}%
+          </span>
           <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.min(3, z + 0.2))} title="Zoom in">
             <ZoomIn size={14} />
           </button>
-          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} title="Zoom out">
-            <ZoomOut size={14} />
+          <button className="btn btn-outline" onClick={fitAll} title="Fit all racks in view (F)">
+            <Focus size={13} />
+            Fit All
           </button>
           <button className="btn btn-outline btn--icon" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} title="Reset view">
             <Maximize2 size={14} />
@@ -734,7 +798,7 @@ export default function TopologyPage() {
       </div>
 
       {/* SVG Canvas */}
-      <div className="card" style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 480 }}>
+      <div className="card" style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
         {isLoading && (
           <div className="empty-state" style={{ position: 'absolute', inset: 0 }}>
             <Loader2 size={32} className="animate-spin" />
@@ -755,7 +819,7 @@ export default function TopologyPage() {
           ref={svgRef}
           width="100%"
           height="100%"
-          style={{ display: 'block', cursor: unitDragging ? 'grabbing' : rackDragging ? 'grabbing' : panDragging ? 'grabbing' : 'grab', minHeight: 480 }}
+          style={{ display: 'block', cursor: unitDragging ? 'grabbing' : rackDragging ? 'grabbing' : panDragging ? 'grabbing' : 'grab' }}
           onMouseMove={onSvgMouseMove}
           onMouseUp={onSvgMouseUp}
           onMouseDown={onSvgMouseDown}
@@ -767,6 +831,16 @@ export default function TopologyPage() {
             {renderTooltip()}
           </g>
         </svg>
+        {showHint && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(15,23,42,0.8)', color: 'white', padding: '8px 18px',
+            borderRadius: 20, fontSize: 12, zIndex: 1000, pointerEvents: 'none',
+            animation: 'topo-hint-fade 1s ease 4s forwards',
+          }}>
+            Scroll to pan &middot; Ctrl+Scroll to zoom &middot; F to fit all
+          </div>
+        )}
       </div>
 
       {/* Search results */}

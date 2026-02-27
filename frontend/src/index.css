@@ -2693,6 +2693,10 @@ a.stat-card {
   50% { opacity: 0.3; }
 }
 
+@keyframes topo-hint-fade {
+  to { opacity: 0; }
+}
+
 .topo-tooltip {
   pointer-events: none;
 }
