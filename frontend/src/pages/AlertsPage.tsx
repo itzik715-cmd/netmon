@@ -141,14 +141,20 @@ export default function AlertsPage() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Name</th><th>Metric</th><th>Condition</th><th>Thresholds</th><th>Active</th><th>Actions</th></tr>
+                <tr><th>Name</th><th>Target</th><th>Metric</th><th>Condition</th><th>Thresholds</th><th>Active</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {(rules || []).map((rule) => {
                   const hasMulti = rule.warning_threshold != null || rule.critical_threshold != null
+                  const target = rule.device_hostname
+                    ? rule.interface_name
+                      ? `${rule.device_hostname} → ${rule.interface_name}`
+                      : rule.device_hostname
+                    : 'All devices'
                   return (
                     <tr key={rule.id}>
                       <td><strong>{rule.name}</strong>{rule.description && <div className="text-muted text-xs">{rule.description}</div>}</td>
+                      <td><span className="text-sm">{target}</span></td>
                       <td className="mono">{rule.metric}</td>
                       <td className="mono">{rule.condition}</td>
                       <td className="mono">
@@ -200,7 +206,7 @@ export default function AlertsPage() {
                 })}
                 {(!rules || rules.length === 0) && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       <div className="empty-state">
                         <div className="empty-state__icon"><ShieldAlert /></div>
                         <div className="empty-state__title">No alert rules configured</div>

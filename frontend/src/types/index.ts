@@ -118,6 +118,8 @@ export interface AlertRule {
   notification_email?: string
   notification_webhook?: string
   created_at: string
+  device_hostname?: string
+  interface_name?: string
 }
 
 export interface AlertEvent {
@@ -130,6 +132,7 @@ export interface AlertEvent {
   message?: string
   metric_value?: number
   threshold_value?: number
+  device_hostname?: string
   triggered_at: string
   resolved_at?: string
   acknowledged_at?: string

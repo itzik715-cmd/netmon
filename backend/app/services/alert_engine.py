@@ -265,8 +265,16 @@ async def handle_alert_trigger(
         dev = d.scalar_one_or_none()
         device_name = dev.hostname if dev else str(rule.device_id)
 
+    # Resolve interface name if applicable
+    iface_part = ""
+    if rule.interface_id:
+        ir = await db.execute(select(Interface.name).where(Interface.id == rule.interface_id))
+        iface_name = ir.scalar_one_or_none()
+        if iface_name:
+            iface_part = f" | Interface: {iface_name}"
+
     message = (
-        f"Alert: {rule.name} | Device: {device_name} | "
+        f"Alert: {rule.name} | Device: {device_name}{iface_part} | "
         f"Metric: {rule.metric} = {value:.2f} {rule.condition} {breached_threshold}"
     )
 

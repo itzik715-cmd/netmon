@@ -27,6 +27,7 @@ export default function EditAlertRuleModal({ rule, onClose }: { rule: AlertRule;
     name: rule.name,
     description: rule.description || '',
     device_id: rule.device_id ? String(rule.device_id) : '',
+    interface_id: rule.interface_id ? String(rule.interface_id) : '',
     metric: rule.metric,
     condition: rule.condition,
     threshold: rule.threshold != null ? String(rule.threshold) : '',

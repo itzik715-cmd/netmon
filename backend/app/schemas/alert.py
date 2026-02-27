@@ -65,6 +65,8 @@ class AlertRuleResponse(BaseModel):
     notification_email: Optional[str] = None
     notification_webhook: Optional[str] = None
     created_at: datetime
+    device_hostname: Optional[str] = None
+    interface_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -82,6 +84,7 @@ class AlertEventResponse(BaseModel):
     triggered_at: datetime
     resolved_at: Optional[datetime] = None
     acknowledged_at: Optional[datetime] = None
+    device_hostname: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
