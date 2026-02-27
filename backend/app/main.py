@@ -411,6 +411,22 @@ async def run_migrations():
         except Exception:
             pass  # already exists
 
+    # alert_events: add wan_rule_id FK and make rule_id nullable
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS "
+                "wan_rule_id INTEGER REFERENCES wan_alert_rules(id) ON DELETE CASCADE"
+            ))
+        except Exception as e:
+            logger.warning("Migration ALTER alert_events.wan_rule_id skipped: %s", e)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE alert_events ALTER COLUMN rule_id DROP NOT NULL"
+            ))
+        except Exception as e:
+            logger.warning("Migration ALTER alert_events.rule_id nullable skipped: %s", e)
+
     logger.info("Database migrations applied")
 
 
