@@ -126,6 +126,7 @@ export interface AlertEvent {
   id: number
   rule_id?: number
   wan_rule_id?: number
+  power_rule_id?: number
   device_id?: number
   interface_id?: number
   severity: string
@@ -281,6 +282,22 @@ export interface SubnetScanResult {
 }
 
 export interface WanAlertRule {
+  id: number
+  name: string
+  description?: string
+  metric: string
+  condition: string
+  warning_threshold?: number | null
+  critical_threshold?: number | null
+  lookback_minutes: number
+  is_active: boolean
+  cooldown_minutes: number
+  notification_email?: string
+  notification_webhook?: string
+  created_at: string
+}
+
+export interface PowerAlertRule {
   id: number
   name: string
   description?: string

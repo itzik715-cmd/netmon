@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.pdu import PduMetric, PduBank, PduBankMetric, PduOutlet
 from app.models.device import Device, DeviceLocation
 from app.models.alert import AlertEvent
+from app.models.settings import SystemSetting
 from app.models.user import User
 from app.middleware.rbac import get_current_user, require_admin
 import logging
@@ -218,6 +219,17 @@ async def pdu_dashboard(
         for r in tl_rows
     ]
 
+    # Power budget setting
+    budget_watts = None
+    try:
+        budget_row = (await db.execute(
+            select(SystemSetting).where(SystemSetting.key == "power_budget_watts")
+        )).scalar_one_or_none()
+        if budget_row and budget_row.value:
+            budget_watts = float(budget_row.value)
+    except Exception:
+        pass
+
     return {
         "total_power_watts": round(total_watts, 1),
         "total_power_kw": round(total_watts / 1000, 2),
@@ -226,6 +238,7 @@ async def pdu_dashboard(
         "pdu_count": len(device_ids),
         "rack_count": len(racks),
         "alerts_active": alerts_count,
+        "power_budget_watts": budget_watts,
         "racks": racks,
         "timeline": timeline,
     }

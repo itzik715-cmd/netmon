@@ -39,6 +39,7 @@ class AlertEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     rule_id = Column(Integer, ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=True)
     wan_rule_id = Column(Integer, ForeignKey("wan_alert_rules.id", ondelete="CASCADE"), nullable=True)
+    power_rule_id = Column(Integer, ForeignKey("power_alert_rules.id", ondelete="CASCADE"), nullable=True)
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=True)
     interface_id = Column(Integer, ForeignKey("interfaces.id"), nullable=True)
     severity = Column(String(20), nullable=False)
@@ -54,3 +55,4 @@ class AlertEvent(Base):
 
     rule = relationship("AlertRule", back_populates="events")
     wan_rule = relationship("WanAlertRule", back_populates="events", foreign_keys=[wan_rule_id])
+    power_rule = relationship("PowerAlertRule", back_populates="events", foreign_keys=[power_rule_id])

@@ -75,6 +75,7 @@ class AlertEventResponse(BaseModel):
     id: int
     rule_id: Optional[int] = None
     wan_rule_id: Optional[int] = None
+    power_rule_id: Optional[int] = None
     device_id: Optional[int] = None
     interface_id: Optional[int] = None
     severity: str

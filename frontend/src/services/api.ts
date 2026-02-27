@@ -129,6 +129,17 @@ export const wanAlertsApi = {
   resolve: (id: number) => api.post(`/wan-alerts/events/${id}/resolve`),
 }
 
+// Power Alerts
+export const powerAlertsApi = {
+  listRules: () => api.get('/power-alerts/rules'),
+  createRule: (data: object) => api.post('/power-alerts/rules', data),
+  updateRule: (id: number, data: object) => api.patch(`/power-alerts/rules/${id}`, data),
+  deleteRule: (id: number) => api.delete(`/power-alerts/rules/${id}`),
+  listEvents: (params?: object) => api.get('/power-alerts/events', { params }),
+  acknowledge: (id: number) => api.post(`/power-alerts/events/${id}/acknowledge`),
+  resolve: (id: number) => api.post(`/power-alerts/events/${id}/resolve`),
+}
+
 // Flows
 export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),

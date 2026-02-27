@@ -1,19 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { pduApi } from '../services/api'
+import { pduApi, powerAlertsApi, settingsApi } from '../services/api'
 import { useState, useEffect } from 'react'
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { format } from 'date-fns'
 import {
   Zap, Thermometer, AlertTriangle, Server, ChevronRight, ChevronLeft,
-  Power, ToggleLeft, ToggleRight,
+  Power, ToggleLeft, ToggleRight, Settings, Plus, Pencil, Trash2,
+  Check, X, Bell, CheckCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import { useChartTheme } from '../hooks/useChartTheme'
 import NocViewButton from '../components/NocViewButton'
+import { PowerAlertRule, AlertEvent } from '../types'
 
 const TIME_RANGES = [
   { label: '1h', hours: 1 },
@@ -21,6 +23,93 @@ const TIME_RANGES = [
   { label: '24h', hours: 24 },
   { label: '7d', hours: 168 },
 ]
+
+const POWER_METRICS = [
+  { key: 'total_power', label: 'Total Power', unit: 'W' },
+  { key: 'avg_load', label: 'Avg Load', unit: '%' },
+  { key: 'max_load', label: 'Max Load', unit: '%' },
+  { key: 'max_temp', label: 'Max Temp', unit: '°C' },
+  { key: 'avg_temp', label: 'Avg Temp', unit: '°C' },
+  { key: 'budget_pct', label: 'Budget %', unit: '%' },
+]
+
+const CONDITIONS = [
+  { key: 'gt', label: '>' },
+  { key: 'gte', label: '>=' },
+  { key: 'lt', label: '<' },
+  { key: 'lte', label: '<=' },
+]
+
+const LOOKBACK_PRESETS = [
+  { label: '10 min', minutes: 10 },
+  { label: '30 min', minutes: 30 },
+  { label: '1 hour', minutes: 60 },
+  { label: '6 hours', minutes: 360 },
+  { label: '24 hours', minutes: 1440 },
+  { label: '7 days', minutes: 10080 },
+]
+
+interface PowerAlertForm {
+  name: string
+  metric: string
+  condition: string
+  warning_threshold: string
+  critical_threshold: string
+  lookback_minutes: number
+  notification_email: string
+  notification_webhook: string
+}
+
+const emptyForm: PowerAlertForm = {
+  name: '', metric: 'total_power', condition: 'gt',
+  warning_threshold: '', critical_threshold: '',
+  lookback_minutes: 60,
+  notification_email: '', notification_webhook: '',
+}
+
+function metricUnit(metric: string): string {
+  const m = POWER_METRICS.find(p => p.key === metric)
+  return m?.unit || ''
+}
+
+function formToPayload(f: PowerAlertForm) {
+  return {
+    name: f.name,
+    metric: f.metric,
+    condition: f.condition,
+    warning_threshold: f.warning_threshold ? Number(f.warning_threshold) : null,
+    critical_threshold: f.critical_threshold ? Number(f.critical_threshold) : null,
+    lookback_minutes: f.lookback_minutes,
+    notification_email: f.notification_email || null,
+    notification_webhook: f.notification_webhook || null,
+  }
+}
+
+function ruleToForm(r: PowerAlertRule): PowerAlertForm {
+  return {
+    name: r.name,
+    metric: r.metric,
+    condition: r.condition,
+    warning_threshold: r.warning_threshold != null ? String(r.warning_threshold) : '',
+    critical_threshold: r.critical_threshold != null ? String(r.critical_threshold) : '',
+    lookback_minutes: r.lookback_minutes,
+    notification_email: r.notification_email || '',
+    notification_webhook: r.notification_webhook || '',
+  }
+}
+
+function formatThreshold(metric: string, value: number | null | undefined): string {
+  if (value == null) return '—'
+  const unit = metricUnit(metric)
+  if (metric === 'total_power' && value >= 1000) return `${(value / 1000).toFixed(2)} kW`
+  return `${value}${unit}`
+}
+
+function formatLookback(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return `${minutes / 60}h`
+  return `${minutes / 1440}d`
+}
 
 function LoadBar({ pct, size = 'md' }: { pct: number; size?: 'sm' | 'md' }) {
   const color = pct >= 90 ? '#ef4444' : pct >= 75 ? '#f59e0b' : '#22c55e'
@@ -128,8 +217,19 @@ function OutletGrid({
 
 export default function PowerDashboardPage() {
   const chartTheme = useChartTheme()
+  const queryClient = useQueryClient()
   const [hours, setHours] = useState(24)
   const [selectedRack, setSelectedRack] = useState<number | null>(null)
+
+  // Budget popover
+  const [showBudgetPopover, setShowBudgetPopover] = useState(false)
+  const [budgetInput, setBudgetInput] = useState('')
+
+  // Alert form state
+  const [showAlertForm, setShowAlertForm] = useState(false)
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
+  const [alertForm, setAlertForm] = useState<PowerAlertForm>(emptyForm)
+  const [showNotifications, setShowNotifications] = useState(false)
 
   useEffect(() => {
     const el = document.getElementById('noc-page-title')
@@ -138,6 +238,7 @@ export default function PowerDashboardPage() {
 
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
+  const isOperator = user?.role === 'admin' || user?.role === 'operator'
 
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['pdu-dashboard', hours],
@@ -152,6 +253,79 @@ export default function PowerDashboardPage() {
     refetchInterval: 60_000,
   })
 
+  // Power alert rules & events
+  const { data: powerRules = [] } = useQuery<PowerAlertRule[]>({
+    queryKey: ['power-alert-rules'],
+    queryFn: () => powerAlertsApi.listRules().then(r => r.data),
+    refetchInterval: 60_000,
+  })
+
+  const { data: powerEvents = [] } = useQuery<AlertEvent[]>({
+    queryKey: ['power-alert-events'],
+    queryFn: () => powerAlertsApi.listEvents({ status: 'open' }).then(r => r.data),
+    refetchInterval: 30_000,
+  })
+
+  const createRuleMut = useMutation({
+    mutationFn: (data: object) => powerAlertsApi.createRule(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['power-alert-rules'] })
+      setShowAlertForm(false)
+      setAlertForm(emptyForm)
+      toast.success('Power alert rule created')
+    },
+    onError: () => toast.error('Failed to create rule'),
+  })
+
+  const updateRuleMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: object }) => powerAlertsApi.updateRule(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['power-alert-rules'] })
+      setShowAlertForm(false)
+      setEditingRuleId(null)
+      setAlertForm(emptyForm)
+      toast.success('Power alert rule updated')
+    },
+    onError: () => toast.error('Failed to update rule'),
+  })
+
+  const deleteRuleMut = useMutation({
+    mutationFn: (id: number) => powerAlertsApi.deleteRule(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['power-alert-rules'] })
+      toast.success('Rule deleted')
+    },
+    onError: () => toast.error('Failed to delete rule'),
+  })
+
+  const toggleRuleMut = useMutation({
+    mutationFn: ({ id, active }: { id: number; active: boolean }) =>
+      powerAlertsApi.updateRule(id, { is_active: active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['power-alert-rules'] }),
+  })
+
+  const ackEventMut = useMutation({
+    mutationFn: (id: number) => powerAlertsApi.acknowledge(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['power-alert-events'] })
+      toast.success('Alert acknowledged')
+    },
+  })
+
+  const resolveEventMut = useMutation({
+    mutationFn: (id: number) => powerAlertsApi.resolve(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['power-alert-events'] })
+      toast.success('Alert resolved')
+    },
+  })
+
+  const budgetWatts = dashboard?.power_budget_watts
+  const budgetKw = budgetWatts ? budgetWatts / 1000 : null
+  const budgetPct = budgetWatts && dashboard?.total_power_watts
+    ? ((dashboard.total_power_watts / budgetWatts) * 100).toFixed(1)
+    : null
+
   const timeLabel = hours <= 24 ? `${hours}h` : `${hours / 24}d`
 
   // Aggregate timeline chart
@@ -159,6 +333,39 @@ export default function PowerDashboardPage() {
     time: format(new Date(t.timestamp), hours <= 6 ? 'HH:mm' : hours <= 24 ? 'HH:mm' : 'MM/dd HH:mm'),
     'Total Power (W)': t.total_watts,
   }))
+
+  const openEvents = powerEvents.filter((e: AlertEvent) => e.status === 'open' || e.status === 'acknowledged')
+
+  function handleSaveBudget() {
+    const kw = parseFloat(budgetInput)
+    if (isNaN(kw) || kw <= 0) { toast.error('Enter a valid kW value'); return }
+    const watts = kw * 1000
+    settingsApi.update('power_budget_watts', String(watts)).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['pdu-dashboard'] })
+      setShowBudgetPopover(false)
+      toast.success(`Power budget set to ${kw} kW`)
+    }).catch(() => toast.error('Failed to save budget'))
+  }
+
+  function handleSubmitAlert() {
+    if (!alertForm.name.trim()) { toast.error('Name is required'); return }
+    if (!alertForm.warning_threshold && !alertForm.critical_threshold) {
+      toast.error('At least one threshold is required'); return
+    }
+    const payload = formToPayload(alertForm)
+    if (editingRuleId) {
+      updateRuleMut.mutate({ id: editingRuleId, data: payload })
+    } else {
+      createRuleMut.mutate(payload)
+    }
+  }
+
+  function startEdit(rule: PowerAlertRule) {
+    setAlertForm(ruleToForm(rule))
+    setEditingRuleId(rule.id)
+    setShowAlertForm(true)
+    setShowNotifications(!!(rule.notification_email || rule.notification_webhook))
+  }
 
   return (
     <div className="flex-col-gap">
@@ -210,15 +417,59 @@ export default function PowerDashboardPage() {
             <div className="stat-sub">{dashboard?.pdu_count ?? 0} PDUs / {dashboard?.rack_count ?? 0} racks</div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon red">
-            <AlertTriangle size={20} />
+        {/* Power Budget card */}
+        <div className="stat-card" style={{ position: 'relative' }}>
+          <div className="stat-icon" style={{ background: budgetKw ? '#dbeafe' : '#f3f4f6', color: budgetKw ? '#2563eb' : '#9ca3af' }}>
+            <Zap size={20} />
           </div>
           <div className="stat-body">
-            <div className="stat-label">PDU Alerts</div>
-            <div className="stat-value">{dashboard?.alerts_active ?? 0}</div>
-            <div className="stat-sub">active</div>
+            <div className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              Power Budget
+              {isOperator && (
+                <button
+                  className="btn-icon"
+                  style={{ padding: '2px' }}
+                  onClick={() => {
+                    setBudgetInput(budgetKw ? String(budgetKw) : '')
+                    setShowBudgetPopover(!showBudgetPopover)
+                  }}
+                  title="Set power budget"
+                >
+                  <Settings size={12} />
+                </button>
+              )}
+            </div>
+            <div className="stat-value">{budgetKw ? `${budgetKw.toFixed(1)} kW` : 'Not set'}</div>
+            <div className="stat-sub">
+              {budgetPct ? `${budgetPct}% used` : 'click gear to set'}
+            </div>
           </div>
+          {showBudgetPopover && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, zIndex: 50,
+              background: 'var(--card-bg)', border: '1px solid var(--border)',
+              borderRadius: '8px', padding: '12px', minWidth: '200px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            }}>
+              <div className="text-sm font-semibold" style={{ marginBottom: '8px' }}>Set Power Budget (kW)</div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ width: '120px' }}
+                  value={budgetInput}
+                  onChange={e => setBudgetInput(e.target.value)}
+                  placeholder="e.g. 10"
+                  step="0.1"
+                  onKeyDown={e => e.key === 'Enter' && handleSaveBudget()}
+                />
+                <button className="btn btn-primary btn-sm" onClick={handleSaveBudget}>Save</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setShowBudgetPopover(false)}>
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -238,18 +489,234 @@ export default function PowerDashboardPage() {
               <div className="empty-state__description">Add PDU devices and enable polling to see power consumption data.</div>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit=" W" width={70} />
-                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
-                <Area type="monotone" dataKey="Total Power (W)" stroke="#f59e0b" fill="#fef3c7" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                  <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit=" W" width={70} />
+                  <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
+                  <Area type="monotone" dataKey="Total Power (W)" stroke="#f59e0b" fill="#fef3c7" strokeWidth={2} />
+                  {budgetWatts && (
+                    <ReferenceLine
+                      y={budgetWatts}
+                      stroke="#ef4444"
+                      strokeDasharray="6 4"
+                      strokeWidth={2}
+                      label={{ value: `Budget: ${budgetKw?.toFixed(1)} kW`, position: 'insideTopRight', fill: '#ef4444', fontSize: 11 }}
+                    />
+                  )}
+                </AreaChart>
+              </ResponsiveContainer>
+              {budgetWatts && (
+                <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '16px', height: '2px', background: '#ef4444', display: 'inline-block', borderTop: '2px dashed #ef4444' }} />
+                    Budget: {budgetKw?.toFixed(1)} kW ({budgetPct}% used)
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {/* Power Alerts card */}
+      {isOperator && (
+        <div className="card">
+          <div className="card-header">
+            <Bell size={15} />
+            <h3>Power Alerts</h3>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => {
+                setAlertForm(emptyForm)
+                setEditingRuleId(null)
+                setShowAlertForm(!showAlertForm)
+                setShowNotifications(false)
+              }}
+            >
+              <Plus size={14} /> Add Alert
+            </button>
+          </div>
+          <div className="card-body">
+            {/* Open events */}
+            {openEvents.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div className="text-sm font-semibold" style={{ marginBottom: '6px' }}>Active Events</div>
+                {openEvents.map((evt: AlertEvent) => (
+                  <div key={evt.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '8px 12px', borderRadius: '6px', marginBottom: '4px',
+                    background: evt.severity === 'critical' ? '#fef2f2' : '#fffbeb',
+                    border: `1px solid ${evt.severity === 'critical' ? '#fecaca' : '#fed7aa'}`,
+                  }}>
+                    <span className={`tag-${evt.severity === 'critical' ? 'red' : 'orange'}`} style={{ fontSize: '10px' }}>
+                      {evt.severity}
+                    </span>
+                    <span className="text-sm" style={{ flex: 1 }}>{evt.message}</span>
+                    <span className="text-xs text-muted">{evt.triggered_at ? format(new Date(evt.triggered_at), 'MM/dd HH:mm') : ''}</span>
+                    {evt.status === 'open' && (
+                      <button className="btn btn-outline btn-sm" onClick={() => ackEventMut.mutate(evt.id)} title="Acknowledge">
+                        <CheckCircle size={12} />
+                      </button>
+                    )}
+                    <button className="btn btn-outline btn-sm" onClick={() => resolveEventMut.mutate(evt.id)} title="Resolve">
+                      <Check size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add/Edit form */}
+            {showAlertForm && (
+              <div style={{
+                padding: '16px', borderRadius: '8px', marginBottom: '16px',
+                border: '1px solid var(--border)', background: 'var(--bg-secondary)',
+              }}>
+                <div className="text-sm font-semibold" style={{ marginBottom: '12px' }}>
+                  {editingRuleId ? 'Edit Power Alert' : 'New Power Alert'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label className="form-label">Name</label>
+                    <input className="form-input" value={alertForm.name}
+                      onChange={e => setAlertForm({ ...alertForm, name: e.target.value })}
+                      placeholder="e.g. High Power Draw" />
+                  </div>
+                  <div>
+                    <label className="form-label">Metric</label>
+                    <select className="form-input" value={alertForm.metric}
+                      onChange={e => setAlertForm({ ...alertForm, metric: e.target.value })}>
+                      {POWER_METRICS.map(m => (
+                        <option key={m.key} value={m.key}>{m.label} ({m.unit})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Condition</label>
+                    <select className="form-input" value={alertForm.condition}
+                      onChange={e => setAlertForm({ ...alertForm, condition: e.target.value })}>
+                      {CONDITIONS.map(c => (
+                        <option key={c.key} value={c.key}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Warning Threshold ({metricUnit(alertForm.metric)})</label>
+                    <input className="form-input" type="number" value={alertForm.warning_threshold}
+                      onChange={e => setAlertForm({ ...alertForm, warning_threshold: e.target.value })}
+                      placeholder="optional" />
+                  </div>
+                  <div>
+                    <label className="form-label">Critical Threshold ({metricUnit(alertForm.metric)})</label>
+                    <input className="form-input" type="number" value={alertForm.critical_threshold}
+                      onChange={e => setAlertForm({ ...alertForm, critical_threshold: e.target.value })}
+                      placeholder="optional" />
+                  </div>
+                  <div>
+                    <label className="form-label">Time Window</label>
+                    <select className="form-input" value={alertForm.lookback_minutes}
+                      onChange={e => setAlertForm({ ...alertForm, lookback_minutes: Number(e.target.value) })}>
+                      {LOOKBACK_PRESETS.map(p => (
+                        <option key={p.minutes} value={p.minutes}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Notifications collapsible */}
+                <div style={{ marginTop: '10px' }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => setShowNotifications(!showNotifications)}>
+                    Notifications {showNotifications ? '▲' : '▼'}
+                  </button>
+                  {showNotifications && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px' }}>
+                      <div>
+                        <label className="form-label">Email</label>
+                        <input className="form-input" value={alertForm.notification_email}
+                          onChange={e => setAlertForm({ ...alertForm, notification_email: e.target.value })}
+                          placeholder="alerts@example.com" />
+                      </div>
+                      <div>
+                        <label className="form-label">Webhook URL</label>
+                        <input className="form-input" value={alertForm.notification_webhook}
+                          onChange={e => setAlertForm({ ...alertForm, notification_webhook: e.target.value })}
+                          placeholder="https://..." />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                  <button className="btn btn-primary btn-sm" onClick={handleSubmitAlert}
+                    disabled={createRuleMut.isPending || updateRuleMut.isPending}>
+                    {editingRuleId ? 'Update' : 'Create'}
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={() => {
+                    setShowAlertForm(false); setEditingRuleId(null); setAlertForm(emptyForm)
+                  }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Rules table */}
+            {powerRules.length > 0 ? (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Metric</th>
+                      <th>Window</th>
+                      <th>Warning</th>
+                      <th>Critical</th>
+                      <th>Active</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {powerRules.map((rule: PowerAlertRule) => (
+                      <tr key={rule.id}>
+                        <td className="font-semibold">{rule.name}</td>
+                        <td>{POWER_METRICS.find(m => m.key === rule.metric)?.label || rule.metric}</td>
+                        <td>{formatLookback(rule.lookback_minutes)}</td>
+                        <td>{formatThreshold(rule.metric, rule.warning_threshold)}</td>
+                        <td>{formatThreshold(rule.metric, rule.critical_threshold)}</td>
+                        <td>
+                          <button
+                            className={`tag-${rule.is_active ? 'green' : 'red'}`}
+                            style={{ cursor: 'pointer', border: 'none', fontSize: '11px' }}
+                            onClick={() => toggleRuleMut.mutate({ id: rule.id, active: !rule.is_active })}
+                          >
+                            {rule.is_active ? 'ON' : 'OFF'}
+                          </button>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button className="btn-icon" onClick={() => startEdit(rule)} title="Edit">
+                              <Pencil size={14} />
+                            </button>
+                            <button className="btn-icon" onClick={() => {
+                              if (confirm(`Delete rule "${rule.name}"?`)) deleteRuleMut.mutate(rule.id)
+                            }} title="Delete">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : !showAlertForm && (
+              <div className="text-muted text-sm">No power alert rules configured. Click "Add Alert" to create one.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Rack cards grid */}
       {dashboard?.racks && dashboard.racks.length > 0 && (
