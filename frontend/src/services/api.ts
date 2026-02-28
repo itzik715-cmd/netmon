@@ -161,6 +161,7 @@ export const flowsApi = {
   deleteOwnedSubnet: (id: number) => api.delete(`/flows/owned-subnets/${id}`),
   peerDetail: (ip: string, peer: string, params?: object) =>
     api.get('/flows/peer-detail', { params: { ip, peer, ...params } }),
+  ipGeo: (ip: string) => api.get('/flows/ip-geo', { params: { ip } }),
 }
 
 // Users

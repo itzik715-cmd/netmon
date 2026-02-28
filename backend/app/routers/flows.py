@@ -1490,3 +1490,45 @@ async def get_ip_profile(
     }
     await _cache_set(ck, result, cache_ttl)
     return result
+
+
+@router.get("/ip-geo")
+async def get_ip_geo(
+    ip: str,
+    _: User = Depends(get_current_user),
+):
+    """Return ASN, country code, and country name for an IP address."""
+    import ipaddress as _ipa
+    try:
+        addr = _ipa.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            return {"ip": ip, "country_code": None, "country": None, "asn": None, "org": None}
+    except ValueError:
+        raise HTTPException(400, "Invalid IP address")
+
+    # Check Redis cache first (long TTL — geo data rarely changes)
+    cache_key = f"ipgeo:{ip}"
+    cached = await _cache_get(cache_key)
+    if cached:
+        return cached
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,as,org,isp")
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    result = {
+                        "ip": ip,
+                        "country_code": data.get("countryCode", "").lower(),
+                        "country": data.get("country"),
+                        "asn": data.get("as", "").split(" ")[0] if data.get("as") else None,
+                        "org": data.get("org") or data.get("isp"),
+                    }
+                    await _cache_set(cache_key, result, 86400)  # cache 24h
+                    return result
+    except Exception as e:
+        logger.warning(f"IP geo lookup failed for {ip}: {e}")
+
+    return {"ip": ip, "country_code": None, "country": None, "asn": None, "org": None}

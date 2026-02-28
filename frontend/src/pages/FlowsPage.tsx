@@ -732,6 +732,13 @@ function IpProfile({
     enabled: !!ip,
   })
 
+  const { data: geoData } = useQuery({
+    queryKey: ['ip-geo', ip],
+    queryFn: () => flowsApi.ipGeo(ip).then((r) => r.data),
+    enabled: !!ip,
+    staleTime: 86400_000, // 24h — geo data rarely changes
+  })
+
   if (isLoading) {
     return (
       <div className="card card-body flex-row-gap">
@@ -782,7 +789,27 @@ function IpProfile({
         <div className="ip-profile__identity-bar">
           <div className="ip-profile__banner-icon"><Globe /></div>
           <div className="ip-profile__banner-info">
-            <div className="ip-profile__ip-address">{ip}</div>
+            <div className="ip-profile__ip-address" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {ip}
+              {geoData?.country_code && (
+                <img
+                  src={`https://flagcdn.com/24x18/${geoData.country_code}.png`}
+                  alt={geoData.country || ''}
+                  title={geoData.country || ''}
+                  style={{ height: 16, borderRadius: 2, boxShadow: '0 0 2px rgba(0,0,0,.2)' }}
+                />
+              )}
+              {geoData?.asn && (
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {geoData.asn}
+                </span>
+              )}
+              {geoData?.org && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {geoData.org}
+                </span>
+              )}
+            </div>
             <div className="ip-profile__identity-row">
               <span className={`ip-profile__role-badge ${roleBadgeClass[behavior.role] || ''}`}>{behavior.role}</span>
               <span className="ip-profile__summary">
