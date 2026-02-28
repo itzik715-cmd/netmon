@@ -1415,7 +1415,7 @@ export default function FlowsPage() {
                   <div className="card-header">
                     <ArrowDownLeft size={15} className="flow-direction-icon--in" />
                     <h3>Inbound Traffic</h3>
-                    <span className="card-header__sub" style={{ marginLeft: 'auto' }}>External → Our network</span>
+                    <span className="card-header__sub" style={{ marginLeft: 'auto' }}>Top targeted IPs in our network</span>
                   </div>
                   <div className="card-body" style={{ padding: 0 }}>
                     {(stats.top_inbound || []).length === 0 ? (
@@ -1425,8 +1425,8 @@ export default function FlowsPage() {
                         <thead>
                           <tr>
                             <th>#</th>
-                            <th>Source</th>
-                            <th>To (Internal)</th>
+                            <th>Destination (Internal)</th>
+                            <th>From (External)</th>
                             <th>Service</th>
                             <th></th>
                             <th>Traffic</th>
@@ -1445,9 +1445,9 @@ export default function FlowsPage() {
                                 </td>
                                 <td>
                                   <div className="internal-ips">
-                                    {(item.internal_ips || []).map((int_ip: any) => (
-                                      <button key={int_ip.ip} className="flow-ip-link mono internal-ip-chip" onClick={() => handleSearchChange(int_ip.ip)}>
-                                        {int_ip.ip} <span className="text-muted text-xs">({formatBytes(int_ip.bytes)})</span>
+                                    {(item.source_ips || []).map((src: any) => (
+                                      <button key={src.ip} className="flow-ip-link mono internal-ip-chip" onClick={() => handleSearchChange(src.ip)}>
+                                        {src.ip} <span className="text-muted text-xs">({formatBytes(src.bytes)})</span>
                                       </button>
                                     ))}
                                   </div>

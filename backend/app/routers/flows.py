@@ -535,13 +535,14 @@ async def get_flow_stats(
 
     def _add_inbound(ext_ip: str, internal_ip: str, svc_port: int, b: int, f: int):
         nonlocal total_inbound
-        if ext_ip not in inbound_by_ip:
-            inbound_by_ip[ext_ip] = {"bytes": 0, "flows": 0, "services": {}, "internal_ips": {}}
-        inbound_by_ip[ext_ip]["bytes"] += b
-        inbound_by_ip[ext_ip]["flows"] += f
+        # Key by internal (destination) IP — shows which of OUR IPs receive the most traffic
+        if internal_ip not in inbound_by_ip:
+            inbound_by_ip[internal_ip] = {"bytes": 0, "flows": 0, "services": {}, "source_ips": {}}
+        inbound_by_ip[internal_ip]["bytes"] += b
+        inbound_by_ip[internal_ip]["flows"] += f
         if svc_port > 0:
-            inbound_by_ip[ext_ip]["services"][svc_port] = inbound_by_ip[ext_ip]["services"].get(svc_port, 0) + b
-        inbound_by_ip[ext_ip]["internal_ips"][internal_ip] = inbound_by_ip[ext_ip]["internal_ips"].get(internal_ip, 0) + b
+            inbound_by_ip[internal_ip]["services"][svc_port] = inbound_by_ip[internal_ip]["services"].get(svc_port, 0) + b
+        inbound_by_ip[internal_ip]["source_ips"][ext_ip] = inbound_by_ip[internal_ip]["source_ips"].get(ext_ip, 0) + b
         total_inbound += b
 
     def _add_outbound(ext_ip: str, internal_ip: str, svc_port: int, b: int, f: int):
@@ -584,7 +585,7 @@ async def get_flow_stats(
             internal_ip = r.src_ip
             _add_outbound(r.dst_ip, internal_ip, dst_port, b, f)
 
-    def _build_top(by_ip: dict, total: int) -> list:
+    def _build_top_outbound(by_ip: dict, total: int) -> list:
         items = sorted(by_ip.items(), key=lambda x: -x[1]["bytes"])[:limit]
         result = []
         for ext_ip, data in items:
@@ -595,7 +596,6 @@ async def get_flow_stats(
             else:
                 top_port = 0
                 svc_name = ""
-            # Internal IPs sorted by traffic (top 5)
             int_ips = data.get("internal_ips", {})
             top_internal = [
                 {"ip": ip, "bytes": byt}
@@ -609,8 +609,34 @@ async def get_flow_stats(
             })
         return result
 
-    top_inbound = _build_top(inbound_by_ip, total_inbound)
-    top_outbound = _build_top(outbound_by_ip, total_outbound)
+    def _build_top_inbound(by_ip: dict, total: int) -> list:
+        """Build top inbound list keyed by internal destination IP."""
+        items = sorted(by_ip.items(), key=lambda x: -x[1]["bytes"])[:limit]
+        result = []
+        for dest_ip, data in items:
+            svcs = data["services"]
+            if svcs:
+                top_port = max(svcs, key=svcs.get)
+                svc_name = PORT_SERVICE_MAP.get(top_port, f"port/{top_port}")
+            else:
+                top_port = 0
+                svc_name = ""
+            # External source IPs sorted by traffic (top 5)
+            src_ips = data.get("source_ips", {})
+            top_sources = [
+                {"ip": ip, "bytes": byt}
+                for ip, byt in sorted(src_ips.items(), key=lambda x: -x[1])[:5]
+            ]
+            result.append({
+                "ip": dest_ip, "bytes": data["bytes"], "flows": data["flows"],
+                "service_port": top_port, "service_name": svc_name,
+                "pct": round(data["bytes"] / total * 100, 1) if total > 0 else 0,
+                "source_ips": top_sources,
+            })
+        return result
+
+    top_inbound = _build_top_inbound(inbound_by_ip, total_inbound)
+    top_outbound = _build_top_outbound(outbound_by_ip, total_outbound)
 
     # Protocol distribution
     proto_q = await db.execute(
