@@ -14,13 +14,14 @@ from app.extensions import limiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router, wan_alerts as wan_alerts_router, power_alerts as power_alerts_router
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router, wan_alerts as wan_alerts_router, power_alerts as power_alerts_router, switches as switches_router
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
 from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
 from app.models.pdu import PduMetric as _pdu_metric_model, PduBank as _pdu_bank_model, PduBankMetric as _pdu_bank_metric_model, PduOutlet as _pdu_outlet_model  # noqa: F401
 from app.models.wan_alert import WanAlertRule as _wan_alert_model  # noqa: F401
 from app.models.power_alert import PowerAlertRule as _power_alert_model  # noqa: F401
+from app.models.mac_entry import MacAddressEntry as _mac_entry_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
 from app.services.wan_alert_engine import evaluate_wan_rules
 from app.services.power_alert_engine import evaluate_power_rules
@@ -152,6 +153,37 @@ async def scheduled_flow_rollup():
     from app.services.flow_rollup import rollup_flows
     async with AsyncSessionLocal() as db:
         await rollup_flows(db)
+
+
+async def scheduled_mac_discovery():
+    """Discover MAC address tables on all switch-type devices."""
+    if not await _acquire_scheduler_lock("mac_discovery", ttl_seconds=270):
+        return
+    from app.database import AsyncSessionLocal
+    from app.models.device import Device
+    from sqlalchemy import select
+    from app.services.mac_discovery import discover_mac_table
+
+    SWITCH_TYPES = ("spine", "leaf", "tor", "switch", "access", "distribution", "core", "router")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Device).where(
+                Device.is_active == True,  # noqa: E712
+                Device.polling_enabled == True,  # noqa: E712
+                Device.device_type.in_(SWITCH_TYPES),
+            )
+        )
+        switches = result.scalars().all()
+
+    for device in switches:
+        try:
+            async with AsyncSessionLocal() as db:
+                count = await discover_mac_table(device, db)
+                if count > 0:
+                    logger.debug(f"MAC discovery {device.hostname}: {count} entries")
+        except Exception as e:
+            logger.warning(f"MAC discovery failed for {device.hostname}: {e}")
 
 
 async def scheduled_block_sync():
@@ -689,6 +721,15 @@ async def lifespan(app: FastAPI):
     # Cleanup expired backups daily at 03:00 UTC
     scheduler.add_job(cleanup_expired_backups, "cron", hour=3, minute=0, id="backup_cleanup")
 
+    # MAC table discovery — every 5 minutes for switch-type devices
+    scheduler.add_job(
+        scheduled_mac_discovery,
+        "interval",
+        seconds=300,
+        id="mac_discovery",
+        max_instances=1,
+    )
+
     scheduler.start()
     logger.info("Scheduled tasks started")
 
@@ -789,6 +830,7 @@ app.include_router(server_management.router)
 app.include_router(pdu_router.router)
 app.include_router(wan_alerts_router.router)
 app.include_router(power_alerts_router.router)
+app.include_router(switches_router.router)
 
 
 @app.get("/api/health")

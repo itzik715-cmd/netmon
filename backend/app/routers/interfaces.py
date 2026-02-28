@@ -239,6 +239,105 @@ async def get_wan_metrics(
     }
 
 
+@router.get("/device/{device_id}/port-summary")
+async def get_port_summary(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    Return per-interface summary for a device's ports:
+    latest bps, utilization, error/discard deltas (current - previous),
+    oper_status, last_change.  Used by the enhanced Ports tab.
+    """
+    # Get all interfaces for this device
+    ifaces = (await db.execute(
+        select(Interface).where(Interface.device_id == device_id)
+    )).scalars().all()
+    if not ifaces:
+        return []
+
+    iface_ids = [i.id for i in ifaces]
+
+    # Get latest 2 metrics per interface using a window function
+    from sqlalchemy import text
+    # Use raw SQL for the window function — cleaner than SQLAlchemy for ROW_NUMBER
+    sql = text("""
+        SELECT * FROM (
+            SELECT
+                interface_id, timestamp,
+                in_bps, out_bps,
+                utilization_in, utilization_out,
+                in_errors, out_errors,
+                in_discards, out_discards,
+                in_octets, out_octets,
+                oper_status,
+                ROW_NUMBER() OVER (PARTITION BY interface_id ORDER BY timestamp DESC) as rn
+            FROM interface_metrics
+            WHERE interface_id = ANY(:ids)
+              AND timestamp > NOW() - interval '1 hour'
+        ) sub WHERE rn <= 2
+    """)
+    rows = (await db.execute(sql, {"ids": iface_ids})).mappings().all()
+
+    # Group by interface_id: latest and previous
+    by_iface: dict[int, list] = {}
+    for r in rows:
+        by_iface.setdefault(r["interface_id"], []).append(r)
+
+    iface_map = {i.id: i for i in ifaces}
+    result = []
+
+    for iface in ifaces:
+        metrics = by_iface.get(iface.id, [])
+        # Sort by rn to ensure order (rn=1 is latest)
+        metrics.sort(key=lambda r: r["rn"])
+        latest = metrics[0] if len(metrics) >= 1 else None
+        prev = metrics[1] if len(metrics) >= 2 else None
+
+        # Compute deltas (current counter - previous counter)
+        def delta(curr, prev_val):
+            if curr is None or prev_val is None:
+                return 0
+            d = curr - prev_val
+            return max(0, d)  # handle counter wraps gracefully
+
+        err_in_delta = delta(latest["in_errors"], prev["in_errors"]) if latest and prev else 0
+        err_out_delta = delta(latest["out_errors"], prev["out_errors"]) if latest and prev else 0
+        disc_in_delta = delta(latest["in_discards"], prev["in_discards"]) if latest and prev else 0
+        disc_out_delta = delta(latest["out_discards"], prev["out_discards"]) if latest and prev else 0
+
+        result.append({
+            "interface_id": iface.id,
+            "name": iface.name,
+            "alias": iface.alias,
+            "if_index": iface.if_index,
+            "speed": iface.speed,
+            "admin_status": iface.admin_status,
+            "oper_status": latest["oper_status"] if latest else iface.oper_status,
+            "vlan_id": iface.vlan_id,
+            "ip_address": iface.ip_address,
+            "mac_address": iface.mac_address,
+            "is_uplink": iface.is_uplink,
+            "is_monitored": iface.is_monitored,
+            "last_change": iface.last_change.isoformat() if iface.last_change else None,
+            "in_bps": latest["in_bps"] or 0 if latest else 0,
+            "out_bps": latest["out_bps"] or 0 if latest else 0,
+            "utilization_in": round(latest["utilization_in"] or 0, 2) if latest else 0,
+            "utilization_out": round(latest["utilization_out"] or 0, 2) if latest else 0,
+            "in_errors_delta": err_in_delta,
+            "out_errors_delta": err_out_delta,
+            "in_discards_delta": disc_in_delta,
+            "out_discards_delta": disc_out_delta,
+            "in_errors_total": latest["in_errors"] or 0 if latest else 0,
+            "out_errors_total": latest["out_errors"] or 0 if latest else 0,
+            "in_discards_total": latest["in_discards"] or 0 if latest else 0,
+            "out_discards_total": latest["out_discards"] or 0 if latest else 0,
+        })
+
+    return result
+
+
 @router.get("/{interface_id}", response_model=InterfaceResponse)
 async def get_interface(
     interface_id: int,

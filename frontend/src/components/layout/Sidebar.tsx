@@ -41,6 +41,7 @@ const overviewItems: NavItem[] = [
 
 const networkItems: NavItem[] = [
   { to: '/devices', label: 'Devices', icon: <Server size={16} /> },
+  { to: '/switches', label: 'Switches', icon: <Network size={16} /> },
 ]
 
 const trafficItems: NavItem[] = [

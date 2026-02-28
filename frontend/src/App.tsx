@@ -20,6 +20,7 @@ import SystemEventsPage from './pages/SystemEventsPage'
 import WanDashboardPage from './pages/WanDashboardPage'
 import PowerDashboardPage from './pages/PowerDashboardPage'
 import RackPowerPage from './pages/RackPowerPage'
+import SwitchesDashboardPage from './pages/SwitchesDashboardPage'
 import NocLayout from './components/layout/NocLayout'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -78,6 +79,7 @@ export default function App() {
       >
         <Route index element={<MainDashboardPage />} />
         <Route path="devices" element={<DevicesPage />} />
+        <Route path="switches" element={<SwitchesDashboardPage />} />
         <Route path="devices/:id" element={<DeviceDetailWrapper />} />
         <Route path="interfaces/:id" element={<InterfaceDetailPage />} />
         <Route path="alerts" element={<AlertsPage />} />

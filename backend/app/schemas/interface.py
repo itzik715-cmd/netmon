@@ -36,6 +36,8 @@ class InterfaceMetricResponse(BaseModel):
     utilization_out: float
     in_errors: int
     out_errors: int
+    in_discards: int = 0
+    out_discards: int = 0
     oper_status: Optional[str] = None
 
     model_config = {"from_attributes": True}

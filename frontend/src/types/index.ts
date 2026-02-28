@@ -97,6 +97,8 @@ export interface InterfaceMetric {
   utilization_out: number
   in_errors: number
   out_errors: number
+  in_discards: number
+  out_discards: number
   oper_status?: string
 }
 

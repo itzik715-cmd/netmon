@@ -140,6 +140,16 @@ export const powerAlertsApi = {
   resolve: (id: number) => api.post(`/power-alerts/events/${id}/resolve`),
 }
 
+// Switches
+export const switchesApi = {
+  dashboard: () => api.get('/switches/dashboard'),
+  portSummary: (deviceId: number) => api.get(`/interfaces/device/${deviceId}/port-summary`),
+  macTable: (deviceId: number, params?: object) => api.get(`/switches/${deviceId}/mac-table`, { params }),
+  arpTable: (deviceId: number) => api.get(`/switches/${deviceId}/arp-table`),
+  discoverMac: (deviceId: number) => api.post(`/switches/${deviceId}/discover-mac`),
+  macSearch: (q: string) => api.get('/switches/mac-search', { params: { q } }),
+}
+
 // Flows
 export const flowsApi = {
   stats: (params?: object) => api.get('/flows/stats', { params }),

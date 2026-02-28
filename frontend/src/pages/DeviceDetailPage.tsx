@@ -1,17 +1,47 @@
 import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { devicesApi, interfacesApi, topologyApi } from '../services/api'
+import { devicesApi, interfacesApi, topologyApi, switchesApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings } from 'lucide-react'
+import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings, AlertTriangle, Database, Download } from 'lucide-react'
 import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import toast from 'react-hot-toast'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
-type Tab = 'interfaces' | 'routes' | 'metrics'
+type Tab = 'interfaces' | 'routes' | 'metrics' | 'mac'
+
+const SWITCH_TYPES = ['spine', 'leaf', 'tor', 'switch', 'access', 'distribution', 'core', 'router']
+
+interface PortSummary {
+  interface_id: number
+  name: string
+  alias: string | null
+  if_index: number | null
+  speed: number | null
+  admin_status: string | null
+  oper_status: string | null
+  vlan_id: number | null
+  ip_address: string | null
+  mac_address: string | null
+  is_uplink: boolean
+  is_monitored: boolean
+  last_change: string | null
+  in_bps: number
+  out_bps: number
+  utilization_in: number
+  utilization_out: number
+  in_errors_delta: number
+  out_errors_delta: number
+  in_discards_delta: number
+  out_discards_delta: number
+  in_errors_total: number
+  out_errors_total: number
+  in_discards_total: number
+  out_discards_total: number
+}
 type StatusVal = '' | 'up' | 'down'
 
 function formatUptime(seconds: number): string {
@@ -186,6 +216,50 @@ export default function DeviceDetailPage() {
     refetchInterval: tab === 'metrics' ? 60_000 : false,
   })
 
+  const isSwitch = device ? SWITCH_TYPES.includes(device.device_type?.toLowerCase() || '') : false
+
+  const { data: portSummary } = useQuery({
+    queryKey: ['port-summary', deviceId],
+    queryFn: () => switchesApi.portSummary(deviceId).then(r => r.data as PortSummary[]),
+    refetchInterval: 60_000,
+    enabled: isSwitch && tab === 'interfaces',
+  })
+
+  // Index port summary by interface_id for quick lookup
+  const portMap = useMemo(() => {
+    const m: Record<number, PortSummary> = {}
+    if (portSummary) {
+      for (const p of portSummary) m[p.interface_id] = p
+    }
+    return m
+  }, [portSummary])
+
+  // MAC table state
+  const [macSearch, setMacSearch] = useState('')
+  const [macPage, setMacPage] = useState(0)
+  const macLimit = 50
+
+  const { data: macData, isLoading: macLoading } = useQuery({
+    queryKey: ['mac-table', deviceId, macSearch, macPage],
+    queryFn: () => switchesApi.macTable(deviceId, {
+      q: macSearch || undefined,
+      limit: macLimit,
+      offset: macPage * macLimit,
+    }).then(r => r.data),
+    enabled: isSwitch && tab === 'mac',
+    refetchInterval: tab === 'mac' ? 60_000 : false,
+  })
+
+  const macDiscoverMutation = useMutation({
+    mutationFn: () => switchesApi.discoverMac(deviceId),
+    onSuccess: () => {
+      toast.success('MAC discovery started — results will appear shortly')
+      ;[5000, 10000, 20000].forEach(delay =>
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['mac-table', deviceId] }), delay)
+      )
+    },
+  })
+
   const pollMutation = useMutation({
     mutationFn: () => devicesApi.poll(deviceId),
     onSuccess: () => toast.success('Poll scheduled'),
@@ -273,6 +347,11 @@ export default function DeviceDetailPage() {
               <Map size={13} /> {discoverRoutesMutation.isPending ? 'Discovering...' : 'Discover Routes'}
             </button>
           )}
+          {tab === 'mac' && (
+            <button onClick={() => macDiscoverMutation.mutate()} disabled={macDiscoverMutation.isPending} className="btn btn-outline btn-sm">
+              <Database size={13} /> {macDiscoverMutation.isPending ? 'Discovering...' : 'Discover MAC Table'}
+            </button>
+          )}
           <button onClick={() => setShowEdit(true)} className="btn btn-outline btn-sm">
             <Settings size={13} /> Settings
           </button>
@@ -301,10 +380,89 @@ export default function DeviceDetailPage() {
         ))}
       </div>
 
+      {/* Port status grid for switch types */}
+      {isSwitch && interfaces && interfaces.length > 0 && (() => {
+        const ethPorts = interfaces.filter(i =>
+          i.name && !i.name.toLowerCase().startsWith('vlan') &&
+          !i.name.toLowerCase().startsWith('loopback') &&
+          !i.name.toLowerCase().startsWith('lo') &&
+          !i.name.toLowerCase().startsWith('null') &&
+          !i.name.toLowerCase().startsWith('mgmt')
+        )
+        const portsUp = ethPorts.filter(i => i.oper_status === 'up').length
+        const portsDown = ethPorts.filter(i => i.oper_status === 'down' && i.admin_status === 'up').length
+        const portsAdminDown = ethPorts.filter(i => i.admin_status === 'down').length
+        const errorPorts = ethPorts.filter(i => {
+          const ps = portMap[i.id]
+          return ps && (ps.in_errors_delta > 0 || ps.out_errors_delta > 0)
+        }).length
+
+        return (
+          <div className="card">
+            <div className="card-header">
+              <Activity size={14} />
+              <h3>Port Status</h3>
+              <span className="card-header__sub">
+                <span style={{ color: '#22c55e', fontWeight: 600 }}>{portsUp} up</span>
+                {portsDown > 0 && <>{' / '}<span style={{ color: '#ef4444', fontWeight: 600 }}>{portsDown} down</span></>}
+                {portsAdminDown > 0 && <>{' / '}<span style={{ color: 'var(--text-muted)' }}>{portsAdminDown} admin-down</span></>}
+                {' of '}{ethPorts.length}{' ports'}
+                {errorPorts > 0 && <>{' · '}<span style={{ color: '#ef4444' }}><AlertTriangle size={11} style={{ verticalAlign: -1 }} /> {errorPorts} with errors</span></>}
+              </span>
+            </div>
+            <div className="card-body" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                {ethPorts.map(port => {
+                  const ps = portMap[port.id]
+                  const hasErr = ps && (ps.in_errors_delta > 0 || ps.out_errors_delta > 0)
+                  let bg = '#6b7280' // gray — admin-down
+                  if (port.admin_status === 'up' || port.admin_status === null) {
+                    if (port.oper_status === 'up') {
+                      bg = hasErr ? '#ef4444' : '#22c55e'
+                    } else {
+                      bg = '#ef4444'
+                    }
+                  }
+                  const shortName = port.name.replace(/^(Ethernet|GigabitEthernet|TenGigabitEthernet|HundredGigE|FortyGigE|TwentyFiveGigE)/, '')
+                    .replace(/^(Eth|Gi|Te|Hu|Fo|Twe)/, '')
+
+                  const u = utilization?.[port.id]
+                  const traffic = u ? formatBps(Math.max(u.in_bps || 0, u.out_bps || 0)) : null
+
+                  return (
+                    <Link
+                      key={port.id}
+                      to={`/interfaces/${port.id}`}
+                      title={`${port.name}\nStatus: ${port.oper_status || 'unknown'}${port.admin_status === 'down' ? ' (admin-down)' : ''}${traffic ? `\nTraffic: ${traffic}` : ''}${hasErr ? `\nErrors: ${ps.in_errors_delta} in / ${ps.out_errors_delta} out` : ''}`}
+                      style={{
+                        width: 22, height: 18, borderRadius: 3,
+                        background: bg,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 8, color: '#fff', fontWeight: 600,
+                        textDecoration: 'none',
+                        border: hasErr ? '2px solid #fbbf24' : '1px solid rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      {shortName.length <= 4 ? shortName : ''}
+                    </Link>
+                  )
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#22c55e', verticalAlign: -1 }} /> Up</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#ef4444', verticalAlign: -1 }} /> Down</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#6b7280', verticalAlign: -1 }} /> Admin-Down</span>
+                <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#ef4444', border: '2px solid #fbbf24', verticalAlign: -1 }} /> Errors</span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Tab bar */}
       <div className="tab-bar">
         <button className={`tab-btn${tab === 'interfaces' ? ' active' : ''}`} onClick={() => setTab('interfaces')}>
-          Interfaces ({interfaces?.length || 0})
+          {isSwitch ? 'Ports' : 'Interfaces'} ({interfaces?.length || 0})
         </button>
         <button className={`tab-btn${tab === 'routes' ? ' active' : ''}`} onClick={() => setTab('routes')}>
           <Map size={13} />
@@ -315,6 +473,12 @@ export default function DeviceDetailPage() {
           <BarChart2 size={13} />
           Performance
         </button>
+        {isSwitch && (
+          <button className={`tab-btn${tab === 'mac' ? ' active' : ''}`} onClick={() => setTab('mac')}>
+            <Database size={13} />
+            MAC Table {macData ? `(${macData.total})` : ''}
+          </button>
+        )}
       </div>
 
       {/* Interfaces tab */}
@@ -322,7 +486,7 @@ export default function DeviceDetailPage() {
         <div className="card">
           <div className="card-header">
             <Activity size={15} />
-            <h3>Interfaces</h3>
+            <h3>{isSwitch ? 'Ports' : 'Interfaces'}</h3>
             {activeFilterCount > 0 && (
               <span className="tag-blue text-xs">
                 {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
@@ -428,6 +592,9 @@ export default function DeviceDetailPage() {
                     </FilterTh>
 
                     <th>Utilization</th>
+                    {isSwitch && <th>In Errors</th>}
+                    {isSwitch && <th>Out Errors</th>}
+                    {isSwitch && <th>Discards</th>}
                     <th>IP Address</th>
                     <th>VLAN</th>
                     <th></th>
@@ -438,8 +605,10 @@ export default function DeviceDetailPage() {
                     const u = utilization?.[iface.id]
                     const pct = u ? Math.max(u.utilization_in, u.utilization_out) : null
                     const utilColor = pct != null ? (pct >= 85 ? 'red' : pct >= 75 ? 'orange' : 'green') : null
+                    const ps = portMap[iface.id]
+                    const hasErrors = ps && (ps.in_errors_delta > 0 || ps.out_errors_delta > 0 || ps.in_discards_delta > 0 || ps.out_discards_delta > 0)
                     return (
-                      <tr key={iface.id}>
+                      <tr key={iface.id} style={isSwitch && hasErrors ? { background: 'rgba(239,68,68,0.04)' } : undefined}>
                         <td>
                           <div className="flex-row-gap">
                             <Link to={`/interfaces/${iface.id}`} className="mono text-sm link-primary font-semibold">
@@ -475,6 +644,27 @@ export default function DeviceDetailPage() {
                             </div>
                           ) : <span className="text-light text-sm">—</span>}
                         </td>
+                        {isSwitch && (
+                          <td>
+                            {ps && ps.in_errors_delta > 0
+                              ? <span style={{ color: '#ef4444', fontWeight: 600, fontSize: 12 }}>{ps.in_errors_delta}</span>
+                              : <span className="text-light text-sm">{ps ? ps.in_errors_total.toLocaleString() : '—'}</span>}
+                          </td>
+                        )}
+                        {isSwitch && (
+                          <td>
+                            {ps && ps.out_errors_delta > 0
+                              ? <span style={{ color: '#ef4444', fontWeight: 600, fontSize: 12 }}>{ps.out_errors_delta}</span>
+                              : <span className="text-light text-sm">{ps ? ps.out_errors_total.toLocaleString() : '—'}</span>}
+                          </td>
+                        )}
+                        {isSwitch && (
+                          <td>
+                            {ps && (ps.in_discards_delta > 0 || ps.out_discards_delta > 0)
+                              ? <span style={{ color: '#f59e0b', fontWeight: 600, fontSize: 12 }}>{ps.in_discards_delta + ps.out_discards_delta}</span>
+                              : <span className="text-light text-sm">{ps ? (ps.in_discards_total + ps.out_discards_total).toLocaleString() : '—'}</span>}
+                          </td>
+                        )}
                         <td className="mono text-sm text-muted">{iface.ip_address || '—'}</td>
                         <td className="text-muted">{iface.vlan_id || '—'}</td>
                         <td>
@@ -484,7 +674,7 @@ export default function DeviceDetailPage() {
                     )
                   })}
                   {pagedIfs.length === 0 && (
-                    <tr><td colSpan={9} className="empty-table-cell">
+                    <tr><td colSpan={isSwitch ? 12 : 9} className="empty-table-cell">
                       {interfaces?.length === 0
                         ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
                         : 'No interfaces match the active filters'}
@@ -716,6 +906,106 @@ export default function DeviceDetailPage() {
               </>
             )
           })()}
+        </div>
+      )}
+
+      {/* MAC Table tab */}
+      {tab === 'mac' && isSwitch && (
+        <div className="card">
+          <div className="card-header">
+            <Database size={15} />
+            <h3>MAC Address Table</h3>
+            <div className="card__actions">
+              <div className="search-bar">
+                <Search size={13} />
+                <input
+                  placeholder="Search MAC, IP, hostname..."
+                  value={macSearch}
+                  onChange={e => { setMacSearch(e.target.value); setMacPage(0) }}
+                />
+              </div>
+            </div>
+          </div>
+          {macLoading ? (
+            <div className="empty-state card-body"><p>Loading MAC table...</p></div>
+          ) : !macData || macData.entries.length === 0 ? (
+            <div className="empty-state card-body">
+              <p>{macSearch ? 'No MAC entries match your search.' : 'No MAC entries discovered yet.'}</p>
+              <p className="text-xs text-muted">Click "Discover MAC Table" to scan this switch via SNMP.</p>
+            </div>
+          ) : (
+            <>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>MAC Address</th>
+                      <th>IP Address</th>
+                      <th>Hostname</th>
+                      <th>Vendor (OUI)</th>
+                      <th>Port</th>
+                      <th>VLAN</th>
+                      <th>Type</th>
+                      <th>Last Seen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {macData.entries.map((entry: any) => (
+                      <tr key={entry.id}>
+                        <td className="mono text-sm font-semibold">{entry.mac_address}</td>
+                        <td className="mono text-sm text-muted">{entry.ip_address || '—'}</td>
+                        <td className="text-sm">{entry.hostname || '—'}</td>
+                        <td className="text-sm text-muted">{entry.vendor || '—'}</td>
+                        <td>
+                          {entry.interface_id ? (
+                            <Link to={`/interfaces/${entry.interface_id}`} className="link-primary text-sm mono">
+                              {entry.interface_name || `#${entry.interface_id}`}
+                            </Link>
+                          ) : <span className="text-muted">—</span>}
+                        </td>
+                        <td className="text-sm">{entry.vlan_id ?? '—'}</td>
+                        <td>
+                          <span className={entry.entry_type === 'static' ? 'tag-blue' : entry.entry_type === 'self' ? 'tag-green' : 'tag-gray'}>
+                            {entry.entry_type}
+                          </span>
+                        </td>
+                        <td className="text-sm text-muted">
+                          {entry.last_seen ? formatDistanceToNow(new Date(entry.last_seen), { addSuffix: true }) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Pagination */}
+              {macData.total > macLimit && (
+                <div className="pagination-footer">
+                  <span className="pagination-info">
+                    Showing {macPage * macLimit + 1}–{Math.min((macPage + 1) * macLimit, macData.total)} of {macData.total}
+                  </span>
+                  <div className="pagination-controls">
+                    <button
+                      onClick={() => setMacPage(p => Math.max(0, p - 1))}
+                      disabled={macPage === 0}
+                      className="btn btn-outline btn-sm"
+                    >
+                      ‹ Prev
+                    </button>
+                    <span className="pagination-page-info">
+                      Page {macPage + 1} / {Math.ceil(macData.total / macLimit)}
+                    </span>
+                    <button
+                      onClick={() => setMacPage(p => p + 1)}
+                      disabled={(macPage + 1) * macLimit >= macData.total}
+                      className="btn btn-outline btn-sm"
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

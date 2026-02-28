@@ -61,7 +61,14 @@ export default function InterfaceDetailPage() {
     [outKey]: +(m.out_bps / divisor).toFixed(3),
     'In %': +m.utilization_in.toFixed(2),
     'Out %': +m.utilization_out.toFixed(2),
+    'In Errors': m.in_errors ?? 0,
+    'Out Errors': m.out_errors ?? 0,
+    'In Discards': m.in_discards ?? 0,
+    'Out Discards': m.out_discards ?? 0,
   }))
+
+  const hasErrorData = chartData.some((d: any) => d['In Errors'] > 0 || d['Out Errors'] > 0)
+  const hasDiscardData = chartData.some((d: any) => d['In Discards'] > 0 || d['Out Discards'] > 0)
 
   // Compute 95th percentile client-side
   const percentile95 = (vals: number[]) => {
@@ -161,6 +168,8 @@ export default function InterfaceDetailPage() {
             { label: 'Oper Status', value: latest.oper_status, isTag: true, tagClass: latest.oper_status === 'up' ? 'tag-green' : 'tag-red' },
             { label: 'In Errors', value: `${latest.in_errors}`, color: latest.in_errors > 0 ? 'var(--accent-red)' : 'var(--text-muted)' },
             { label: 'Out Errors', value: `${latest.out_errors}`, color: latest.out_errors > 0 ? 'var(--accent-red)' : 'var(--text-muted)' },
+            { label: 'In Discards', value: `${latest.in_discards ?? 0}`, color: (latest.in_discards ?? 0) > 0 ? '#f59e0b' : 'var(--text-muted)' },
+            { label: 'Out Discards', value: `${latest.out_discards ?? 0}`, color: (latest.out_discards ?? 0) > 0 ? '#f59e0b' : 'var(--text-muted)' },
           ].map((item: any, i) => (
             <div key={i} className="info-card">
               <div className="stat-label">{item.label}</div>
@@ -263,6 +272,54 @@ export default function InterfaceDetailPage() {
                 <Legend />
                 <Line type="monotone" dataKey="In %" stroke="#27ae60" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="Out %" stroke="#f39c12" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Errors chart */}
+      {chartData.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <Activity size={15} />
+            <h3>Errors</h3>
+            {!hasErrorData && <span className="card-header__sub" style={{ color: 'var(--text-muted)' }}>No errors in this period</span>}
+          </div>
+          <div className="card-body">
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} width={50} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
+                <Legend />
+                <Line type="monotone" dataKey="In Errors" stroke="#ef4444" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="Out Errors" stroke="#f97316" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Discards chart */}
+      {chartData.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <Activity size={15} />
+            <h3>Discards</h3>
+            {!hasDiscardData && <span className="card-header__sub" style={{ color: 'var(--text-muted)' }}>No discards in this period</span>}
+          </div>
+          <div className="card-body">
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="time" tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} width={50} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
+                <Legend />
+                <Line type="monotone" dataKey="In Discards" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="Out Discards" stroke="#6366f1" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
