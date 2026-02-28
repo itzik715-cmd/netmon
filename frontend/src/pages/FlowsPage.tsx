@@ -793,7 +793,7 @@ function IpProfile({
               {ip}
               {geoData?.country_code && (
                 <img
-                  src={`https://flagcdn.com/24x18/${geoData.country_code}.png`}
+                  src={`https://flagcdn.com/24x18/${geoData.country_code.toLowerCase()}.png`}
                   alt={geoData.country || ''}
                   title={geoData.country || ''}
                   style={{ height: 16, borderRadius: 2, boxShadow: '0 0 2px rgba(0,0,0,.2)' }}
