@@ -3770,6 +3770,7 @@ body.noc-fullscreen .noc-page {
 .noc-grid-layout {
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 .noc-grid-layout > .react-grid-item > .noc-card {
   height: 100%;
