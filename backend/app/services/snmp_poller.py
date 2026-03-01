@@ -5,6 +5,7 @@ Polls devices via SNMP for interface metrics and device health.
 import asyncio
 import ipaddress
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pysnmp.hlapi.asyncio import (
@@ -266,10 +267,102 @@ def _oid_rebase(oid_str: str, old_base: str, new_base: str) -> str:
     return new_base + "." + oid_str.split(".")[-1]
 
 
+def _classify_device_type(hostname: str, sys_descr: str, vendor: str) -> tuple:
+    """Infer device_type and layer from hostname, sysDescr, and vendor.
+
+    Returns (device_type, layer) or (None, None) if unable to classify.
+    Classification priority:
+      1. Vendor-based (unambiguous: APC/Schneider → pdu, Fortinet/PaloAlto → firewall)
+      2. sysDescr keywords (router, switch, firewall, etc.)
+      3. Hostname patterns (spine/sp, leaf/lf, sw, rtr/rt, fw, pdu, tor, etc.)
+    """
+    name_lower = (hostname or "").lower()
+    descr_lower = (sys_descr or "").lower()
+    vendor_lower = (vendor or "").lower()
+
+    # ── 1. Vendor-based (high confidence) ──
+    if vendor_lower in ("apc", "schneider electric"):
+        return "pdu", None
+    if vendor_lower in ("fortinet", "palo alto"):
+        return "firewall", "L3"
+
+    # ── 2. sysDescr keywords ──
+    # PDU patterns in sysDescr
+    if any(kw in descr_lower for kw in ("pdu", "rack pdu", "switched rack", "metered rack",
+                                         "power distribution", "ups ", "smart-ups",
+                                         "masterswitch", "managed power")):
+        return "pdu", None
+
+    # Firewall patterns in sysDescr
+    if any(kw in descr_lower for kw in ("firewall", "fortigate", "palo alto",
+                                         "asa ", "firepower", "srx ", "checkpoint")):
+        return "firewall", "L3"
+
+    # Router patterns in sysDescr
+    if any(kw in descr_lower for kw in ("router", " isr ", " asr ", " xr ",
+                                         "routeros")):
+        return "router", "L3"
+
+    # Wireless AP / controller
+    if any(kw in descr_lower for kw in ("access point", "wireless lan controller",
+                                         " wlc ", " ap ")):
+        return "access", "L2"
+
+    # ── 3. Hostname patterns (most common naming conventions) ──
+    # Spine: spine, sp1, sp-1, sp01, spine01, spine-1
+    if re.search(r'\b(spine|sp)[-_]?\d', name_lower) or name_lower.startswith("spine"):
+        return "spine", "L3"
+
+    # Leaf: leaf, lf1, lf-1, lf01, leaf01, leaf-1
+    if re.search(r'\b(leaf|lf)[-_]?\d', name_lower) or name_lower.startswith("leaf"):
+        return "leaf", "L2/L3"
+
+    # TOR: tor1, tor-1, tor01
+    if re.search(r'\btor[-_]?\d', name_lower) or name_lower.startswith("tor"):
+        return "tor", "L2/L3"
+
+    # Switch: sw1, sw-1, sw01, switch01, swt1
+    if re.search(r'\b(sw|swt|switch)[-_]?\d', name_lower) or name_lower.startswith("switch"):
+        return "switch", "L2"
+
+    # Router: rtr, rt1, rt-1, router1
+    if re.search(r'\b(rtr|rt|router)[-_]?\d', name_lower) or name_lower.startswith("router"):
+        return "router", "L3"
+
+    # Firewall: fw1, fw-1, firewall1
+    if re.search(r'\b(fw|firewall)[-_]?\d', name_lower) or name_lower.startswith("fw"):
+        return "firewall", "L3"
+
+    # Core: core1, core-1, cr1
+    if re.search(r'\b(core|cr)[-_]?\d', name_lower) or name_lower.startswith("core"):
+        return "core", "L3"
+
+    # Distribution: dist1, dist-1, ds1
+    if re.search(r'\b(dist|ds)[-_]?\d', name_lower) or name_lower.startswith("dist"):
+        return "distribution", "L3"
+
+    # Access: acc1, acc-1, access1
+    if re.search(r'\b(acc|access)[-_]?\d', name_lower) or name_lower.startswith("access"):
+        return "access", "L2"
+
+    # PDU: pdu1, pdu-1
+    if re.search(r'\bpdu[-_]?\d', name_lower) or name_lower.startswith("pdu"):
+        return "pdu", None
+
+    # ── 4. Generic sysDescr fallback (low confidence) ──
+    # Only if nothing matched above, try broad switch detection from sysDescr
+    if any(kw in descr_lower for kw in ("switch", "catalyst", "nexus", "eos",
+                                         "dell networking", "procurve", "aruba",
+                                         "cnos", "comware")):
+        return "switch", "L2"
+
+    return None, None
+
+
 async def enrich_device_info(device: Device, db: AsyncSession) -> None:
     """
     Query SNMP for sysDescr and sysName, then update device with
-    vendor, OS version, and hostname (if hostname is just an IP).
+    vendor, OS version, hostname, and auto-classified device_type/layer.
     """
     engine = SnmpEngine()
     try:
@@ -299,6 +392,25 @@ async def enrich_device_info(device: Device, db: AsyncSession) -> None:
         # Store full sysDescr as os_version if not already set
         if not device.os_version:
             updates["os_version"] = sys_descr[:200].strip()
+
+    # Auto-classify device_type and layer if not already set
+    if not device.device_type:
+        effective_hostname = updates.get("hostname") or device.hostname or ""
+        effective_vendor = updates.get("vendor") or device.vendor or ""
+        effective_descr = sys_descr or device.os_version or ""
+
+        inferred_type, inferred_layer = _classify_device_type(
+            effective_hostname, effective_descr, effective_vendor
+        )
+        if inferred_type:
+            updates["device_type"] = inferred_type
+            logger.info(
+                "Auto-classified %s as %s (hostname=%s, vendor=%s)",
+                device.ip_address, inferred_type,
+                effective_hostname, effective_vendor,
+            )
+        if inferred_layer and not device.layer:
+            updates["layer"] = inferred_layer
 
     if updates:
         await db.execute(update(Device).where(Device.id == device.id).values(**updates))

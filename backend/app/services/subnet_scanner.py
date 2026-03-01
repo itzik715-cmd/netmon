@@ -138,10 +138,12 @@ async def scan_subnet(
 
 
 async def _enrich_and_discover(device_id: int, session_factory: async_sessionmaker):
-    """Background task: enrich device info, discover interfaces and routes."""
+    """Background task: enrich device info, discover interfaces, routes, and LLDP."""
     from app.models.device import Device
-    from app.services.snmp_poller import enrich_device_info, discover_interfaces, poll_device, discover_routes
+    from app.services.snmp_poller import enrich_device_info, discover_interfaces, poll_device, discover_routes, discover_lldp_neighbors
     from sqlalchemy import select
+
+    SWITCH_TYPES = ("spine", "leaf", "tor", "switch", "access", "distribution", "core", "router")
 
     async with session_factory() as db:
         result = await db.execute(select(Device).where(Device.id == device_id))
@@ -150,8 +152,21 @@ async def _enrich_and_discover(device_id: int, session_factory: async_sessionmak
             return
         await enrich_device_info(device, db)
         await db.refresh(device)
+
+        # Skip full discovery for PDUs — they don't have interfaces/routes
+        if device.device_type == "pdu":
+            return
+
         await discover_interfaces(device, db)
         await poll_device(device, db)
+
         # Discover routes for L3 devices
         if device.layer in ("L3", "L2/L3") or device.device_type in ("router", "spine", "leaf"):
             await discover_routes(device, db)
+
+        # Discover LLDP neighbors for switch-type devices
+        if device.device_type in SWITCH_TYPES:
+            try:
+                await discover_lldp_neighbors(device, db)
+            except Exception as e:
+                logger.warning("LLDP discovery failed for %s: %s", device.ip_address, e)
