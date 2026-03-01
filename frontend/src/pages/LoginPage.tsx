@@ -106,8 +106,8 @@ export default function LoginPage() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-logo">
-            <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
-            <h1 className="auth-title">CWM</h1>
+            <img src="/logo-omc.svg" alt="OMC" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+            <h1 className="auth-title">OMC</h1>
             <p className="auth-subtitle">Completing MFA verification...</p>
           </div>
           <div className="duo-loading">
@@ -123,8 +123,8 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <img src="/logo-cwm.png" alt="CWM" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
-          <h1 className="auth-title">CWM</h1>
+          <img src="/logo-omc.svg" alt="OMC" className="auth-logo-img" style={{ height: 56, marginBottom: 8 }} />
+          <h1 className="auth-title">OMC</h1>
           <p className="auth-subtitle">Network Monitor</p>
         </div>
 
@@ -181,7 +181,7 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <p className="auth-subtitle">Secure Network Monitoring — CWM</p>
+        <p className="auth-subtitle">Secure Network Monitoring — OMC</p>
       </div>
     </div>
   )

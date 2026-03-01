@@ -10,11 +10,14 @@
     </linearGradient>
   </defs>
   <g transform="translate(3,2)">
+    <!-- Row 1 -->
     <rect x="12" y="0" width="5.5" height="5" rx="1" fill="url(#a)" opacity="0.9" transform="skewY(-4) skewX(-6)"/>
     <rect x="19" y="0" width="5.5" height="5" rx="1" fill="url(#a)" opacity="0.8" transform="skewY(-4) skewX(-6)"/>
+    <!-- Row 2 -->
     <rect x="6" y="7.5" width="7" height="6.5" rx="1.2" fill="url(#a)" opacity="0.95" transform="skewY(-3) skewX(-4)"/>
     <rect x="14.5" y="7.5" width="7" height="6.5" rx="1.2" fill="url(#a)" opacity="0.9" transform="skewY(-3) skewX(-4)"/>
     <rect x="23" y="8" width="6" height="5.5" rx="1.2" fill="url(#b)" opacity="0.7" transform="skewY(-3) skewX(-4)"/>
+    <!-- Row 3 -->
     <rect x="0" y="16.5" width="8.5" height="7.5" rx="1.5" fill="url(#a)" transform="skewY(-2) skewX(-2)"/>
     <rect x="10" y="16.5" width="8.5" height="7.5" rx="1.5" fill="url(#a)" opacity="0.95" transform="skewY(-2) skewX(-2)"/>
     <rect x="20" y="17" width="7.5" height="6.5" rx="1.5" fill="url(#b)" opacity="0.75" transform="skewY(-2) skewX(-2)"/>

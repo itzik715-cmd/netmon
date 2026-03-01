@@ -336,6 +336,7 @@ body, #root {
   width: var(--sidebar-collapsed);
 }
 .sidebar--collapsed .logo-text,
+.sidebar--collapsed .logo-full-img,
 .sidebar--collapsed .nav-section,
 .sidebar--collapsed .nav-badge,
 .sidebar--collapsed .user-name,
@@ -346,6 +347,9 @@ body, #root {
 .sidebar--collapsed .sidebar-logo {
   justify-content: center;
   padding: 0;
+}
+.sidebar--collapsed .logo-icon-img {
+  display: block;
 }
 .sidebar--collapsed .nav-item {
   justify-content: center;
@@ -363,21 +367,16 @@ body, #root {
   flex-shrink: 0;
 }
 
-.logo-icon {
-  width: 32px; height: 32px;
-  background: var(--primary);
-  border-radius: var(--radius-md);
-  display: flex; align-items: center; justify-content: center;
+.logo-icon-img {
+  width: 28px; height: 28px;
+  flex-shrink: 0;
+  display: none;
+}
+.logo-full-img {
+  height: 30px;
+  width: auto;
   flex-shrink: 0;
 }
-.logo-icon svg { width: 18px; height: 18px; fill: white; }
-.logo-text {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--text-main);
-  letter-spacing: -0.3px;
-}
-.logo-text span { color: var(--primary); }
 
 .sidebar-nav {
   flex: 1;

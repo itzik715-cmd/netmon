@@ -139,12 +139,8 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
       <div className="sidebar-logo">
-        <div className="logo-icon">
-          <svg viewBox="0 0 32 32">
-            <path d="M4 18c-1-0.5-2-2-2-4 0-4 3-6 7-6 1-5 5-9 11-9 5 0 9 3 11 7 3 1 5 4 5 7 0 3-2 6-5 7" stroke="#29ABE2" strokeWidth="2.5" fill="none" strokeLinecap="round"/><path d="M3 22c3 3 8 5 15 5 9 0 15-4 18-9" stroke="#29ABE2" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity="0.7"/>
-          </svg>
-        </div>
-        <div className="logo-text">C<span>WM</span></div>
+        <img src="/logo-omc-icon.svg" alt="OMC" className="logo-icon-img" />
+        <img src="/logo-omc.svg" alt="OMC" className="logo-full-img" />
       </div>
 
       <nav className="sidebar-nav">

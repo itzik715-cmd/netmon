@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 150">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2078E8"/>
+      <stop offset="100%" stop-color="#40D4FF"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2078E8"/>
+      <stop offset="50%" stop-color="#30A0F0"/>
+      <stop offset="100%" stop-color="#40D4FF"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3090F0"/>
+      <stop offset="100%" stop-color="#50E0FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Perspective grid icon -->
+  <g transform="translate(30, 18)">
+    <!-- Row 1 (top, smallest - most perspective) -->
+    <rect x="62" y="0" width="16" height="16" rx="2" fill="url(#g1)" opacity="0.9" transform="skewY(-5) skewX(-8)"/>
+    <rect x="82" y="0" width="16" height="16" rx="2" fill="url(#g1)" opacity="0.85" transform="skewY(-5) skewX(-8)"/>
+    <rect x="102" y="2" width="14" height="14" rx="2" fill="url(#g3)" opacity="0.7" transform="skewY(-5) skewX(-8)"/>
+
+    <!-- Row 2 (middle) -->
+    <rect x="42" y="26" width="22" height="20" rx="2.5" fill="url(#g1)" opacity="0.95" transform="skewY(-4) skewX(-6)"/>
+    <rect x="68" y="26" width="22" height="20" rx="2.5" fill="url(#g1)" opacity="0.9" transform="skewY(-4) skewX(-6)"/>
+    <rect x="94" y="27" width="20" height="18" rx="2.5" fill="url(#g3)" opacity="0.75" transform="skewY(-4) skewX(-6)"/>
+
+    <!-- Row 3 (bottom, largest - closest) -->
+    <rect x="18" y="56" width="28" height="24" rx="3" fill="url(#g1)" transform="skewY(-3) skewX(-4)"/>
+    <rect x="50" y="56" width="28" height="24" rx="3" fill="url(#g1)" opacity="0.95" transform="skewY(-3) skewX(-4)"/>
+    <rect x="82" y="57" width="26" height="22" rx="3" fill="url(#g3)" opacity="0.8" transform="skewY(-3) skewX(-4)"/>
+
+    <!-- Row 4 (bottom-most row) -->
+    <rect x="0" y="88" width="32" height="26" rx="3" fill="url(#g1)" transform="skewY(-2) skewX(-2)"/>
+    <rect x="36" y="88" width="32" height="26" rx="3" fill="url(#g1)" opacity="0.95" transform="skewY(-2) skewX(-2)"/>
+    <rect x="72" y="89" width="30" height="24" rx="3" fill="url(#g3)" opacity="0.8" transform="skewY(-2) skewX(-2)"/>
+
+    <!-- Trailing particles -->
+    <circle cx="8" cy="50" r="2.5" fill="#40D4FF" opacity="0.5"/>
+    <circle cx="0" cy="58" r="2" fill="#40D4FF" opacity="0.35"/>
+    <circle cx="12" cy="42" r="1.5" fill="#40D4FF" opacity="0.4"/>
+    <circle cx="-5" cy="65" r="1.5" fill="#40D4FF" opacity="0.25"/>
+    <circle cx="4" cy="72" r="1" fill="#40D4FF" opacity="0.2"/>
+    <circle cx="-2" cy="48" r="1" fill="#40D4FF" opacity="0.3"/>
+  </g>
+
+  <!-- OMC Text -->
+  <text x="195" y="110" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="100" font-weight="900" font-style="italic" fill="url(#g2)" letter-spacing="-2">OMC</text>
+</svg>

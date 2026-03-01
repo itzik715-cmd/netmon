@@ -14,10 +14,8 @@ export default function NocLayout() {
       <div className="noc-popout-topbar">
         <div className="noc-popout-topbar__left">
           <div className="noc-popout-topbar__logo">
-            <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z" fill="#29ABE2"/>
-            </svg>
-            <span>NetMon NMP</span>
+            <img src="/logo-omc.svg" alt="OMC" style={{ height: 22 }} />
+            <span>OMC</span>
           </div>
           <span className="noc-popout-topbar__sep">|</span>
           <span className="noc-popout-topbar__page" id="noc-page-title">NOC View</span>
