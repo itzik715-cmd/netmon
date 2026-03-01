@@ -295,9 +295,17 @@ async def discover_mac_table(device: Device, db: AsyncSession) -> int:
             if d.ip_address:
                 ip_to_hostname[d.ip_address] = d.hostname
 
-        # Step 6: Upsert MAC entries
+        # Step 6: Upsert MAC entries (deduplicate by MAC first)
         now = datetime.now(timezone.utc)
         count = 0
+
+        # Deduplicate: keep last occurrence per MAC address
+        deduped: dict[str, dict] = {}
+        for entry in mac_entries:
+            m = entry.get("mac_address", "")
+            if m:
+                deduped[m] = entry
+        mac_entries = list(deduped.values())
 
         for entry in mac_entries:
             mac = entry["mac_address"]
