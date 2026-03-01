@@ -2,6 +2,8 @@
 FastNetMon Advanced REST API client.
 FNM exposes REST on port 10007 (HTTP) or 10443 (HTTPS).
 Auth: HTTP Basic.
+API paths: /main (config), /blackhole (blocked hosts), etc.
+Response format: {"success": bool, "values": [...]} or {"success": bool, "object": {...}}
 """
 import httpx
 import logging
@@ -23,51 +25,57 @@ class FastNetMonClient:
     async def ping(self) -> bool:
         """Test connectivity — return True if reachable."""
         try:
-            resp = await self._request("GET", "/api/v1")
+            resp = await self._request("GET", "/main")
             return resp.status_code == 200
         except Exception:
             return False
 
     async def get_status(self) -> dict:
-        """GET /api/v1 — returns FNM version and status."""
+        """GET /main — returns FNM config and status."""
         try:
-            resp = await self._request("GET", "/api/v1")
+            resp = await self._request("GET", "/main")
             resp.raise_for_status()
-            return resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"raw": resp.text}
+            data = resp.json()
+            if data.get("success") and "object" in data:
+                obj = data["object"]
+                return {"version": "FastNetMon Advanced", "raw": f"sflow={'on' if obj.get('sflow') else 'off'}, ban={'on' if obj.get('enable_ban') else 'off'}"}
+            return {"raw": str(data)[:200]}
         except Exception as e:
             logger.warning("FastNetMon get_status failed (%s): %s", self.node_label, e)
             return {}
 
     async def get_blocked_hosts(self) -> list:
-        """GET /api/v1/blackhole — returns currently blackholed IPs."""
+        """GET /blackhole — returns currently blackholed IPs."""
         try:
-            resp = await self._request("GET", "/api/v1/blackhole")
+            resp = await self._request("GET", "/blackhole")
             resp.raise_for_status()
-            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+            data = resp.json()
+            # FNM returns {"success": true, "values": ["1.2.3.4", ...]}
+            if isinstance(data, dict) and "values" in data:
+                return data["values"]
             if isinstance(data, list):
                 return data
-            if isinstance(data, str):
-                # FNM may return newline-separated IPs
-                return [ip.strip() for ip in data.strip().splitlines() if ip.strip()]
             return []
         except Exception as e:
             logger.warning("FastNetMon get_blocked_hosts failed (%s): %s", self.node_label, e)
             return []
 
     async def block_host(self, ip: str) -> bool:
-        """PUT /api/v1/blackhole/{ip} — manually blackhole an IP."""
+        """PUT /blackhole/{ip} — manually blackhole an IP."""
         try:
-            resp = await self._request("PUT", f"/api/v1/blackhole/{ip}")
-            return resp.status_code in (200, 201, 204)
+            resp = await self._request("PUT", f"/blackhole/{ip}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", resp.status_code in (200, 201, 204))
         except Exception as e:
             logger.error("FastNetMon block_host(%s) failed (%s): %s", ip, self.node_label, e)
             return False
 
     async def unblock_host(self, ip: str) -> bool:
-        """DELETE /api/v1/blackhole/{ip} — remove a blackhole."""
+        """DELETE /blackhole/{ip} — remove a blackhole."""
         try:
-            resp = await self._request("DELETE", f"/api/v1/blackhole/{ip}")
-            return resp.status_code in (200, 204)
+            resp = await self._request("DELETE", f"/blackhole/{ip}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", resp.status_code in (200, 204))
         except Exception as e:
             logger.error("FastNetMon unblock_host(%s) failed (%s): %s", ip, self.node_label, e)
             return False
