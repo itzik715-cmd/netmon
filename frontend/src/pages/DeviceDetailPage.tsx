@@ -281,6 +281,14 @@ export default function DeviceDetailPage() {
 
   // Environment data (temperature, fan, PSU)
   const [envHours, setEnvHours] = useState(24)
+
+  // VLAN tab state
+  const [vlanFilter, setVlanFilter] = useState('')
+  const [vlanStatusFilter, setVlanStatusFilter] = useState('')
+  const [vlanSortKey, setVlanSortKey] = useState('mac_count')
+  const [vlanSortDir, setVlanSortDir] = useState<'asc' | 'desc'>('desc')
+  const [vlanPageSize, setVlanPageSize] = useState(25)
+  const [vlanPage, setVlanPage] = useState(0)
   const { data: envData, isLoading: envLoading } = useQuery({
     queryKey: ['device-environment', deviceId, envHours],
     queryFn: () => switchesApi.environment(deviceId, envHours).then(r => r.data),
@@ -1195,52 +1203,117 @@ export default function DeviceDetailPage() {
       {/* VLANs tab */}
       {tab === 'vlans' && isSwitch && (
         <div className="card">
-          <div className="card-header">
-            <h3>VLANs</h3>
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h3 style={{ flex: '0 0 auto' }}>VLANs</h3>
+            <input
+              type="text"
+              placeholder="Filter by ID or Name..."
+              value={vlanFilter}
+              onChange={e => { setVlanFilter(e.target.value); setVlanPage(0) }}
+              style={{ flex: '1 1 180px', maxWidth: 240, padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+            />
+            <select
+              value={vlanStatusFilter}
+              onChange={e => { setVlanStatusFilter(e.target.value); setVlanPage(0) }}
+              style={{ padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="suspend">Suspend</option>
+            </select>
+            <select
+              value={vlanPageSize}
+              onChange={e => { setVlanPageSize(Number(e.target.value)); setVlanPage(0) }}
+              style={{ padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+            >
+              {[25, 50, 100, 250].map(n => <option key={n} value={n}>{n} / page</option>)}
+            </select>
           </div>
           {vlansLoading ? (
             <div className="empty-state card-body"><p>Loading VLANs...</p></div>
           ) : !vlansData || vlansData.length === 0 ? (
             <div className="empty-state card-body"><p>No VLANs discovered yet.</p></div>
-          ) : (
-            <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>VLAN ID</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Untagged Ports</th>
-                    <th>MAC Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vlansData.map((v: any) => (
-                    <tr key={v.id}>
-                      <td style={{ fontWeight: 600 }}>{v.vlan_id}</td>
-                      <td>{v.vlan_name || '-'}</td>
-                      <td>
-                        <span className={v.status === 'active' ? 'tag-green' : 'tag-gray'}>{v.status}</span>
-                      </td>
-                      <td>
-                        {v.untagged_ports?.length > 0 ? (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {v.untagged_ports.slice(0, 10).map((p: string) => (
-                              <span key={p} className="tag-gray" style={{ fontSize: 11 }}>{p}</span>
-                            ))}
-                            {v.untagged_ports.length > 10 && (
-                              <span className="text-muted text-xs">+{v.untagged_ports.length - 10} more</span>
-                            )}
-                          </div>
-                        ) : <span className="text-light">-</span>}
-                      </td>
-                      <td>{v.mac_count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ) : (() => {
+            const filtered = vlansData
+              .filter((v: any) => {
+                if (vlanStatusFilter && v.status !== vlanStatusFilter) return false
+                if (vlanFilter) {
+                  const q = vlanFilter.toLowerCase()
+                  return String(v.vlan_id).includes(q) || (v.vlan_name || '').toLowerCase().includes(q)
+                }
+                return true
+              })
+              .sort((a: any, b: any) => {
+                const dir = vlanSortDir === 'asc' ? 1 : -1
+                if (vlanSortKey === 'mac_count') return ((a.mac_count || 0) - (b.mac_count || 0)) * dir
+                if (vlanSortKey === 'vlan_id') return (a.vlan_id - b.vlan_id) * dir
+                if (vlanSortKey === 'vlan_name') return (a.vlan_name || '').localeCompare(b.vlan_name || '') * dir
+                return 0
+              })
+            const totalPages = Math.ceil(filtered.length / vlanPageSize)
+            const paged = filtered.slice(vlanPage * vlanPageSize, (vlanPage + 1) * vlanPageSize)
+            const sortHeader = (key: string, label: string) => (
+              <th
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => {
+                  if (vlanSortKey === key) setVlanSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                  else { setVlanSortKey(key); setVlanSortDir(key === 'mac_count' ? 'desc' : 'asc') }
+                }}
+              >
+                {label} {vlanSortKey === key ? (vlanSortDir === 'asc' ? '▲' : '▼') : ''}
+              </th>
+            )
+            return (
+              <>
+                <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        {sortHeader('vlan_id', 'VLAN ID')}
+                        {sortHeader('vlan_name', 'Name')}
+                        <th>Status</th>
+                        <th>Untagged Ports</th>
+                        {sortHeader('mac_count', 'MAC Count')}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paged.map((v: any) => (
+                        <tr key={v.id}>
+                          <td style={{ fontWeight: 600 }}>{v.vlan_id}</td>
+                          <td>{v.vlan_name || '-'}</td>
+                          <td>
+                            <span className={v.status === 'active' ? 'tag-green' : 'tag-gray'}>{v.status}</span>
+                          </td>
+                          <td>
+                            {v.untagged_ports?.length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {v.untagged_ports.slice(0, 10).map((p: string) => (
+                                  <span key={p} className="tag-gray" style={{ fontSize: 11 }}>{p}</span>
+                                ))}
+                                {v.untagged_ports.length > 10 && (
+                                  <span className="text-muted text-xs">+{v.untagged_ports.length - 10} more</span>
+                                )}
+                              </div>
+                            ) : <span className="text-light">-</span>}
+                          </td>
+                          <td style={{ fontWeight: v.mac_count > 0 ? 600 : 400 }}>{v.mac_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                    <span>Showing {vlanPage * vlanPageSize + 1}-{Math.min((vlanPage + 1) * vlanPageSize, filtered.length)} of {filtered.length} VLANs</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-outline btn-sm" disabled={vlanPage === 0} onClick={() => setVlanPage(p => p - 1)} style={{ fontSize: 11, padding: '2px 8px' }}>Prev</button>
+                      <button className="btn btn-outline btn-sm" disabled={vlanPage >= totalPages - 1} onClick={() => setVlanPage(p => p + 1)} style={{ fontSize: 11, padding: '2px 8px' }}>Next</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
