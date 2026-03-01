@@ -107,6 +107,7 @@ OID_ENT_SENSOR_TYPE  = "1.3.6.1.2.1.99.1.1.1.1"          # entPhySensorType
 OID_ENT_SENSOR_VALUE = "1.3.6.1.2.1.99.1.1.1.4"          # entPhySensorValue
 OID_ENT_SENSOR_STATUS = "1.3.6.1.2.1.99.1.1.1.5"         # entPhySensorOperStatus
 OID_ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.3"          # entPhySensorScale
+OID_ENT_SENSOR_PRECISION = "1.3.6.1.2.1.99.1.1.1.2"     # entPhySensorPrecision
 
 # CISCO-ENVMON-MIB
 OID_CISCO_TEMP_DESCR = "1.3.6.1.4.1.9.9.13.1.3.1.2"      # ciscoEnvMonTemperatureStatusDescr
@@ -871,7 +872,11 @@ async def poll_environment(device: Device, db: AsyncSession, now: datetime,
             sensor_values = await snmp_bulk_walk(device, OID_ENT_SENSOR_VALUE, engine)
             sensor_status = await snmp_bulk_walk(device, OID_ENT_SENSOR_STATUS, engine)
             sensor_scales = await snmp_bulk_walk(device, OID_ENT_SENSOR_SCALE, engine)
+            sensor_precisions = await snmp_bulk_walk(device, OID_ENT_SENSOR_PRECISION, engine)
             phys_descrs = await snmp_bulk_walk(device, OID_ENT_PHYS_DESCR, engine)
+
+            # Track seen sensor names to avoid duplicates
+            seen_names: dict[str, int] = {}
 
             for oid_str, type_val in sensor_types.items():
                 type_str = str(type_val).strip()
@@ -884,23 +889,35 @@ async def poll_environment(device: Device, db: AsyncSession, now: datetime,
 
                 # Get sensor name from entPhysicalDescr
                 descr_key = OID_ENT_PHYS_DESCR + "." + idx
-                sensor_name = str(phys_descrs.get(descr_key, f"Sensor {idx}")).strip()
-                if not sensor_name or sensor_name == "0x":
-                    sensor_name = f"Sensor {idx}"
+                base_name = str(phys_descrs.get(descr_key, f"Sensor {idx}")).strip()
+                if not base_name or base_name == "0x":
+                    base_name = f"Sensor {idx}"
 
-                # Get value
+                # Deduplicate sensor names (e.g., two PSUs with same name)
+                if base_name in seen_names:
+                    seen_names[base_name] += 1
+                    sensor_name = f"{base_name} #{seen_names[base_name]}"
+                else:
+                    seen_names[base_name] = 1
+                    sensor_name = base_name
+
+                # Get value with precision handling
                 val_key = OID_ENT_SENSOR_VALUE + "." + idx
                 raw_val = sensor_values.get(val_key)
                 value = None
                 if raw_val is not None:
                     try:
                         value = float(raw_val)
-                        # Apply scale factor
-                        scale_key = OID_ENT_SENSOR_SCALE + "." + idx
-                        scale_str = str(sensor_scales.get(scale_key, "9")).strip()
-                        scale_exp = ENT_SENSOR_SCALE_MAP.get(scale_str, 0)
-                        if scale_exp != 0:
-                            value = value * (10 ** scale_exp)
+                        # Get precision (number of decimal digits)
+                        prec_key = OID_ENT_SENSOR_PRECISION + "." + idx
+                        prec_str = str(sensor_precisions.get(prec_key, "0")).strip()
+                        try:
+                            precision = int(prec_str)
+                        except (ValueError, TypeError):
+                            precision = 0
+                        # Apply precision: divide by 10^precision
+                        if precision > 0:
+                            value = value / (10 ** precision)
                     except (ValueError, TypeError):
                         pass
 
@@ -935,6 +952,7 @@ async def poll_environment(device: Device, db: AsyncSession, now: datetime,
                         unit=unit,
                         updated_at=now,
                     ))
+                    await db.flush()
 
                 # Store time-series for temperature sensors
                 if sensor_type == "temperature" and value is not None:

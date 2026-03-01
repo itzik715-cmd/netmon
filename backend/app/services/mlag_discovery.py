@@ -72,7 +72,7 @@ async def _try_arista_eapi(device: Device) -> Optional[dict]:
 async def _try_arista_snmp(device: Device, engine: SnmpEngine) -> Optional[dict]:
     """Try Arista MLAG MIB via SNMP."""
     domain_id = await snmp_get(device, OID_ARISTA_MLAG_DOMAIN_ID, engine)
-    if not domain_id:
+    if not domain_id or "No Such" in str(domain_id) or "noSuch" in str(domain_id):
         return None
 
     local_role = await snmp_get(device, OID_ARISTA_MLAG_LOCAL_ROLE, engine)
@@ -102,6 +102,12 @@ async def _try_arista_snmp(device: Device, engine: SnmpEngine) -> Optional[dict]
     role_map = {"1": "primary", "2": "secondary"}
     sanity_map = {"1": "consistent", "2": "inconsistent"}
 
+    def safe_int(val, default=0):
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
     return {
         "domain_id": str(domain_id),
         "peer_address": None,
@@ -109,9 +115,9 @@ async def _try_arista_snmp(device: Device, engine: SnmpEngine) -> Optional[dict]
         "local_role": role_map.get(str(local_role), str(local_role)),
         "peer_status": "active",  # If we got data, assume active
         "config_sanity": sanity_map.get(str(config_sanity), str(config_sanity)),
-        "ports_configured": int(ports_conf or 0),
-        "ports_active": int(ports_active or 0),
-        "ports_errdisabled": int(ports_errdis or 0),
+        "ports_configured": safe_int(ports_conf),
+        "ports_active": safe_int(ports_active),
+        "ports_errdisabled": safe_int(ports_errdis),
         "vendor_protocol": "mlag",
         "interfaces": interfaces,
     }
