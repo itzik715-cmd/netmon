@@ -358,18 +358,35 @@ export default function TopologyPage() {
   }, [])
 
   const onSvgMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as SVGElement).tagName === 'svg') {
+    if (e.button === 1 || (e.target as SVGElement).tagName === 'svg') {
+      e.preventDefault()
       setPanDragging({ sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y })
     }
   }, [pan])
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
-    if (e.ctrlKey || e.metaKey) {
-      setZoom(z => Math.max(0.2, Math.min(3, z - e.deltaY * 0.001)))
-    } else {
-      setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }))
+    if (e.shiftKey) {
+      // Shift+scroll = horizontal pan
+      setPan(p => ({ x: p.x - e.deltaY, y: p.y }))
+      return
     }
+    // Scroll = zoom toward cursor
+    const svg = svgRef.current!
+    const rect = svg.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+    const direction = e.deltaY < 0 ? 1 : -1
+    const factor = 1.12
+    setZoom(prev => {
+      const nz = Math.max(0.15, Math.min(4, prev * (direction > 0 ? factor : 1 / factor)))
+      const scale = nz / prev
+      setPan(p => ({
+        x: mx - scale * (mx - p.x),
+        y: my - scale * (my - p.y),
+      }))
+      return nz
+    })
   }, [])
 
   const resetLayout = useCallback(() => {
@@ -441,27 +458,59 @@ export default function TopologyPage() {
   const uToY = (uSlot: number) => RACK_HEADER_H + (RACK_UNITS - uSlot) * U_HEIGHT
 
   const renderRack = (rack: RackDef) => {
-    const rackBodyH = RACK_CONTENT_H
+    const RAIL_W = 6
+    const RAIL_X_L = 10
+    const RAIL_X_R = RACK_W - 10 - RAIL_W
+    const EQUIP_X = RAIL_X_L + RAIL_W + 4
+    const EQUIP_W = RAIL_X_R - EQUIP_X - 4
 
-    // U-slot ticks
-    const slotTicks: JSX.Element[] = []
+    // Mounting holes on rails (one per U)
+    const mountingHoles: JSX.Element[] = []
     for (let u = 1; u <= RACK_UNITS; u++) {
-      const y = uToY(u) + U_HEIGHT
-      slotTicks.push(<line key={u} x1={8} y1={y} x2={16} y2={y} className="topo-rack-slot" />)
+      const y = uToY(u) + U_HEIGHT / 2
+      mountingHoles.push(
+        <circle key={`ml-${u}`} cx={RAIL_X_L + RAIL_W / 2} cy={y} r={1.2} className="topo-mount-hole" />,
+        <circle key={`mr-${u}`} cx={RAIL_X_R + RAIL_W / 2} cy={y} r={1.2} className="topo-mount-hole" />,
+      )
     }
 
-    const unitW = RACK_W - UNIT_MARGIN_X * 2
+    // U-slot horizontal lines
+    const slotLines: JSX.Element[] = []
+    for (let u = 1; u <= RACK_UNITS; u++) {
+      const y = uToY(u) + U_HEIGHT
+      slotLines.push(<line key={u} x1={EQUIP_X} y1={y} x2={EQUIP_X + EQUIP_W} y2={y} className="topo-rack-slot" />)
+    }
 
-    // Render switch units (1U each) — placed from top down
+    // U-number labels every 5U
+    const uLabels: JSX.Element[] = []
+    for (let u = 5; u <= RACK_UNITS; u += 5) {
+      const y = uToY(u) + U_HEIGHT / 2
+      uLabels.push(
+        <text key={`u-${u}`} x={RAIL_X_L - 1} y={y + 1} textAnchor="end" dominantBaseline="middle" className="topo-u-label">{u}</text>
+      )
+    }
+
+    // Render switch units (1U each)
     const switchElements = rack.switchNodes.map((node, i) => {
       const unitKey = `sw-${node.id}`
       const savedU = unitPositions[rack.key]?.[unitKey]
-      const uSlot = savedU != null ? savedU : (RACK_UNITS - i) // default: top down from U45
+      const uSlot = savedU != null ? savedU : (RACK_UNITS - i)
       const y = uToY(uSlot)
       const color = statusColor(node.status)
       const isFaded = search.length > 0 && !filteredIds.has(node.id)
       const isHovered = hoveredNode === node.id
       const isDragging = unitDragging?.rackKey === rack.key && unitDragging?.unitKey === unitKey
+
+      // Port indicators (small rects simulating front panel)
+      const portCount = 8
+      const portStartX = EQUIP_X + EQUIP_W - portCount * 5 - 4
+      const ports: JSX.Element[] = []
+      for (let p = 0; p < portCount; p++) {
+        ports.push(
+          <rect key={p} x={portStartX + p * 5} y={4} width={3.5} height={SWITCH_H - 8} rx={0.5}
+            fill="rgba(255,255,255,0.3)" />
+        )
+      }
 
       return (
         <g
@@ -475,34 +524,50 @@ export default function TopologyPage() {
           onClick={e => { e.stopPropagation(); if (!unitDragging) navigate(`/devices/${node.id}`) }}
         >
           {isHovered && (
-            <rect x={UNIT_MARGIN_X - 2} y={-1} width={unitW + 4} height={SWITCH_H + 2} rx={3}
-              fill="none" stroke={color} strokeWidth={2} opacity={0.4} />
+            <rect x={EQUIP_X - 2} y={-1} width={EQUIP_W + 4} height={SWITCH_H + 2} rx={2}
+              fill="none" stroke={color} strokeWidth={2} opacity={0.5} />
           )}
-          <rect x={UNIT_MARGIN_X} y={0} width={unitW} height={SWITCH_H} rx={2}
-            fill={color} opacity={0.9} />
-          {/* Status bar on left */}
-          <rect x={UNIT_MARGIN_X} y={0} width={4} height={SWITCH_H} rx={1} fill={color} />
+          {/* Main faceplate */}
+          <rect x={EQUIP_X} y={0} width={EQUIP_W} height={SWITCH_H} rx={1}
+            fill={color} opacity={0.85} />
+          {/* Status accent */}
+          <rect x={EQUIP_X} y={0} width={3} height={SWITCH_H} rx={0.5} fill={color} />
+          {/* LED indicators */}
+          <circle cx={EQUIP_X + 8} cy={SWITCH_H / 2 - 3} r={1.2} fill="#fff" opacity={0.8} />
+          <circle cx={EQUIP_X + 8} cy={SWITCH_H / 2 + 3} r={1.2} fill="#22c55e" opacity={0.7} />
           {/* Label */}
-          <text x={UNIT_MARGIN_X + 10} y={SWITCH_H / 2 + 1} dominantBaseline="middle" fontSize={8}
+          <text x={EQUIP_X + 14} y={SWITCH_H / 2 + 1} dominantBaseline="middle" fontSize={7}
             fill="#fff" fontWeight={700} style={{ pointerEvents: 'none', userSelect: 'none' }}>
             {deviceLabel(node.device_type)}
           </text>
           {/* Hostname */}
-          <text x={UNIT_MARGIN_X + 28} y={SWITCH_H / 2 + 1} dominantBaseline="middle" fontSize={7}
-            fill="#fff" fontWeight={500} style={{ pointerEvents: 'none', userSelect: 'none' }}>
-            {node.hostname.length > 18 ? node.hostname.slice(0, 16) + '\u2026' : node.hostname}
+          <text x={EQUIP_X + 30} y={SWITCH_H / 2 + 1} dominantBaseline="middle" fontSize={6.5}
+            fill="rgba(255,255,255,0.9)" fontWeight={500} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+            {node.hostname.length > 16 ? node.hostname.slice(0, 14) + '\u2026' : node.hostname}
           </text>
+          {/* Port indicators */}
+          {ports}
         </g>
       )
     })
 
-    // Render server units (2U each) — placed from bottom up
+    // Render server units (2U each)
     const serverElements = rack.servers.map((srv, i) => {
       const unitKey = `srv-${srv.name}`
       const savedU = unitPositions[rack.key]?.[unitKey]
-      const uSlot = savedU != null ? savedU : (1 + i * 2) // default: bottom up, 2U each starting at U1
-      const y = uToY(uSlot + 1)  // +1 because 2U occupies uSlot and uSlot+1
+      const uSlot = savedU != null ? savedU : (1 + i * 2)
+      const y = uToY(uSlot + 1)
       const isDragging = unitDragging?.rackKey === rack.key && unitDragging?.unitKey === unitKey
+
+      // Drive bays
+      const bayCount = 6
+      const bays: JSX.Element[] = []
+      for (let b = 0; b < bayCount; b++) {
+        bays.push(
+          <rect key={b} x={EQUIP_X + 18 + b * 10} y={4} width={8} height={SERVER_H - 8} rx={1}
+            className="topo-server-bay" />
+        )
+      }
 
       return (
         <g
@@ -512,19 +577,20 @@ export default function TopologyPage() {
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
           onMouseDown={e => onUnitMouseDown(e, rack.key, unitKey, uSlot)}
         >
-          <rect x={UNIT_MARGIN_X} y={0} width={unitW} height={SERVER_H} rx={2}
+          {/* Server body */}
+          <rect x={EQUIP_X} y={0} width={EQUIP_W} height={SERVER_H} rx={1}
             className="topo-server-unit-2u" />
-          {/* Drive bay dots */}
-          {[0, 1, 2, 3].map(d => (
-            <circle key={d} cx={UNIT_MARGIN_X + 10 + d * 7} cy={SERVER_H / 2} r={2.5}
-              className="topo-server-dot" />
-          ))}
-          {/* Power LED — red pulse if single PDU, green if dual */}
-          <circle cx={UNIT_MARGIN_X + unitW - 10} cy={SERVER_H / 2} r={3}
+          {/* Left handle */}
+          <line x1={EQUIP_X + 4} y1={6} x2={EQUIP_X + 4} y2={SERVER_H - 6} className="topo-server-handle" />
+          <line x1={EQUIP_X + 7} y1={6} x2={EQUIP_X + 7} y2={SERVER_H - 6} className="topo-server-handle" />
+          {/* Drive bays */}
+          {bays}
+          {/* Power LED */}
+          <circle cx={EQUIP_X + EQUIP_W - 8} cy={SERVER_H / 2} r={2.5}
             className={srv.pduCount >= 2 ? 'topo-server-led' : 'topo-server-led--warning'} />
           {/* Server name */}
-          <text x={RACK_W / 2} y={SERVER_H / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-            className="topo-server-text" style={{ fontSize: '8px' }}>
+          <text x={EQUIP_X + EQUIP_W / 2} y={SERVER_H / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+            className="topo-server-text" style={{ fontSize: '7px' }}>
             {srv.name}
           </text>
         </g>
@@ -537,7 +603,6 @@ export default function TopologyPage() {
         transform={`translate(${rack.x},${rack.y})`}
         className="topo-rack"
         onMouseDown={e => {
-          // Only drag rack from header area or empty space
           const svg = svgRef.current!
           const pt = svg.createSVGPoint()
           pt.x = e.clientX; pt.y = e.clientY
@@ -548,28 +613,43 @@ export default function TopologyPage() {
           }
         }}
       >
-        {/* Rack body */}
-        <rect x={0} y={0} width={RACK_W} height={RACK_TOTAL_H} rx={8} className="topo-rack-body" />
-
-        {/* Gradient overlay */}
+        {/* Drop shadow filter */}
         <defs>
+          <filter id={`shadow-${rack.key}`} x="-5%" y="-2%" width="112%" height="106%">
+            <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.15" />
+          </filter>
           <linearGradient id={`rack-grad-${rack.key}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={topoColors.gradTop} />
             <stop offset="100%" stopColor={topoColors.gradBottom} />
           </linearGradient>
         </defs>
-        <rect x={1} y={RACK_HEADER_H} width={RACK_W - 2} height={rackBodyH} fill={`url(#rack-grad-${rack.key})`} />
 
-        {/* Side rails */}
-        <line x1={8} y1={RACK_HEADER_H} x2={8} y2={RACK_TOTAL_H - RACK_FOOTER_H} className="topo-rack-rail" />
-        <line x1={RACK_W - 8} y1={RACK_HEADER_H} x2={RACK_W - 8} y2={RACK_TOTAL_H - RACK_FOOTER_H} className="topo-rack-rail" />
+        {/* Outer cabinet shell */}
+        <rect x={0} y={0} width={RACK_W} height={RACK_TOTAL_H} rx={2} className="topo-rack-body"
+          filter={`url(#shadow-${rack.key})`} />
 
-        {/* U-slot ticks */}
-        {slotTicks}
+        {/* Inner equipment area */}
+        <rect x={RAIL_X_L + RAIL_W + 1} y={RACK_HEADER_H + 1}
+          width={RACK_W - 2 * (RAIL_X_L + RAIL_W) - 2} height={RACK_CONTENT_H - 2}
+          fill={`url(#rack-grad-${rack.key})`} rx={1} />
 
-        {/* Header */}
-        <rect x={0} y={0} width={RACK_W} height={RACK_HEADER_H} rx={8} className="topo-rack-header" style={{ cursor: 'grab' }} />
-        <rect x={0} y={RACK_HEADER_H - 8} width={RACK_W} height={8} className="topo-rack-header" style={{ cursor: 'grab' }} />
+        {/* Left mounting rail */}
+        <rect x={RAIL_X_L} y={RACK_HEADER_H} width={RAIL_W} height={RACK_CONTENT_H} className="topo-rack-rail-strip" />
+        {/* Right mounting rail */}
+        <rect x={RAIL_X_R} y={RACK_HEADER_H} width={RAIL_W} height={RACK_CONTENT_H} className="topo-rack-rail-strip" />
+
+        {/* Mounting holes */}
+        {mountingHoles}
+
+        {/* U-slot lines */}
+        {slotLines}
+
+        {/* U-number labels */}
+        {uLabels}
+
+        {/* Header nameplate */}
+        <rect x={0} y={0} width={RACK_W} height={RACK_HEADER_H} rx={2} className="topo-rack-header" style={{ cursor: 'grab' }} />
+        <rect x={0} y={RACK_HEADER_H - 4} width={RACK_W} height={4} className="topo-rack-header" style={{ cursor: 'grab' }} />
         <text x={RACK_W / 2} y={RACK_HEADER_H / 2} textAnchor="middle" dominantBaseline="middle" className="topo-rack-header-text">
           {rack.label}
           {(() => {
@@ -584,13 +664,12 @@ export default function TopologyPage() {
         </text>
 
         {/* Footer */}
-        <rect x={0} y={RACK_TOTAL_H - RACK_FOOTER_H} width={RACK_W} height={RACK_FOOTER_H} rx={4} className="topo-rack-footer" />
-        <rect x={0} y={RACK_TOTAL_H - RACK_FOOTER_H} width={RACK_W} height={4} className="topo-rack-footer" />
+        <rect x={0} y={RACK_TOTAL_H - RACK_FOOTER_H} width={RACK_W} height={RACK_FOOTER_H} rx={2} className="topo-rack-footer" />
 
-        {/* Switch units (at top) */}
+        {/* Switch units */}
         {switchElements}
 
-        {/* Server units (from bottom) */}
+        {/* Server units */}
         {serverElements}
 
         {/* PDU strips on sides */}
@@ -605,8 +684,17 @@ export default function TopologyPage() {
           const loadPct = pduInfo?.load_pct || 0
           const powerKw = pduInfo ? ((pduInfo.power_watts || 0) / 1000).toFixed(1) : '?'
           const loadColor = loadPct > 80 ? '#ef4444' : loadPct > 60 ? '#f59e0b' : '#22c55e'
-          const loadH = (loadPct / 100) * (stripH - 30)
+          const loadH = (loadPct / 100) * (stripH - 40)
           const pduLabel = pIdx === 0 ? 'PDU-A' : 'PDU-B'
+
+          // Outlet indicators
+          const outletCount = Math.floor((stripH - 50) / 14)
+          const outlets: JSX.Element[] = []
+          for (let o = 0; o < outletCount; o++) {
+            outlets.push(
+              <circle key={o} cx={stripW / 2} cy={36 + o * 14} r={2.5} className="topo-pdu-outlet" />
+            )
+          }
 
           return (
             <g
@@ -615,17 +703,20 @@ export default function TopologyPage() {
               style={{ cursor: 'pointer' }}
               onClick={e => { e.stopPropagation(); navigate(`/devices/${pduNode.id}`) }}
             >
-              <rect x={0} y={0} width={stripW} height={stripH} rx={3}
+              <rect x={0} y={0} width={stripW} height={stripH} rx={2}
                 fill={topoColors.pduStripBg} stroke={topoColors.pduStripBorder} strokeWidth={1} />
-              <rect x={6} y={stripH - loadH - 14} width={10} height={loadH} rx={2}
-                fill={loadColor} opacity={0.8} />
-              <text x={stripW / 2} y={14} textAnchor="middle" fontSize={7} fill={topoColors.pduText} fontWeight={700}>
+              {/* Outlet indicators */}
+              {outlets}
+              {/* Load bar */}
+              <rect x={stripW - 6} y={stripH - loadH - 18} width={4} height={loadH} rx={1}
+                fill={loadColor} opacity={0.85} />
+              <text x={stripW / 2} y={12} textAnchor="middle" fontSize={6} fill={topoColors.pduText} fontWeight={700}>
                 {pduLabel}
               </text>
-              <text x={stripW / 2} y={stripH - 4} textAnchor="middle" fontSize={7} fill={topoColors.pduMeta}>
+              <text x={stripW / 2} y={stripH - 4} textAnchor="middle" fontSize={6} fill={topoColors.pduMeta}>
                 {powerKw}kW
               </text>
-              <circle cx={stripW / 2} cy={24} r={3}
+              <circle cx={stripW / 2} cy={22} r={3}
                 fill={pduNode.status === 'up' ? '#22c55e' : pduNode.status === 'down' ? '#ef4444' : '#94a3b8'} />
             </g>
           )
@@ -718,13 +809,13 @@ export default function TopologyPage() {
             <Search size={13} />
             <input placeholder="Search devices..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.max(0.2, z - 0.2))} title="Zoom out">
+          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.max(0.15, z / 1.25))} title="Zoom out">
             <ZoomOut size={14} />
           </button>
           <span style={{ fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center', color: 'var(--text-muted)' }}>
             {Math.round(zoom * 100)}%
           </span>
-          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.min(3, z + 0.2))} title="Zoom in">
+          <button className="btn btn-outline btn--icon" onClick={() => setZoom(z => Math.min(4, z * 1.25))} title="Zoom in">
             <ZoomIn size={14} />
           </button>
           <button className="btn btn-outline" onClick={fitAll} title="Fit all racks in view (F)">
@@ -825,7 +916,8 @@ export default function TopologyPage() {
           onMouseDown={onSvgMouseDown}
           onWheel={onWheel}
         >
-          <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+          <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}
+            style={{ transition: panDragging || rackDragging || unitDragging ? 'none' : 'transform 0.12s ease-out' }}>
             {renderEdges()}
             {racks.map(renderRack)}
             {renderTooltip()}
@@ -838,7 +930,7 @@ export default function TopologyPage() {
             borderRadius: 20, fontSize: 12, zIndex: 1000, pointerEvents: 'none',
             animation: 'topo-hint-fade 1s ease 4s forwards',
           }}>
-            Scroll to pan &middot; Ctrl+Scroll to zoom &middot; F to fit all
+            Scroll to zoom &middot; Shift+Scroll to pan &middot; Drag headers to move racks &middot; F to fit all
           </div>
         )}
       </div>

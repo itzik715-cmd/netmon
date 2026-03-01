@@ -148,28 +148,33 @@
   --noc-device-degraded-border:#f59e0b80;
 
   /* Topology SVG */
-  --topo-rack-body-fill:    #f8fafc;
-  --topo-rack-body-stroke:  #cbd5e1;
-  --topo-rack-header-fill:  #334155;
+  --topo-rack-body-fill:    #e8ecf1;
+  --topo-rack-body-stroke:  #94a3b8;
+  --topo-rack-header-fill:  #1e293b;
   --topo-rack-header-text:  white;
-  --topo-rack-footer-fill:  #475569;
+  --topo-rack-footer-fill:  #1e293b;
   --topo-rack-rail-stroke:  #94a3b8;
-  --topo-rack-slot-stroke:  #e2e8f0;
-  --topo-rack-grad-top:     #f8fafc;
-  --topo-rack-grad-bottom:  #f1f5f9;
-  --topo-server-fill:       #e2e8f0;
-  --topo-server-stroke:     #cbd5e1;
+  --topo-rack-rail-fill:    #cbd5e1;
+  --topo-rack-slot-stroke:  #d1d5db;
+  --topo-rack-mount-hole:   #94a3b8;
+  --topo-rack-u-label:      #94a3b8;
+  --topo-rack-grad-top:     #f1f5f9;
+  --topo-rack-grad-bottom:  #e2e8f0;
+  --topo-rack-inner-bg:     #f1f5f9;
+  --topo-server-fill:       #dde3ea;
+  --topo-server-stroke:     #b0b8c4;
   --topo-server-hover-fill: #dbeafe;
   --topo-server-hover-stroke:#93c5fd;
-  --topo-server-text:       #64748b;
+  --topo-server-text:       #475569;
   --topo-server-dot:        #94a3b8;
+  --topo-server-handle:     #b0b8c4;
   --topo-tooltip-bg:        #1e293b;
   --topo-tooltip-text:      white;
   --topo-link-lldp:         #94a3b8;
   --topo-link-manual:       #a78bfa;
   --topo-separator:         #e2e8f0;
-  --topo-pdu-strip-bg:      #334155;
-  --topo-pdu-strip-border:  #475569;
+  --topo-pdu-strip-bg:      #1e293b;
+  --topo-pdu-strip-border:  #334155;
   --topo-pdu-text:          #fff;
   --topo-pdu-meta:          #94a3b8;
 }
@@ -240,20 +245,25 @@
   --noc-device-degraded-border:#f59e0b80;
 
   /* Topology SVG — dark racks */
-  --topo-rack-body-fill:    #1e293b;
-  --topo-rack-body-stroke:  #475569;
-  --topo-rack-header-fill:  #334155;
-  --topo-rack-footer-fill:  #334155;
-  --topo-rack-rail-stroke:  #64748b;
-  --topo-rack-slot-stroke:  #475569;
+  --topo-rack-body-fill:    #1a2332;
+  --topo-rack-body-stroke:  #4b5563;
+  --topo-rack-header-fill:  #0f172a;
+  --topo-rack-footer-fill:  #0f172a;
+  --topo-rack-rail-stroke:  #4b5563;
+  --topo-rack-rail-fill:    #334155;
+  --topo-rack-slot-stroke:  #374151;
+  --topo-rack-mount-hole:   #4b5563;
+  --topo-rack-u-label:      #64748b;
   --topo-rack-grad-top:     #1e293b;
-  --topo-rack-grad-bottom:  #1a2332;
-  --topo-server-fill:       #334155;
-  --topo-server-stroke:     #475569;
+  --topo-rack-grad-bottom:  #171f2c;
+  --topo-rack-inner-bg:     #1a2332;
+  --topo-server-fill:       #283040;
+  --topo-server-stroke:     #4b5563;
   --topo-server-hover-fill: #3b4a61;
   --topo-server-hover-stroke:#7dd3fc;
   --topo-server-text:       #94a3b8;
-  --topo-server-dot:        #64748b;
+  --topo-server-dot:        #4b5563;
+  --topo-server-handle:     #4b5563;
   --topo-separator:         #475569;
 }
 
@@ -2577,7 +2587,7 @@ a.stat-card {
 .topo-rack-body {
   fill: var(--topo-rack-body-fill);
   stroke: var(--topo-rack-body-stroke);
-  stroke-width: 2;
+  stroke-width: 2.5;
 }
 
 .topo-rack-header {
@@ -2605,7 +2615,41 @@ a.stat-card {
 
 .topo-rack-slot {
   stroke: var(--topo-rack-slot-stroke);
+  stroke-width: 0.5;
+}
+.topo-rack-rail-strip {
+  fill: var(--topo-rack-rail-fill);
+  stroke: var(--topo-rack-rail-stroke);
+  stroke-width: 0.5;
+}
+.topo-mount-hole {
+  fill: var(--topo-rack-mount-hole);
+  opacity: 0.6;
+}
+.topo-u-label {
+  fill: var(--topo-rack-u-label);
+  font-size: 6px;
+  font-family: 'DM Mono', monospace;
+  user-select: none;
+  pointer-events: none;
+}
+.topo-switch-port {
+  fill: var(--topo-rack-mount-hole);
+  opacity: 0.7;
+}
+.topo-server-handle {
+  stroke: var(--topo-server-handle);
   stroke-width: 1;
+  fill: none;
+}
+.topo-server-bay {
+  fill: var(--topo-server-dot);
+  stroke: var(--topo-server-stroke);
+  stroke-width: 0.3;
+}
+.topo-pdu-outlet {
+  fill: var(--topo-pdu-meta);
+  opacity: 0.5;
 }
 
 .topo-device-spine {
