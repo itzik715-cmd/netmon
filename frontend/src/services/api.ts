@@ -196,6 +196,8 @@ export const blocksApi = {
   create: (deviceId: number, data: object) => api.post(`/blocks/device/${deviceId}`, data),
   delete: (id: number) => api.delete(`/blocks/${id}`),
   sync: (deviceId: number) => api.post(`/blocks/device/${deviceId}/sync`),
+  getFnmBlackholes: () => api.get('/blocks/fastnetmon/blackholes'),
+  fnmUnblock: (ip: string) => api.delete(`/blocks/fastnetmon/blackhole/${ip}`),
 }
 
 // Topology
@@ -250,6 +252,9 @@ export const settingsApi = {
   saveLdap: (data: object) => api.put('/settings/ldap/config', data),
   getDuo: () => api.get('/settings/duo/config'),
   saveDuo: (data: object) => api.put('/settings/duo/config', data),
+  getFastnetmon: () => api.get('/settings/fastnetmon/config'),
+  saveFastnetmon: (data: object) => api.put('/settings/fastnetmon/config', data),
+  testFastnetmon: () => api.post('/settings/fastnetmon/test'),
 }
 
 export const systemEventsApi = {

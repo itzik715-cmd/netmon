@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { blocksApi, devicesApi } from '../services/api'
+import { blocksApi, devicesApi, settingsApi } from '../services/api'
 import { DeviceBlock, Device } from '../types'
 import { formatDistanceToNow } from 'date-fns'
-import { Ban, Plus, Trash2, RefreshCw, Loader2, Shield } from 'lucide-react'
+import { Ban, Plus, Trash2, RefreshCw, Loader2, Shield, ShieldOff, ShieldAlert, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
 function blockTypeBadge(type: string) {
@@ -107,9 +108,33 @@ function AddBlockModal({
 
 export default function BlocksPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [showAdd, setShowAdd] = useState(false)
   const [filterType, setFilterType] = useState('')
   const [syncingDevice, setSyncingDevice] = useState<number | null>(null)
+
+  // FastNetMon config
+  const { data: fnmConfig } = useQuery({
+    queryKey: ['fnm-config'],
+    queryFn: () => settingsApi.getFastnetmon().then((r) => r.data),
+  })
+  const fnmEnabled = fnmConfig?.fnm_enabled === 'true'
+
+  // FastNetMon blackholes
+  const { data: fnmData, isLoading: fnmLoading } = useQuery({
+    queryKey: ['fnm-blackholes'],
+    queryFn: () => blocksApi.getFnmBlackholes().then((r) => r.data),
+    refetchInterval: 30_000,
+    enabled: fnmEnabled,
+  })
+
+  const fnmUnblockMutation = useMutation({
+    mutationFn: (ip: string) => blocksApi.fnmUnblock(ip),
+    onSuccess: () => {
+      toast.success('Blackhole removed')
+      qc.invalidateQueries({ queryKey: ['fnm-blackholes'] })
+    },
+  })
 
   const { data: blocks = [], isLoading } = useQuery<DeviceBlock[]>({
     queryKey: ['blocks', filterType],
@@ -203,6 +228,24 @@ export default function BlocksPage() {
           </div>
         </div>
       </div>
+
+      {/* FastNetMon disabled banner */}
+      {fnmConfig && !fnmEnabled && (
+        <div className="card" style={{ borderLeft: '3px solid var(--warning-500, #f59e0b)' }}>
+          <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
+            <ShieldOff size={24} style={{ color: 'var(--warning-500, #f59e0b)', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>FastNetMon Integration is Disabled</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Configure FastNetMon to enable DDoS detection and automated BGP blackhole mitigation
+              </div>
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => navigate('/settings')}>
+              Configure FastNetMon <ExternalLink size={11} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card__header">
@@ -308,6 +351,69 @@ export default function BlocksPage() {
           </table>
         </div>
       </div>
+
+      {/* FastNetMon Active Blackholes */}
+      {fnmEnabled && (
+        <div className="card">
+          <div className="card__header">
+            <ShieldAlert size={16} />
+            <h3>FastNetMon — Active Blackholes</h3>
+            <div className="card__actions">
+              {fnmLoading ? (
+                <span className="tag-blue"><Loader2 size={10} className="animate-spin" /> Loading</span>
+              ) : fnmData?.enabled ? (
+                <span className="tag-green">Live{fnmData.node ? ` · ${fnmData.node}` : ''}</span>
+              ) : (
+                <span className="tag-orange">Error</span>
+              )}
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>IP Address</th>
+                  <th>Node</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {!fnmData?.blocks?.length && !fnmLoading && (
+                  <tr>
+                    <td colSpan={3}>
+                      <div className="empty-state">
+                        <div className="empty-state__icon"><Shield /></div>
+                        <div className="empty-state__title">No active blackholes</div>
+                        <div className="empty-state__description">FastNetMon has no IPs currently blackholed</div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {fnmData?.blocks?.map((ip: string, idx: number) => (
+                  <tr key={idx}>
+                    <td><strong className="mono">{ip}</strong></td>
+                    <td className="mono">{fnmData.node || '—'}</td>
+                    <td>
+                      <button
+                        className="btn btn-danger btn--icon btn-sm"
+                        onClick={() => {
+                          if (confirm(`Remove blackhole for ${ip}?`)) {
+                            fnmUnblockMutation.mutate(ip)
+                          }
+                        }}
+                        disabled={fnmUnblockMutation.isPending}
+                        title="Remove blackhole"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {showAdd && <AddBlockModal devices={devices as Device[]} onClose={() => setShowAdd(false)} />}
     </div>

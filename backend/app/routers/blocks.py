@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from app.database import get_db
 from app.models.device import Device, DeviceBlock
+from app.models.settings import SystemSetting
 from app.middleware.rbac import get_current_user, require_operator_or_above
 from app.schemas.block import BlockCreate, BlockResponse, SyncBlocksResponse
 from app.models.user import User
@@ -181,3 +182,76 @@ async def blocks_summary(
             for b in recent
         ],
     }
+
+
+# ─── FastNetMon Blackholes ──────────────────────────────────────────────────
+
+async def _get_fnm_client(db: AsyncSession, node: str = "blocker"):
+    """Build a FastNetMonClient from saved settings. node = 'monitor' or 'blocker'."""
+    from app.services.fastnetmon_client import FastNetMonClient
+
+    fnm_keys = [
+        "fnm_enabled", "fnm_shared_node",
+        "fnm_monitor_host", "fnm_monitor_port", "fnm_monitor_use_ssl",
+        "fnm_monitor_api_user", "fnm_monitor_api_password",
+        "fnm_blocker_host", "fnm_blocker_port", "fnm_blocker_use_ssl",
+        "fnm_blocker_api_user", "fnm_blocker_api_password",
+    ]
+    result = await db.execute(select(SystemSetting).where(SystemSetting.key.in_(fnm_keys)))
+    cfg = {s.key: s.value for s in result.scalars().all()}
+
+    if cfg.get("fnm_enabled") != "true":
+        return None, cfg
+
+    shared = cfg.get("fnm_shared_node", "true") == "true"
+    if shared or node == "monitor":
+        prefix = "fnm_monitor"
+    else:
+        prefix = "fnm_blocker"
+
+    host = cfg.get(f"{prefix}_host")
+    if not host:
+        return None, cfg
+
+    return FastNetMonClient(
+        host=host,
+        port=int(cfg.get(f"{prefix}_port", "10007")),
+        username=cfg.get(f"{prefix}_api_user", "admin"),
+        password=cfg.get(f"{prefix}_api_password", ""),
+        use_ssl=cfg.get(f"{prefix}_use_ssl", "false") == "true",
+    ), cfg
+
+
+@router.get("/fastnetmon/blackholes")
+async def get_fnm_blackholes(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Fetch currently blackholed IPs from FastNetMon."""
+    client, cfg = await _get_fnm_client(db, "blocker")
+    if not client:
+        return {"enabled": cfg.get("fnm_enabled") == "true", "blocks": []}
+
+    blocks = await client.get_blocked_hosts()
+    return {
+        "enabled": True,
+        "blocks": blocks,
+        "node": client.node_label,
+    }
+
+
+@router.delete("/fastnetmon/blackhole/{ip}")
+async def fnm_unblock(
+    ip: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above),
+):
+    """Remove an IP from FastNetMon blackhole."""
+    client, _ = await _get_fnm_client(db, "blocker")
+    if not client:
+        raise HTTPException(status_code=400, detail="FastNetMon is not configured")
+
+    ok = await client.unblock_host(ip)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Failed to unblock {ip} on FastNetMon")
+    return {"message": f"Blackhole for {ip} removed"}

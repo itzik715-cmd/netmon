@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, authApi, serverMgmtApi } from '../services/api'
 import {
-  Settings, Shield, TestTube, Loader2, Monitor, Save, Fingerprint,
+  Settings, Shield, ShieldAlert, TestTube, Loader2, Monitor, Save, Fingerprint,
   Server, Play, Square, RotateCcw, Cpu, HardDrive, Wifi, MemoryStick, Activity,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-type Tab = 'ldap' | 'mfa' | 'security' | 'services' | 'health'
+type Tab = 'ldap' | 'mfa' | 'fastnetmon' | 'security' | 'services' | 'health'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('services')
@@ -94,6 +94,10 @@ export default function SettingsPage() {
         <button className={`tab-btn${tab === 'mfa' ? ' active' : ''}`} onClick={() => setTab('mfa')}>
           <Fingerprint size={13} />
           Multi-Factor Auth
+        </button>
+        <button className={`tab-btn${tab === 'fastnetmon' ? ' active' : ''}`} onClick={() => setTab('fastnetmon')}>
+          <ShieldAlert size={13} />
+          FastNetMon
         </button>
         <button className={`tab-btn${tab === 'security' ? ' active' : ''}`} onClick={() => setTab('security')}>
           <Shield size={13} />
@@ -184,6 +188,7 @@ export default function SettingsPage() {
       )}
 
       {tab === 'mfa' && <DuoStatusPanel />}
+      {tab === 'fastnetmon' && <FastNetMonPanel />}
 
       {tab === 'security' && (
         <div className="card settings-card">
@@ -538,6 +543,212 @@ function DuoStatusPanel() {
             <button onClick={() => saveDuoMutation.mutate()} disabled={saveDuoMutation.isPending} className="btn btn-primary">
               {saveDuoMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               Save Duo Configuration
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+function FastNetMonPanel() {
+  const [config, setConfig] = useState({
+    enabled: false,
+    shared_node: true,
+    monitor_host: '',
+    monitor_port: '10007',
+    monitor_use_ssl: false,
+    monitor_api_user: 'admin',
+    monitor_api_password: '',
+    blocker_host: '',
+    blocker_port: '10007',
+    blocker_use_ssl: false,
+    blocker_api_user: 'admin',
+    blocker_api_password: '',
+  })
+  const [fnmTestResult, setFnmTestResult] = useState<{
+    monitor_ok: boolean; blocker_ok: boolean; monitor_version?: string; blocker_version?: string
+  } | null>(null)
+  const [fnmTesting, setFnmTesting] = useState(false)
+
+  useQuery({
+    queryKey: ['fnm-config'],
+    queryFn: () => settingsApi.getFastnetmon().then((r) => {
+      const d = r.data
+      setConfig((prev) => ({
+        ...prev,
+        enabled: d.fnm_enabled === 'true',
+        shared_node: d.fnm_shared_node !== 'false',
+        monitor_host: d.fnm_monitor_host || '',
+        monitor_port: d.fnm_monitor_port || '10007',
+        monitor_use_ssl: d.fnm_monitor_use_ssl === 'true',
+        monitor_api_user: d.fnm_monitor_api_user || 'admin',
+        monitor_api_password: d.fnm_monitor_api_password || '',
+        blocker_host: d.fnm_blocker_host || '',
+        blocker_port: d.fnm_blocker_port || '10007',
+        blocker_use_ssl: d.fnm_blocker_use_ssl === 'true',
+        blocker_api_user: d.fnm_blocker_api_user || 'admin',
+        blocker_api_password: d.fnm_blocker_api_password || '',
+      }))
+      return d
+    }),
+  })
+
+  const saveFnmMutation = useMutation({
+    mutationFn: () => settingsApi.saveFastnetmon({
+      fnm_enabled: config.enabled,
+      fnm_shared_node: config.shared_node,
+      fnm_monitor_host: config.monitor_host,
+      fnm_monitor_port: config.monitor_port,
+      fnm_monitor_use_ssl: config.monitor_use_ssl,
+      fnm_monitor_api_user: config.monitor_api_user,
+      fnm_monitor_api_password: config.monitor_api_password,
+      fnm_blocker_host: config.blocker_host,
+      fnm_blocker_port: config.blocker_port,
+      fnm_blocker_use_ssl: config.blocker_use_ssl,
+      fnm_blocker_api_user: config.blocker_api_user,
+      fnm_blocker_api_password: config.blocker_api_password,
+    }),
+    onSuccess: () => toast.success('FastNetMon configuration saved'),
+  })
+
+  const handleTestFnm = async () => {
+    setFnmTesting(true)
+    setFnmTestResult(null)
+    try {
+      const r = await settingsApi.testFastnetmon()
+      setFnmTestResult(r.data)
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Test failed')
+    } finally {
+      setFnmTesting(false)
+    }
+  }
+
+  const fnmField = (label: string, key: keyof typeof config, type = 'text', placeholder = '') => (
+    <div className="form-field">
+      <label className="form-label">{label}</label>
+      <input type={type} className="form-input" value={config[key] as string}
+        placeholder={placeholder}
+        onChange={(e) => setConfig((p) => ({ ...p, [key]: e.target.value }))} />
+    </div>
+  )
+
+  const nodeFields = (prefix: 'monitor' | 'blocker') => (
+    <>
+      {fnmField('Host / IP', `${prefix}_host` as keyof typeof config, 'text', '192.168.1.10')}
+      {fnmField('Port', `${prefix}_port` as keyof typeof config, 'text', '10007')}
+      <div className="form-field">
+        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={config[`${prefix}_use_ssl`] as boolean}
+            onChange={(e) => setConfig((p) => ({ ...p, [`${prefix}_use_ssl`]: e.target.checked }))} />
+          Use SSL (HTTPS)
+        </label>
+      </div>
+      {fnmField('API Username', `${prefix}_api_user` as keyof typeof config, 'text', 'admin')}
+      {fnmField('API Password', `${prefix}_api_password` as keyof typeof config, 'password', 'Enter password')}
+    </>
+  )
+
+  return (
+    <div className="card settings-card">
+      <div className="card-header">
+        <ShieldAlert size={15} />
+        <h3>FastNetMon DDoS Integration</h3>
+      </div>
+      <div className="card-body">
+        <div className="flex-col-gap">
+          <div className="toggle-row">
+            <div>
+              <div className="toggle-row__title">Enable FastNetMon Integration</div>
+              <div className="toggle-row__description">Connect to FastNetMon Advanced for DDoS detection and automated BGP blackhole mitigation</div>
+            </div>
+            <button className={`toggle ${config.enabled ? 'toggle--active' : ''}`}
+              onClick={() => setConfig((p) => ({ ...p, enabled: !p.enabled }))}>
+              <span className="toggle__knob" />
+            </button>
+          </div>
+
+          {config.enabled && (
+            <>
+              <div className="info-box">
+                <span className="info-box__title">How to enable the FastNetMon REST API:</span>
+                <pre style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: "'DM Mono', monospace" }}>
+{`sudo fcli set main web_api_host 0.0.0.0
+sudo fcli set main web_api_port 10007
+sudo fcli set main web_api_login admin
+sudo fcli set main web_api_password YOUR_SECURE_PASSWORD
+sudo systemctl restart fastnetmon_web_api
+
+# For HTTPS (recommended):
+sudo fcli set main web_api_ssl true
+sudo fcli set main web_api_ssl_port 10443
+sudo systemctl restart fastnetmon_web_api`}
+                </pre>
+              </div>
+
+              <div className="toggle-row">
+                <div>
+                  <div className="toggle-row__title">Use Same Server for Monitor & Block</div>
+                  <div className="toggle-row__description">Enable if one FastNetMon instance handles both detection and blocking. Disable to configure separate monitor and blocker nodes.</div>
+                </div>
+                <button className={`toggle ${config.shared_node ? 'toggle--active' : ''}`}
+                  onClick={() => setConfig((p) => ({ ...p, shared_node: !p.shared_node }))}>
+                  <span className="toggle__knob" />
+                </button>
+              </div>
+
+              <div className="settings-section-divider" />
+              <div className="form-section-title">{config.shared_node ? 'FastNetMon Server' : 'Monitor Node'}</div>
+              {!config.shared_node && (
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-8px 0 4px' }}>
+                  This node detects attacks and sends alerts. It does NOT block traffic.
+                </p>
+              )}
+              {nodeFields('monitor')}
+
+              {!config.shared_node && (
+                <>
+                  <div className="settings-section-divider" />
+                  <div className="form-section-title">Blocker Node</div>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-8px 0 4px' }}>
+                    This node executes the actual BGP blackhole/FlowSpec blocks.
+                  </p>
+                  {nodeFields('blocker')}
+                </>
+              )}
+
+              <div className="settings-section-divider" />
+              <div>
+                <button onClick={handleTestFnm} disabled={fnmTesting || !config.monitor_host} className="btn btn-outline">
+                  {fnmTesting ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
+                  Test Connection
+                </button>
+                {fnmTestResult && (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className={fnmTestResult.monitor_ok ? 'test-success' : 'test-error'}>
+                      {fnmTestResult.monitor_ok ? '\u2713' : '\u2717'} {config.shared_node ? 'Server' : 'Monitor Node'}: {fnmTestResult.monitor_ok
+                        ? `Connected${fnmTestResult.monitor_version ? ` (${fnmTestResult.monitor_version})` : ''}`
+                        : 'Unreachable'}
+                    </div>
+                    {!config.shared_node && (
+                      <div className={fnmTestResult.blocker_ok ? 'test-success' : 'test-error'}>
+                        {fnmTestResult.blocker_ok ? '\u2713' : '\u2717'} Blocker Node: {fnmTestResult.blocker_ok
+                          ? `Connected${fnmTestResult.blocker_version ? ` (${fnmTestResult.blocker_version})` : ''}`
+                          : 'Unreachable'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="settings-save-bar">
+            <button onClick={() => saveFnmMutation.mutate()} disabled={saveFnmMutation.isPending} className="btn btn-primary">
+              {saveFnmMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Save FastNetMon Configuration
             </button>
           </div>
         </div>
