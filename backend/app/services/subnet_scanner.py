@@ -94,6 +94,21 @@ async def scan_subnet(
     existing_devices = 0
 
     from app.models.device import Device
+    from app.models.owned_subnet import OwnedSubnet
+
+    # Auto-register scanned subnet as owned so flow analysis works on fresh installs
+    cidr = str(ipaddress.ip_network(subnet, strict=False))
+    async with session_factory() as db:
+        existing_subnet = await db.execute(
+            select(OwnedSubnet).where(OwnedSubnet.subnet == cidr)
+        )
+        if not existing_subnet.scalar_one_or_none():
+            db.add(OwnedSubnet(
+                subnet=cidr, source="learned",
+                is_active=True, note="Auto-added from subnet scan",
+            ))
+            await db.commit()
+            logger.info("Auto-registered owned subnet %s from scan", cidr)
 
     async with session_factory() as db:
         for ip in responsive:
