@@ -18,7 +18,11 @@ from app.models.device import Device
 from app.models.interface import Interface
 from app.models.mac_entry import MacAddressEntry
 from app.models.vlan import DeviceVlan
-from app.services.snmp_poller import snmp_bulk_walk, make_auth_data
+from app.services.snmp_poller import (
+    snmp_bulk_walk, make_auth_data,
+    OID_LLDP_REM_SYS_NAME, OID_LLDP_LOC_PORT_ID,
+    OID_CDP_CACHE_DEVICE_ID,
+)
 import json
 
 logger = logging.getLogger(__name__)
@@ -173,6 +177,85 @@ def lookup_oui(mac: str) -> Optional[str]:
     return OUI_PREFIXES.get(prefix)
 
 
+# Hypervisor/VM vendor names — skip LLDP hostname enrichment for these
+HYPERVISOR_VENDORS = {
+    "vmware", "microsoft hyper-v", "virtualbox", "docker",
+    "proxmox", "xen", "citrix", "kvm", "qemu",
+}
+
+
+def _is_hypervisor_mac(vendor: Optional[str]) -> bool:
+    """Check if a vendor name belongs to a hypervisor/VM platform."""
+    if not vendor:
+        return False
+    return vendor.lower() in HYPERVISOR_VENDORS
+
+
+async def _build_lldp_cdp_port_hostname_map(
+    device: Device, engine: SnmpEngine, ifaces: list,
+) -> Dict[int, str]:
+    """
+    Walk LLDP and CDP neighbor tables, return a map of interface_id → neighbor hostname.
+    If multiple neighbors on the same port, the last one wins.
+    """
+    ifindex_to_iface = {i.if_index: i for i in ifaces if i.if_index}
+    port_hostname: Dict[int, str] = {}  # interface_id → hostname
+
+    # --- LLDP ---
+    try:
+        lldp_sys_names = await snmp_bulk_walk(device, OID_LLDP_REM_SYS_NAME, engine)
+        lldp_loc_ports = await snmp_bulk_walk(device, OID_LLDP_LOC_PORT_ID, engine)
+
+        # Build local port index → port name map
+        loc_port_map: Dict[str, str] = {}
+        for oid_str, val in lldp_loc_ports.items():
+            idx = oid_str.split(".")[-1]
+            loc_port_map[idx] = str(val)
+
+        for oid_str, sys_name in lldp_sys_names.items():
+            name = str(sys_name).strip()
+            if not name or "No Such" in name:
+                continue
+            # OID: ...9.<time_mark>.<local_if_idx>.<rem_idx>
+            parts = oid_str.split(".")
+            try:
+                local_if_idx = parts[-2]
+            except IndexError:
+                continue
+            # Resolve local_if_idx to ifIndex then to interface_id
+            # LLDP uses the same index as ifIndex in most implementations
+            try:
+                if_idx = int(local_if_idx)
+            except (ValueError, TypeError):
+                continue
+            iface = ifindex_to_iface.get(if_idx)
+            if iface:
+                port_hostname[iface.id] = name
+    except Exception as e:
+        logger.debug(f"[{device.hostname}] LLDP walk for MAC enrichment: {e}")
+
+    # --- CDP ---
+    try:
+        cdp_device_ids = await snmp_bulk_walk(device, OID_CDP_CACHE_DEVICE_ID, engine)
+        for oid_str, dev_id in cdp_device_ids.items():
+            name = str(dev_id).strip()
+            if not name or "No Such" in name:
+                continue
+            # OID: ...6.<ifIndex>.<cdpCacheDeviceIndex>
+            parts = oid_str.split(".")
+            try:
+                if_idx = int(parts[-2])
+            except (ValueError, TypeError, IndexError):
+                continue
+            iface = ifindex_to_iface.get(if_idx)
+            if iface and iface.id not in port_hostname:
+                port_hostname[iface.id] = name
+    except Exception as e:
+        logger.debug(f"[{device.hostname}] CDP walk for MAC enrichment: {e}")
+
+    return port_hostname
+
+
 async def discover_mac_table(device: Device, db: AsyncSession) -> int:
     """
     Walk the MAC address table on a switch via SNMP.
@@ -295,6 +378,13 @@ async def discover_mac_table(device: Device, db: AsyncSession) -> int:
             if d.ip_address:
                 ip_to_hostname[d.ip_address] = d.hostname
 
+        # Step 5b: Build LLDP/CDP port→hostname map for non-VM MAC enrichment
+        port_hostname_map = await _build_lldp_cdp_port_hostname_map(
+            device, engine, list(ifaces),
+        )
+        if port_hostname_map:
+            logger.info(f"[{device.hostname}] LLDP/CDP neighbors on {len(port_hostname_map)} ports for MAC enrichment")
+
         # Step 6: Upsert MAC entries (deduplicate by MAC first)
         now = datetime.now(timezone.utc)
         count = 0
@@ -316,6 +406,13 @@ async def discover_mac_table(device: Device, db: AsyncSession) -> int:
             hostname = ip_to_hostname.get(ip) if ip else None
             vendor = lookup_oui(mac)
 
+            # LLDP/CDP enrichment: if MAC is NOT from a hypervisor vendor,
+            # and it's on a port with an LLDP/CDP neighbor, use that hostname
+            if not hostname and entry["interface_id"] and not _is_hypervisor_mac(vendor):
+                lldp_hostname = port_hostname_map.get(entry["interface_id"])
+                if lldp_hostname:
+                    hostname = lldp_hostname
+
             # Check if exists
             existing = (await db.execute(
                 select(MacAddressEntry).where(
@@ -328,7 +425,12 @@ async def discover_mac_table(device: Device, db: AsyncSession) -> int:
                 existing.interface_id = entry["interface_id"]
                 existing.vlan_id = entry["vlan_id"] or existing.vlan_id
                 existing.ip_address = ip or existing.ip_address
-                existing.hostname = hostname or existing.hostname
+                # Only auto-update hostname if user hasn't manually set one
+                if hostname and not existing.hostname:
+                    existing.hostname = hostname
+                elif hostname and existing.hostname:
+                    # Keep existing (could be manually entered)
+                    pass
                 existing.vendor = vendor or existing.vendor
                 existing.entry_type = entry["entry_type"]
                 existing.last_seen = now

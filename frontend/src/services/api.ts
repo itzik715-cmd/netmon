@@ -150,6 +150,7 @@ export const switchesApi = {
   portSummary: (deviceId: number) => api.get(`/interfaces/device/${deviceId}/port-summary`),
   macTable: (deviceId: number, params?: object) => api.get(`/switches/${deviceId}/mac-table`, { params }),
   macVendors: (deviceId: number) => api.get(`/switches/${deviceId}/mac-vendors`),
+  updateMacHostname: (entryId: number, hostname: string) => api.patch(`/switches/mac-entry/${entryId}/hostname`, { hostname }),
   arpTable: (deviceId: number) => api.get(`/switches/${deviceId}/arp-table`),
   discoverMac: (deviceId: number) => api.post(`/switches/${deviceId}/discover-mac`),
   macSearch: (q: string) => api.get('/switches/mac-search', { params: { q } }),

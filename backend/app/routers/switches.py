@@ -386,7 +386,7 @@ async def get_mac_table(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
     q: Optional[str] = Query(None, description="Search MAC, IP, hostname, vendor"),
-    vendor: Optional[str] = Query(None, description="Filter by vendor name"),
+    vendor: Optional[str] = Query(None, description="Filter by vendor name(s), comma-separated"),
     vlan: Optional[int] = Query(None),
     interface_id: Optional[int] = Query(None),
     entry_type: Optional[str] = Query(None),
@@ -409,7 +409,11 @@ async def get_mac_table(
             MacAddressEntry.vendor.ilike(like),
         ))
     if vendor:
-        query = query.where(MacAddressEntry.vendor == vendor)
+        vendor_list = [v.strip() for v in vendor.split(",") if v.strip()]
+        if len(vendor_list) == 1:
+            query = query.where(MacAddressEntry.vendor == vendor_list[0])
+        elif vendor_list:
+            query = query.where(MacAddressEntry.vendor.in_(vendor_list))
     if vlan is not None:
         query = query.where(MacAddressEntry.vlan_id == vlan)
     if interface_id is not None:
@@ -446,6 +450,25 @@ async def get_mac_table(
         })
 
     return {"total": total, "entries": entries}
+
+
+@router.patch("/mac-entry/{entry_id}/hostname")
+async def update_mac_hostname(
+    entry_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Manually set hostname for a MAC address entry."""
+    entry = (await db.execute(
+        select(MacAddressEntry).where(MacAddressEntry.id == entry_id)
+    )).scalar_one_or_none()
+    if not entry:
+        raise HTTPException(404, "MAC entry not found")
+    entry.hostname = body.get("hostname", "").strip() or None
+    await db.commit()
+    return {"id": entry.id, "hostname": entry.hostname}
+
 
 
 @router.get("/{device_id}/arp-table")

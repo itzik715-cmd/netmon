@@ -2,7 +2,7 @@ import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, interfacesApi, topologyApi, switchesApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings, AlertTriangle, Database, Download, Thermometer, Fan, Zap } from 'lucide-react'
+import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings, AlertTriangle, Database, Download, Thermometer, Fan, Zap, Edit2, Check, X } from 'lucide-react'
 import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState, useRef, useEffect, useMemo } from 'react'
@@ -242,8 +242,23 @@ export default function DeviceDetailPage() {
   // MAC table state
   const [macSearch, setMacSearch] = useState('')
   const [macPage, setMacPage] = useState(0)
-  const [macVendorFilter, setMacVendorFilter] = useState('')
+  const [macVendorFilter, setMacVendorFilter] = useState<string[]>([])
+  const [macVendorOpen, setMacVendorOpen] = useState(false)
+  const macVendorRef = useRef<HTMLDivElement>(null)
+  const [editingHostname, setEditingHostname] = useState<number | null>(null)
+  const [hostnameValue, setHostnameValue] = useState('')
   const macLimit = 50
+
+  // Close vendor dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (macVendorRef.current && !macVendorRef.current.contains(e.target as Node)) {
+        setMacVendorOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   const { data: macVendors } = useQuery({
     queryKey: ['mac-vendors', deviceId],
@@ -252,16 +267,28 @@ export default function DeviceDetailPage() {
     staleTime: 60_000,
   })
 
+  const vendorParam = macVendorFilter.length > 0 ? macVendorFilter.join(',') : undefined
+
   const { data: macData, isLoading: macLoading } = useQuery({
     queryKey: ['mac-table', deviceId, macSearch, macPage, macVendorFilter],
     queryFn: () => switchesApi.macTable(deviceId, {
       q: macSearch || undefined,
-      vendor: macVendorFilter || undefined,
+      vendor: vendorParam,
       limit: macLimit,
       offset: macPage * macLimit,
     }).then(r => r.data),
     enabled: isSwitch && tab === 'mac',
     refetchInterval: tab === 'mac' ? 60_000 : false,
+  })
+
+  const hostnameMutation = useMutation({
+    mutationFn: ({ entryId, hostname }: { entryId: number; hostname: string }) =>
+      switchesApi.updateMacHostname(entryId, hostname),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mac-table', deviceId] })
+      setEditingHostname(null)
+      toast.success('Hostname updated')
+    },
   })
 
   const macDiscoverMutation = useMutation({
@@ -1022,23 +1049,72 @@ export default function DeviceDetailPage() {
                   onChange={e => { setMacSearch(e.target.value); setMacPage(0) }}
                 />
               </div>
-              <select
-                value={macVendorFilter}
-                onChange={e => { setMacVendorFilter(e.target.value); setMacPage(0) }}
-                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
-              >
-                <option value="">All Vendors</option>
-                {(macVendors || []).map((v: string) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
+              <div ref={macVendorRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setMacVendorOpen(o => !o)}
+                  style={{
+                    padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Filter size={12} />
+                  {macVendorFilter.length === 0 ? 'All Vendors' : `${macVendorFilter.length} Vendor${macVendorFilter.length > 1 ? 's' : ''}`}
+                  <span style={{ marginLeft: 4, fontSize: 10 }}>▼</span>
+                </button>
+                {macVendorOpen && (
+                  <div style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 50,
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.25)', minWidth: 200, maxHeight: 300, overflowY: 'auto',
+                    padding: '4px 0',
+                  }}>
+                    {macVendorFilter.length > 0 && (
+                      <button
+                        onClick={() => { setMacVendorFilter([]); setMacPage(0) }}
+                        style={{
+                          width: '100%', padding: '6px 12px', border: 'none', background: 'none',
+                          color: 'var(--accent)', fontSize: 12, cursor: 'pointer', textAlign: 'left',
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
+                    {(macVendors || []).map((v: string) => (
+                      <label
+                        key={v}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+                          cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={macVendorFilter.includes(v)}
+                          onChange={e => {
+                            setMacVendorFilter(prev =>
+                              e.target.checked ? [...prev, v] : prev.filter(x => x !== v)
+                            )
+                            setMacPage(0)
+                          }}
+                          style={{ accentColor: 'var(--accent)' }}
+                        />
+                        {v}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           {macLoading ? (
             <div className="empty-state card-body"><p>Loading MAC table...</p></div>
           ) : !macData || macData.entries.length === 0 ? (
             <div className="empty-state card-body">
-              <p>{macSearch || macVendorFilter ? 'No MAC entries match your filters.' : 'No MAC entries discovered yet.'}</p>
+              <p>{macSearch || macVendorFilter.length > 0 ? 'No MAC entries match your filters.' : 'No MAC entries discovered yet.'}</p>
               <p className="text-xs text-muted">Click "Discover MAC Table" to scan this switch via SNMP.</p>
             </div>
           ) : (
@@ -1062,7 +1138,33 @@ export default function DeviceDetailPage() {
                       <tr key={entry.id}>
                         <td className="mono text-sm font-semibold">{entry.mac_address}</td>
                         <td className="mono text-sm text-muted">{entry.ip_address || '—'}</td>
-                        <td className="text-sm">{entry.hostname || '—'}</td>
+                        <td className="text-sm">
+                          {editingHostname === entry.id ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <input
+                                autoFocus
+                                value={hostnameValue}
+                                onChange={e => setHostnameValue(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') hostnameMutation.mutate({ entryId: entry.id, hostname: hostnameValue })
+                                  if (e.key === 'Escape') setEditingHostname(null)
+                                }}
+                                style={{ width: 140, padding: '2px 6px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                              />
+                              <button onClick={() => hostnameMutation.mutate({ entryId: entry.id, hostname: hostnameValue })} className="btn-icon" title="Save"><Check size={14} /></button>
+                              <button onClick={() => setEditingHostname(null)} className="btn-icon" title="Cancel"><X size={14} /></button>
+                            </span>
+                          ) : (
+                            <span
+                              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => { setEditingHostname(entry.id); setHostnameValue(entry.hostname || '') }}
+                              title="Click to edit hostname"
+                            >
+                              {entry.hostname || <span className="text-muted">—</span>}
+                              <Edit2 size={11} className="text-muted" />
+                            </span>
+                          )}
+                        </td>
                         <td className="text-sm text-muted">{entry.vendor || '—'}</td>
                         <td>
                           {entry.interface_id ? (

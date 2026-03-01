@@ -79,6 +79,12 @@ OID_LLDP_REM_SYS_NAME = "1.0.8802.1.1.2.1.4.1.1.9"   # lldpRemSysName
 OID_LLDP_REM_PORT_ID  = "1.0.8802.1.1.2.1.4.1.1.7"   # lldpRemPortId
 OID_LLDP_REM_MAN_ADDR = "1.0.8802.1.1.2.1.4.2.1.4"   # lldpRemManAddr (IP)
 OID_LLDP_LOC_PORT_ID  = "1.0.8802.1.1.2.1.3.7.1.3"   # lldpLocPortId
+OID_LLDP_REM_CHASSIS_ID = "1.0.8802.1.1.2.1.4.1.1.5"  # lldpRemChassisId (MAC/IP of neighbor)
+
+# CDP OIDs (Cisco Discovery Protocol)
+OID_CDP_CACHE_DEVICE_ID   = "1.3.6.1.4.1.9.9.23.1.2.1.1.6"  # cdpCacheDeviceId (hostname)
+OID_CDP_CACHE_DEVICE_PORT = "1.3.6.1.4.1.9.9.23.1.2.1.1.7"  # cdpCacheDevicePort
+OID_CDP_CACHE_ADDRESS     = "1.3.6.1.4.1.9.9.23.1.2.1.1.4"  # cdpCacheAddress (IP)
 
 # Cisco CPU OIDs
 OID_CPU_5MIN_CISCO    = "1.3.6.1.4.1.9.2.1.58.0"      # Cisco: 5-min CPU avg
