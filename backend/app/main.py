@@ -540,6 +540,30 @@ async def run_migrations():
     # Wrapped in try/except so the app starts even on plain PostgreSQL.
     try:
         async with engine.begin() as conn:
+            # TimescaleDB requires the partitioning column to be part of all
+            # unique indexes/constraints.  The SQLAlchemy-generated `id` primary
+            # key violates this, so we drop it before converting.  The `id`
+            # column itself is kept (existing FK references, ORM expectations)
+            # but is no longer the primary key.
+            for tbl, pk_name in [
+                ("flow_records", "flow_records_pkey"),
+                ("flow_summary_5m", "flow_summary_5m_pkey"),
+            ]:
+                # Check if this is already a hypertable (skip PK drop on re-run)
+                is_ht = await conn.execute(text(
+                    "SELECT 1 FROM timescaledb_information.hypertables "
+                    "WHERE hypertable_name = :tbl"
+                ), {"tbl": tbl})
+                if is_ht.scalar() is not None:
+                    continue
+                # Drop the standalone id primary key so create_hypertable succeeds
+                try:
+                    await conn.execute(text(
+                        f"ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {pk_name}"
+                    ))
+                except Exception:
+                    pass  # constraint may not exist or have a different name
+
             # Convert flow tables to hypertables
             await conn.execute(text("""
                 SELECT create_hypertable(
