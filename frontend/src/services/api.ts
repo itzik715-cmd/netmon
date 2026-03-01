@@ -197,7 +197,7 @@ export const blocksApi = {
   delete: (id: number) => api.delete(`/blocks/${id}`),
   sync: (deviceId: number) => api.post(`/blocks/device/${deviceId}/sync`),
   getFnmBlackholes: () => api.get('/blocks/fastnetmon/blackholes'),
-  fnmUnblock: (ip: string) => api.delete(`/blocks/fastnetmon/blackhole/${ip}`),
+  fnmUnblock: (uuid: string) => api.delete(`/blocks/fastnetmon/blackhole/${uuid}`),
 }
 
 // Topology
@@ -293,4 +293,19 @@ export const serverMgmtApi = {
   getSmtp: () => api.get('/server-mgmt/smtp'),
   saveSmtp: (data: object) => api.put('/server-mgmt/smtp', data),
   testSmtp: (data: object) => api.post('/server-mgmt/smtp/test', data),
+}
+
+// FastNetMon Management
+export const fastnetmonApi = {
+  dashboard: () => api.get('/fastnetmon/dashboard'),
+  traffic: () => api.get('/fastnetmon/traffic'),
+  hostCounters: () => api.get('/fastnetmon/host-counters'),
+  networkCounters: () => api.get('/fastnetmon/network-counters'),
+  blackholes: () => api.get('/fastnetmon/blackholes'),
+  addBlackhole: (ip: string) => api.put('/fastnetmon/blackhole', { ip }),
+  removeBlackhole: (uuid: string) => api.delete(`/fastnetmon/blackhole/${uuid}`),
+  flowspec: () => api.get('/fastnetmon/flowspec'),
+  bgpPeers: () => api.get('/fastnetmon/bgp'),
+  hostgroups: () => api.get('/fastnetmon/hostgroups'),
+  config: () => api.get('/fastnetmon/config'),
 }

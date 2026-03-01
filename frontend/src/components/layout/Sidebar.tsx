@@ -10,6 +10,7 @@ import {
   Activity,
   ShieldAlert,
   Ban,
+  Shield,
   Archive,
   FileText,
   ClipboardList,
@@ -57,6 +58,7 @@ const powerItems: NavItem[] = [
 const securityItems: NavItem[] = [
   { to: '/alerts', label: 'Alerts', icon: <ShieldAlert size={16} />, badge: 'red' },
   { to: '/blocks', label: 'Blocks', icon: <Ban size={16} /> },
+  { to: '/fastnetmon', label: 'FastNetMon', icon: <Shield size={16} /> },
 ]
 
 const operationsItems: NavItem[] = [

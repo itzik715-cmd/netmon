@@ -240,18 +240,18 @@ async def get_fnm_blackholes(
     }
 
 
-@router.delete("/fastnetmon/blackhole/{ip}")
+@router.delete("/fastnetmon/blackhole/{uuid}")
 async def fnm_unblock(
-    ip: str,
+    uuid: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operator_or_above),
 ):
-    """Remove an IP from FastNetMon blackhole."""
+    """Remove an IP from FastNetMon blackhole by UUID."""
     client, _ = await _get_fnm_client(db, "blocker")
     if not client:
         raise HTTPException(status_code=400, detail="FastNetMon is not configured")
 
-    ok = await client.unblock_host(ip)
+    ok = await client.unblock_host(uuid)
     if not ok:
-        raise HTTPException(status_code=502, detail=f"Failed to unblock {ip} on FastNetMon")
-    return {"message": f"Blackhole for {ip} removed"}
+        raise HTTPException(status_code=502, detail=f"Failed to unblock {uuid} on FastNetMon")
+    return {"message": f"Blackhole {uuid} removed"}

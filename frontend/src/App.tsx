@@ -13,6 +13,7 @@ import UsersPage from './pages/UsersPage'
 import AuditLogPage from './pages/AuditLogPage'
 import SettingsPage from './pages/SettingsPage'
 import BlocksPage from './pages/BlocksPage'
+import FastNetMonPage from './pages/FastNetMonPage'
 import TopologyPage from './pages/TopologyPage'
 import ReportsPage from './pages/ReportsPage'
 import BackupsPage from './pages/BackupsPage'
@@ -88,6 +89,7 @@ export default function App() {
         <Route path="power" element={<PowerDashboardPage />} />
         <Route path="power/racks" element={<RackPowerPage />} />
         <Route path="blocks" element={<BlocksPage />} />
+        <Route path="fastnetmon" element={<FastNetMonPage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="backups" element={<BackupsPage />} />

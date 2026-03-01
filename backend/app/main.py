@@ -14,7 +14,7 @@ from app.extensions import limiter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router, wan_alerts as wan_alerts_router, power_alerts as power_alerts_router, switches as switches_router
+from app.routers import auth, users, devices, interfaces, alerts, flows, settings as settings_router, blocks, topology, reports, config_backup as backups_router, system_events as system_events_router, server_management, pdu as pdu_router, wan_alerts as wan_alerts_router, power_alerts as power_alerts_router, switches as switches_router, fastnetmon as fastnetmon_router
 from app.models import system_event as _system_event_model  # noqa: F401 – registers table with Base
 from app.models.owned_subnet import OwnedSubnet as _owned_subnet_model  # noqa: F401
 from app.models.flow import FlowSummary5m as _flow_summary_model  # noqa: F401
@@ -1033,6 +1033,7 @@ app.include_router(pdu_router.router)
 app.include_router(wan_alerts_router.router)
 app.include_router(power_alerts_router.router)
 app.include_router(switches_router.router)
+app.include_router(fastnetmon_router.router)
 
 
 @app.get("/api/health")

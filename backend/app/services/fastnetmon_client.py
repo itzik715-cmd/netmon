@@ -2,7 +2,7 @@
 FastNetMon Advanced REST API client.
 FNM exposes REST on port 10007 (HTTP) or 10443 (HTTPS).
 Auth: HTTP Basic.
-API paths: /main (config), /blackhole (blocked hosts), etc.
+API paths: /main (config), /blackhole (blocked hosts), /hostgroup, /bgp, etc.
 Response format: {"success": bool, "values": [...]} or {"success": bool, "object": {...}}
 """
 import httpx
@@ -18,12 +18,27 @@ class FastNetMonClient:
         self.auth = (username, password)
         self.node_label = f"{host}:{port}"
 
-    async def _request(self, method: str, path: str) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=5.0, verify=False, auth=self.auth) as client:
-            return await client.request(method, f"{self.base_url}{path}")
+    async def _request(self, method: str, path: str, json_body: dict = None) -> httpx.Response:
+        async with httpx.AsyncClient(timeout=10.0, verify=False, auth=self.auth) as client:
+            return await client.request(method, f"{self.base_url}{path}", json=json_body)
+
+    def _parse_values(self, data) -> list:
+        if isinstance(data, dict) and "values" in data:
+            return data["values"] if data["values"] is not None else []
+        if isinstance(data, list):
+            return data
+        return []
+
+    def _parse_object(self, data) -> dict:
+        if isinstance(data, dict) and "object" in data:
+            return data["object"]
+        if isinstance(data, dict) and "success" in data:
+            return data
+        return data if isinstance(data, dict) else {}
+
+    # ── Connectivity ────────────────────────────────────────────────────────
 
     async def ping(self) -> bool:
-        """Test connectivity — return True if reachable."""
         try:
             resp = await self._request("GET", "/main")
             return resp.status_code == 200
@@ -31,31 +46,29 @@ class FastNetMonClient:
             return False
 
     async def get_status(self) -> dict:
-        """GET /main — returns FNM config and status."""
         try:
             resp = await self._request("GET", "/main")
             resp.raise_for_status()
             data = resp.json()
             if data.get("success") and "object" in data:
                 obj = data["object"]
-                return {"version": "FastNetMon Advanced", "raw": f"sflow={'on' if obj.get('sflow') else 'off'}, ban={'on' if obj.get('enable_ban') else 'off'}"}
+                return {
+                    "version": "FastNetMon Advanced",
+                    "raw": f"sflow={'on' if obj.get('sflow') else 'off'}, ban={'on' if obj.get('enable_ban') else 'off'}",
+                }
             return {"raw": str(data)[:200]}
         except Exception as e:
             logger.warning("FastNetMon get_status failed (%s): %s", self.node_label, e)
             return {}
 
+    # ── Blackhole / Mitigations ─────────────────────────────────────────────
+
     async def get_blocked_hosts(self) -> list:
-        """GET /blackhole — returns currently blackholed IPs."""
+        """GET /blackhole — returns [{"uuid": "...", "ip": "x.x.x.x/32"}, ...]"""
         try:
             resp = await self._request("GET", "/blackhole")
             resp.raise_for_status()
-            data = resp.json()
-            # FNM returns {"success": true, "values": ["1.2.3.4", ...]}
-            if isinstance(data, dict) and "values" in data:
-                return data["values"]
-            if isinstance(data, list):
-                return data
-            return []
+            return self._parse_values(resp.json())
         except Exception as e:
             logger.warning("FastNetMon get_blocked_hosts failed (%s): %s", self.node_label, e)
             return []
@@ -70,12 +83,102 @@ class FastNetMonClient:
             logger.error("FastNetMon block_host(%s) failed (%s): %s", ip, self.node_label, e)
             return False
 
-    async def unblock_host(self, ip: str) -> bool:
-        """DELETE /blackhole/{ip} — remove a blackhole."""
+    async def unblock_host(self, uuid: str) -> bool:
+        """DELETE /blackhole/{uuid} — remove a blackhole by UUID."""
         try:
-            resp = await self._request("DELETE", f"/blackhole/{ip}")
+            resp = await self._request("DELETE", f"/blackhole/{uuid}")
             data = resp.json() if resp.status_code == 200 else {}
             return data.get("success", resp.status_code in (200, 204))
         except Exception as e:
-            logger.error("FastNetMon unblock_host(%s) failed (%s): %s", ip, self.node_label, e)
+            logger.error("FastNetMon unblock_host(%s) failed (%s): %s", uuid, self.node_label, e)
             return False
+
+    async def get_flowspec(self) -> list:
+        """GET /flowspec — active FlowSpec rules."""
+        try:
+            resp = await self._request("GET", "/flowspec")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_flowspec failed (%s): %s", self.node_label, e)
+            return []
+
+    # ── Configuration ───────────────────────────────────────────────────────
+
+    async def get_config(self) -> dict:
+        """GET /main — full FNM global configuration."""
+        try:
+            resp = await self._request("GET", "/main")
+            resp.raise_for_status()
+            return self._parse_object(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_config failed (%s): %s", self.node_label, e)
+            return {}
+
+    # ── Hostgroups / Detection ──────────────────────────────────────────────
+
+    async def get_hostgroups(self) -> list:
+        """GET /hostgroup — list all hostgroups with thresholds."""
+        try:
+            resp = await self._request("GET", "/hostgroup")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_hostgroups failed (%s): %s", self.node_label, e)
+            return []
+
+    # ── BGP ─────────────────────────────────────────────────────────────────
+
+    async def get_bgp_peers(self) -> list:
+        """GET /bgp — list BGP peers."""
+        try:
+            resp = await self._request("GET", "/bgp")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_bgp_peers failed (%s): %s", self.node_label, e)
+            return []
+
+    # ── Traffic Counters ────────────────────────────────────────────────────
+
+    async def get_total_traffic(self) -> list:
+        """GET /total_traffic_counters — aggregate traffic counters."""
+        try:
+            resp = await self._request("GET", "/total_traffic_counters")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_total_traffic failed (%s): %s", self.node_label, e)
+            return []
+
+    async def get_host_counters(self) -> list:
+        """GET /host_counters — top hosts by traffic."""
+        try:
+            resp = await self._request("GET", "/host_counters")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_host_counters failed (%s): %s", self.node_label, e)
+            return []
+
+    async def get_network_counters(self) -> list:
+        """GET /network_counters — per-subnet traffic counters."""
+        try:
+            resp = await self._request("GET", "/network_counters")
+            resp.raise_for_status()
+            return self._parse_values(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_network_counters failed (%s): %s", self.node_label, e)
+            return []
+
+    # ── License ─────────────────────────────────────────────────────────────
+
+    async def get_license(self) -> dict:
+        """GET /license — license info."""
+        try:
+            resp = await self._request("GET", "/license")
+            resp.raise_for_status()
+            return self._parse_object(resp.json())
+        except Exception as e:
+            logger.warning("FastNetMon get_license failed (%s): %s", self.node_label, e)
+            return {}

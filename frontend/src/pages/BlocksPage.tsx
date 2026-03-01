@@ -389,8 +389,11 @@ export default function BlocksPage() {
                     </td>
                   </tr>
                 )}
-                {fnmData?.blocks?.map((ip: string, idx: number) => (
-                  <tr key={idx}>
+                {fnmData?.blocks?.map((entry: any, idx: number) => {
+                  const ip = typeof entry === 'string' ? entry : entry.ip
+                  const uuid = typeof entry === 'string' ? entry : entry.uuid
+                  return (
+                  <tr key={uuid || idx}>
                     <td><strong className="mono">{ip}</strong></td>
                     <td className="mono">{fnmData.node || '—'}</td>
                     <td>
@@ -398,7 +401,7 @@ export default function BlocksPage() {
                         className="btn btn-danger btn--icon btn-sm"
                         onClick={() => {
                           if (confirm(`Remove blackhole for ${ip}?`)) {
-                            fnmUnblockMutation.mutate(ip)
+                            fnmUnblockMutation.mutate(uuid)
                           }
                         }}
                         disabled={fnmUnblockMutation.isPending}
@@ -408,7 +411,8 @@ export default function BlocksPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
