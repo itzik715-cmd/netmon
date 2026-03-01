@@ -106,8 +106,8 @@ OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"       # entPhysicalClass
 OID_ENT_SENSOR_TYPE  = "1.3.6.1.2.1.99.1.1.1.1"          # entPhySensorType
 OID_ENT_SENSOR_VALUE = "1.3.6.1.2.1.99.1.1.1.4"          # entPhySensorValue
 OID_ENT_SENSOR_STATUS = "1.3.6.1.2.1.99.1.1.1.5"         # entPhySensorOperStatus
-OID_ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.3"          # entPhySensorScale
-OID_ENT_SENSOR_PRECISION = "1.3.6.1.2.1.99.1.1.1.2"     # entPhySensorPrecision
+OID_ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.2"          # entPhySensorScale
+OID_ENT_SENSOR_PRECISION = "1.3.6.1.2.1.99.1.1.1.3"     # entPhySensorPrecision
 
 # CISCO-ENVMON-MIB
 OID_CISCO_TEMP_DESCR = "1.3.6.1.4.1.9.9.13.1.3.1.2"      # ciscoEnvMonTemperatureStatusDescr
@@ -901,13 +901,21 @@ async def poll_environment(device: Device, db: AsyncSession, now: datetime,
                     seen_names[base_name] = 1
                     sensor_name = base_name
 
-                # Get value with precision handling
+                # Get value with scale and precision handling
+                # Per ENTITY-SENSOR-MIB: actual = value * 10^scale
+                # precision = number of decimal digits in the value
+                # So actual = value * 10^scale_exp, displayed with precision decimals
+                # Effectively: actual = raw_value * 10^(scale_exp - precision)
                 val_key = OID_ENT_SENSOR_VALUE + "." + idx
                 raw_val = sensor_values.get(val_key)
                 value = None
                 if raw_val is not None:
                     try:
                         value = float(raw_val)
+                        # Get scale exponent
+                        scale_key = OID_ENT_SENSOR_SCALE + "." + idx
+                        scale_str = str(sensor_scales.get(scale_key, "9")).strip()
+                        scale_exp = ENT_SENSOR_SCALE_MAP.get(scale_str, 0)
                         # Get precision (number of decimal digits)
                         prec_key = OID_ENT_SENSOR_PRECISION + "." + idx
                         prec_str = str(sensor_precisions.get(prec_key, "0")).strip()
@@ -915,9 +923,10 @@ async def poll_environment(device: Device, db: AsyncSession, now: datetime,
                             precision = int(prec_str)
                         except (ValueError, TypeError):
                             precision = 0
-                        # Apply precision: divide by 10^precision
-                        if precision > 0:
-                            value = value / (10 ** precision)
+                        # Apply: value * 10^(scale_exp - precision)
+                        effective_exp = scale_exp - precision
+                        if effective_exp != 0:
+                            value = value * (10 ** effective_exp)
                     except (ValueError, TypeError):
                         pass
 
