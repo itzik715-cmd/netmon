@@ -18,6 +18,8 @@ from sqlalchemy import select, update, delete
 from app.config import settings
 from app.models.device import Device, DeviceRoute, DeviceMetricHistory, DeviceLink
 from app.models.interface import Interface, InterfaceMetric
+from app.models.environment import DeviceEnvironment, DeviceEnvMetric
+from app.models.port_state import PortStateChange
 import json
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,15 @@ OID_IF_ALIAS        = "1.3.6.1.2.1.31.1.1.1.18"
 OID_IF_HIGH_SPEED   = "1.3.6.1.2.1.31.1.1.1.15"
 OID_IF_HC_IN_OCTETS  = "1.3.6.1.2.1.31.1.1.1.6"
 OID_IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
+
+# EtherLike-MIB — duplex status
+OID_DOT3_DUPLEX      = "1.3.6.1.2.1.10.7.2.1.19"  # dot3StatsDuplexStatus
+
+# IF-MIB broadcast/multicast counters (64-bit HC)
+OID_IF_HC_IN_BCAST   = "1.3.6.1.2.1.31.1.1.1.9"   # ifHCInBroadcastPkts
+OID_IF_HC_IN_MCAST   = "1.3.6.1.2.1.31.1.1.1.7"   # ifHCInMulticastPkts
+OID_IF_HC_OUT_BCAST  = "1.3.6.1.2.1.31.1.1.1.13"  # ifHCOutBroadcastPkts
+OID_IF_HC_OUT_MCAST  = "1.3.6.1.2.1.31.1.1.1.11"  # ifHCOutMulticastPkts
 
 # Routing table OIDs — ipCidrRouteTable (RFC 2096)
 OID_IP_CIDR_DEST   = "1.3.6.1.2.1.4.24.4.1.1"
@@ -88,6 +99,35 @@ ROUTE_PROTO_MAP = {
     "9": "is-is", "10": "es-is", "11": "eigrp", "12": "igrp",
     "13": "ospf", "14": "bgp", "15": "idpr", "16": "eigrp",
 }
+
+# ENTITY-SENSOR-MIB (Arista, generic)
+OID_ENT_PHYS_DESCR   = "1.3.6.1.2.1.47.1.1.1.1.2"       # entPhysicalDescr
+OID_ENT_PHYS_CLASS   = "1.3.6.1.2.1.47.1.1.1.1.5"       # entPhysicalClass
+OID_ENT_SENSOR_TYPE  = "1.3.6.1.2.1.99.1.1.1.1"          # entPhySensorType
+OID_ENT_SENSOR_VALUE = "1.3.6.1.2.1.99.1.1.1.4"          # entPhySensorValue
+OID_ENT_SENSOR_STATUS = "1.3.6.1.2.1.99.1.1.1.5"         # entPhySensorOperStatus
+OID_ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.3"          # entPhySensorScale
+
+# CISCO-ENVMON-MIB
+OID_CISCO_TEMP_DESCR = "1.3.6.1.4.1.9.9.13.1.3.1.2"      # ciscoEnvMonTemperatureStatusDescr
+OID_CISCO_TEMP_VALUE = "1.3.6.1.4.1.9.9.13.1.3.1.3"      # ciscoEnvMonTemperatureStatusValue
+OID_CISCO_TEMP_STATE = "1.3.6.1.4.1.9.9.13.1.3.1.6"      # ciscoEnvMonTemperatureState
+OID_CISCO_FAN_DESCR  = "1.3.6.1.4.1.9.9.13.1.4.1.2"      # ciscoEnvMonFanStatusDescr
+OID_CISCO_FAN_STATE  = "1.3.6.1.4.1.9.9.13.1.4.1.3"      # ciscoEnvMonFanState
+OID_CISCO_PSU_DESCR  = "1.3.6.1.4.1.9.9.13.1.5.1.2"      # ciscoEnvMonSupplyStatusDescr
+OID_CISCO_PSU_STATE  = "1.3.6.1.4.1.9.9.13.1.5.1.3"      # ciscoEnvMonSupplyState
+
+# Cisco envmon state map: 1=normal, 2=warning, 3=critical, 4=shutdown, 5=notPresent, 6=notFunctioning
+CISCO_ENV_STATE_MAP = {"1": "ok", "2": "warning", "3": "critical", "4": "critical", "5": "notPresent", "6": "notFunctioning"}
+
+# ENTITY-SENSOR-MIB sensor type map
+# 8=celsius, 10=rpm, 12=watts, 5=volts, 6=amps
+ENT_SENSOR_TYPE_MAP = {"8": "temperature", "10": "fan", "12": "psu", "5": "psu", "6": "psu"}
+ENT_SENSOR_UNIT_MAP = {"8": "celsius", "10": "rpm", "12": "watts", "5": "volts", "6": "amps"}
+# entPhySensorOperStatus: 1=ok, 2=unavailable, 3=nonoperational
+ENT_SENSOR_STATUS_MAP = {"1": "ok", "2": "unavailable", "3": "critical"}
+# entPhySensorScale: powers of 10 — 1=yocto...8=units(10^0)...14=tera
+ENT_SENSOR_SCALE_MAP = {"1": -24, "2": -21, "3": -18, "4": -15, "5": -12, "6": -9, "7": -6, "8": -3, "9": 0, "10": 3, "11": 6, "12": 9, "13": 12, "14": 15}
 
 # Vendor patterns in sysDescr
 VENDOR_PATTERNS = [
@@ -407,6 +447,13 @@ async def poll_device(device: Device, db: AsyncSession,
             ))
 
         await poll_interfaces(device, db, now, engine)
+
+        # Poll environment sensors (temperature, fan, PSU)
+        try:
+            await poll_environment(device, db, now, engine)
+        except Exception as e:
+            logger.debug(f"Environment poll skipped for {device.hostname}: {e}")
+
         await db.commit()
         return True
 
@@ -439,6 +486,23 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
         aliases      = await snmp_bulk_walk(device, OID_IF_ALIAS, engine)
         in_errors_walk  = await snmp_bulk_walk(device, OID_IF_IN_ERRORS, engine)
         out_errors_walk = await snmp_bulk_walk(device, OID_IF_OUT_ERRORS, engine)
+        duplex_walk     = await snmp_bulk_walk(device, OID_DOT3_DUPLEX, engine)
+        in_bcast_walk   = await snmp_bulk_walk(device, OID_IF_HC_IN_BCAST, engine)
+        in_mcast_walk   = await snmp_bulk_walk(device, OID_IF_HC_IN_MCAST, engine)
+        out_bcast_walk  = await snmp_bulk_walk(device, OID_IF_HC_OUT_BCAST, engine)
+        out_mcast_walk  = await snmp_bulk_walk(device, OID_IF_HC_OUT_MCAST, engine)
+
+        # Build duplex map: if_index → duplex string
+        duplex_map: Dict[int, str] = {}
+        for doid, dval in duplex_walk.items():
+            try:
+                didx = int(doid.split(".")[-1])
+                dval_str = str(dval)
+                duplex_map[didx] = {
+                    "1": "unknown", "2": "half", "3": "full",
+                }.get(dval_str, "unknown")
+            except (ValueError, IndexError):
+                pass
 
         if not in_octets:
             in_octets = await snmp_bulk_walk(device, OID_IF_IN_OCTETS, engine)
@@ -495,6 +559,30 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
                 out_err_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_OUT_ERRORS)
                 in_err_val  = int(in_errors_walk.get(in_err_key, 0) or 0)
                 out_err_val = int(out_errors_walk.get(out_err_key, 0) or 0)
+                # Broadcast/multicast counter values
+                in_bcast_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HC_IN_BCAST)
+                in_mcast_key  = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HC_IN_MCAST)
+                out_bcast_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HC_OUT_BCAST)
+                out_mcast_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_HC_OUT_MCAST)
+                in_bcast_val  = int(in_bcast_walk.get(in_bcast_key, 0) or 0)
+                in_mcast_val  = int(in_mcast_walk.get(in_mcast_key, 0) or 0)
+                out_bcast_val = int(out_bcast_walk.get(out_bcast_key, 0) or 0)
+                out_mcast_val = int(out_mcast_walk.get(out_mcast_key, 0) or 0)
+
+                # Calculate broadcast/multicast pps from counter deltas
+                in_bcast_pps = in_mcast_pps = 0.0
+                if prev and prev.timestamp:
+                    delta_secs_bm = (now - prev.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+                    if delta_secs_bm > 0:
+                        prev_in_bcast = prev.in_broadcast_pkts or 0
+                        prev_in_mcast = prev.in_multicast_pkts or 0
+                        bcast_delta = in_bcast_val - prev_in_bcast
+                        mcast_delta = in_mcast_val - prev_in_mcast
+                        if bcast_delta < 0: bcast_delta += 2**64
+                        if mcast_delta < 0: mcast_delta += 2**64
+                        in_bcast_pps = bcast_delta / delta_secs_bm
+                        in_mcast_pps = mcast_delta / delta_secs_bm
+
                 db.add(InterfaceMetric(
                     interface_id=iface.id, timestamp=now,
                     in_octets=in_octets_val, out_octets=out_octets_val,
@@ -502,7 +590,19 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
                     utilization_in=utilization_in, utilization_out=utilization_out,
                     in_errors=in_err_val, out_errors=out_err_val,
                     oper_status=oper_str,
+                    in_broadcast_pkts=in_bcast_val, in_multicast_pkts=in_mcast_val,
+                    out_broadcast_pkts=out_bcast_val, out_multicast_pkts=out_mcast_val,
+                    in_broadcast_pps=in_bcast_pps, in_multicast_pps=in_mcast_pps,
                 ))
+                # Port flapping detection: record state changes
+                if iface.oper_status and iface.oper_status != oper_str:
+                    db.add(PortStateChange(
+                        interface_id=iface.id,
+                        old_status=iface.oper_status,
+                        new_status=oper_str,
+                        changed_at=now,
+                    ))
+
                 # Keep speed, alias, and admin/oper status in sync with live SNMP data
                 alias_key = _oid_rebase(oid_str, OID_IF_HC_IN_OCTETS, OID_IF_ALIAS)
                 alias_val = str(aliases.get(alias_key, "")).strip() or None
@@ -511,6 +611,8 @@ async def poll_interfaces(device: Device, db: AsyncSession, now: datetime,
                     iface_updates["speed"] = speed_bps
                 if alias_val:
                     iface_updates["alias"] = alias_val
+                if if_index in duplex_map:
+                    iface_updates["duplex"] = duplex_map[if_index]
                 await db.execute(
                     update(Interface).where(Interface.id == iface.id).values(**iface_updates)
                 )
@@ -751,6 +853,221 @@ async def discover_lldp_neighbors(device: Device, db: AsyncSession) -> int:
     return links_found
 
 
+async def poll_environment(device: Device, db: AsyncSession, now: datetime,
+                           engine: Optional[SnmpEngine] = None) -> int:
+    """Poll temperature sensors, fan status, and PSU status via SNMP.
+
+    Tries ENTITY-SENSOR-MIB first (Arista, generic), then CISCO-ENVMON-MIB.
+    Returns number of sensors discovered.
+    """
+    _own_engine = engine is None
+    if _own_engine:
+        engine = SnmpEngine()
+    sensors_found = 0
+    try:
+        # ── Strategy 1: ENTITY-SENSOR-MIB (Arista, many vendors) ──
+        sensor_types = await snmp_bulk_walk(device, OID_ENT_SENSOR_TYPE, engine)
+        if sensor_types:
+            sensor_values = await snmp_bulk_walk(device, OID_ENT_SENSOR_VALUE, engine)
+            sensor_status = await snmp_bulk_walk(device, OID_ENT_SENSOR_STATUS, engine)
+            sensor_scales = await snmp_bulk_walk(device, OID_ENT_SENSOR_SCALE, engine)
+            phys_descrs = await snmp_bulk_walk(device, OID_ENT_PHYS_DESCR, engine)
+
+            for oid_str, type_val in sensor_types.items():
+                type_str = str(type_val).strip()
+                sensor_type = ENT_SENSOR_TYPE_MAP.get(type_str)
+                if not sensor_type:
+                    continue
+
+                # Extract entity index from OID suffix
+                idx = oid_str.split(".")[-1]
+
+                # Get sensor name from entPhysicalDescr
+                descr_key = OID_ENT_PHYS_DESCR + "." + idx
+                sensor_name = str(phys_descrs.get(descr_key, f"Sensor {idx}")).strip()
+                if not sensor_name or sensor_name == "0x":
+                    sensor_name = f"Sensor {idx}"
+
+                # Get value
+                val_key = OID_ENT_SENSOR_VALUE + "." + idx
+                raw_val = sensor_values.get(val_key)
+                value = None
+                if raw_val is not None:
+                    try:
+                        value = float(raw_val)
+                        # Apply scale factor
+                        scale_key = OID_ENT_SENSOR_SCALE + "." + idx
+                        scale_str = str(sensor_scales.get(scale_key, "9")).strip()
+                        scale_exp = ENT_SENSOR_SCALE_MAP.get(scale_str, 0)
+                        if scale_exp != 0:
+                            value = value * (10 ** scale_exp)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Get status
+                stat_key = OID_ENT_SENSOR_STATUS + "." + idx
+                stat_str = str(sensor_status.get(stat_key, "1")).strip()
+                status = ENT_SENSOR_STATUS_MAP.get(stat_str, "ok")
+
+                unit = ENT_SENSOR_UNIT_MAP.get(type_str, "")
+
+                # Upsert DeviceEnvironment
+                existing = await db.execute(
+                    select(DeviceEnvironment).where(
+                        DeviceEnvironment.device_id == device.id,
+                        DeviceEnvironment.sensor_name == sensor_name,
+                    )
+                )
+                env = existing.scalar_one_or_none()
+                if env:
+                    env.value = value
+                    env.status = status
+                    env.sensor_type = sensor_type
+                    env.unit = unit
+                    env.updated_at = now
+                else:
+                    db.add(DeviceEnvironment(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type=sensor_type,
+                        value=value,
+                        status=status,
+                        unit=unit,
+                        updated_at=now,
+                    ))
+
+                # Store time-series for temperature sensors
+                if sensor_type == "temperature" and value is not None:
+                    db.add(DeviceEnvMetric(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type=sensor_type,
+                        value=value,
+                        timestamp=now,
+                    ))
+
+                sensors_found += 1
+
+        # ── Strategy 2: CISCO-ENVMON-MIB (Cisco only fallback) ──
+        if sensors_found == 0:
+            # Temperature sensors
+            temp_descrs = await snmp_bulk_walk(device, OID_CISCO_TEMP_DESCR, engine)
+            temp_values = await snmp_bulk_walk(device, OID_CISCO_TEMP_VALUE, engine)
+            temp_states = await snmp_bulk_walk(device, OID_CISCO_TEMP_STATE, engine)
+
+            for oid_str, descr in temp_descrs.items():
+                idx = oid_str.split(".")[-1]
+                sensor_name = str(descr).strip() or f"Temp Sensor {idx}"
+
+                val_key = OID_CISCO_TEMP_VALUE + "." + idx
+                raw_val = temp_values.get(val_key)
+                value = float(raw_val) if raw_val else None
+
+                state_key = OID_CISCO_TEMP_STATE + "." + idx
+                state_str = str(temp_states.get(state_key, "1")).strip()
+                status = CISCO_ENV_STATE_MAP.get(state_str, "ok")
+
+                existing = await db.execute(
+                    select(DeviceEnvironment).where(
+                        DeviceEnvironment.device_id == device.id,
+                        DeviceEnvironment.sensor_name == sensor_name,
+                    )
+                )
+                env = existing.scalar_one_or_none()
+                if env:
+                    env.value = value
+                    env.status = status
+                    env.updated_at = now
+                else:
+                    db.add(DeviceEnvironment(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type="temperature",
+                        value=value,
+                        status=status,
+                        unit="celsius",
+                        updated_at=now,
+                    ))
+
+                if value is not None:
+                    db.add(DeviceEnvMetric(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type="temperature",
+                        value=value,
+                        timestamp=now,
+                    ))
+                sensors_found += 1
+
+            # Fan sensors
+            fan_descrs = await snmp_bulk_walk(device, OID_CISCO_FAN_DESCR, engine)
+            fan_states = await snmp_bulk_walk(device, OID_CISCO_FAN_STATE, engine)
+            for oid_str, descr in fan_descrs.items():
+                idx = oid_str.split(".")[-1]
+                sensor_name = str(descr).strip() or f"Fan {idx}"
+                state_key = OID_CISCO_FAN_STATE + "." + idx
+                state_str = str(fan_states.get(state_key, "1")).strip()
+                status = CISCO_ENV_STATE_MAP.get(state_str, "ok")
+
+                existing = await db.execute(
+                    select(DeviceEnvironment).where(
+                        DeviceEnvironment.device_id == device.id,
+                        DeviceEnvironment.sensor_name == sensor_name,
+                    )
+                )
+                env = existing.scalar_one_or_none()
+                if env:
+                    env.status = status
+                    env.updated_at = now
+                else:
+                    db.add(DeviceEnvironment(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type="fan",
+                        status=status,
+                        unit="rpm",
+                        updated_at=now,
+                    ))
+                sensors_found += 1
+
+            # PSU sensors
+            psu_descrs = await snmp_bulk_walk(device, OID_CISCO_PSU_DESCR, engine)
+            psu_states = await snmp_bulk_walk(device, OID_CISCO_PSU_STATE, engine)
+            for oid_str, descr in psu_descrs.items():
+                idx = oid_str.split(".")[-1]
+                sensor_name = str(descr).strip() or f"PSU {idx}"
+                state_key = OID_CISCO_PSU_STATE + "." + idx
+                state_str = str(psu_states.get(state_key, "1")).strip()
+                status = CISCO_ENV_STATE_MAP.get(state_str, "ok")
+
+                existing = await db.execute(
+                    select(DeviceEnvironment).where(
+                        DeviceEnvironment.device_id == device.id,
+                        DeviceEnvironment.sensor_name == sensor_name,
+                    )
+                )
+                env = existing.scalar_one_or_none()
+                if env:
+                    env.status = status
+                    env.updated_at = now
+                else:
+                    db.add(DeviceEnvironment(
+                        device_id=device.id,
+                        sensor_name=sensor_name,
+                        sensor_type="psu",
+                        status=status,
+                        updated_at=now,
+                    ))
+                sensors_found += 1
+
+        if sensors_found > 0:
+            logger.debug(f"Environment poll {device.hostname}: {sensors_found} sensors")
+    finally:
+        if _own_engine:
+            _close_engine(engine)
+    return sensors_found
+
+
 async def cleanup_old_metrics(db: AsyncSession) -> None:
     """
     Delete interface_metrics and device_metric_history rows older than
@@ -814,11 +1131,32 @@ async def cleanup_old_metrics(db: AsyncSession) -> None:
         except Exception:
             summary_deleted = 0
 
+        # device_env_metrics
+        try:
+            result = await db.execute(
+                text("DELETE FROM device_env_metrics WHERE timestamp < :cutoff"),
+                {"cutoff": metric_cutoff},
+            )
+            env_deleted = result.rowcount
+        except Exception:
+            env_deleted = 0
+
+        # port_state_changes older than 30 days
+        try:
+            port_state_cutoff = now - timedelta(days=30)
+            result = await db.execute(
+                text("DELETE FROM port_state_changes WHERE changed_at < :cutoff"),
+                {"cutoff": port_state_cutoff},
+            )
+            port_state_deleted = result.rowcount
+        except Exception:
+            port_state_deleted = 0
+
         await db.commit()
         logger.info(
             "Metrics cleanup: removed %d interface metrics, %d device metrics, "
-            "%d flow records, %d flow summaries (cutoff: %dd / %dd)",
-            im_deleted, dmh_deleted, flow_deleted, summary_deleted, metric_days, flow_days,
+            "%d flow records, %d flow summaries, %d env metrics, %d port state changes (cutoff: %dd / %dd)",
+            im_deleted, dmh_deleted, flow_deleted, summary_deleted, env_deleted, port_state_deleted, metric_days, flow_days,
         )
     except Exception as e:
         logger.warning("Metrics cleanup error: %s", e)

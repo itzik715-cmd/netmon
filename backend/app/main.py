@@ -22,6 +22,11 @@ from app.models.pdu import PduMetric as _pdu_metric_model, PduBank as _pdu_bank_
 from app.models.wan_alert import WanAlertRule as _wan_alert_model  # noqa: F401
 from app.models.power_alert import PowerAlertRule as _power_alert_model  # noqa: F401
 from app.models.mac_entry import MacAddressEntry as _mac_entry_model  # noqa: F401
+from app.models.environment import DeviceEnvironment as _env_model, DeviceEnvMetric as _env_metric_model  # noqa: F401
+from app.models.port_state import PortStateChange as _port_state_model  # noqa: F401
+from app.models.vlan import DeviceVlan as _vlan_model  # noqa: F401
+from app.models.ping import PingMetric as _ping_model  # noqa: F401
+from app.models.mlag import MlagDomain as _mlag_domain_model, MlagInterface as _mlag_iface_model  # noqa: F401
 from app.services.alert_engine import evaluate_rules
 from app.services.wan_alert_engine import evaluate_wan_rules
 from app.services.power_alert_engine import evaluate_power_rules
@@ -162,7 +167,7 @@ async def scheduled_mac_discovery():
     from app.database import AsyncSessionLocal
     from app.models.device import Device
     from sqlalchemy import select
-    from app.services.mac_discovery import discover_mac_table
+    from app.services.mac_discovery import discover_mac_table, discover_vlans
 
     SWITCH_TYPES = ("spine", "leaf", "tor", "switch", "access", "distribution", "core", "router")
 
@@ -182,8 +187,49 @@ async def scheduled_mac_discovery():
                 count = await discover_mac_table(device, db)
                 if count > 0:
                     logger.debug(f"MAC discovery {device.hostname}: {count} entries")
+            async with AsyncSessionLocal() as db:
+                await discover_vlans(device, db)
         except Exception as e:
             logger.warning(f"MAC discovery failed for {device.hostname}: {e}")
+
+
+async def scheduled_ping():
+    """Run ICMP ping monitoring for all active devices."""
+    if not await _acquire_scheduler_lock("ping_monitor", ttl_seconds=55):
+        return
+    from app.database import AsyncSessionLocal
+    from app.services.ping_monitor import ping_all_devices
+    async with AsyncSessionLocal() as db:
+        await ping_all_devices(db)
+
+
+async def scheduled_mlag_discovery():
+    """Discover MLAG configuration on switch-type devices."""
+    if not await _acquire_scheduler_lock("mlag_discovery", ttl_seconds=55):
+        return
+    from app.database import AsyncSessionLocal
+    from app.models.device import Device
+    from sqlalchemy import select
+    from app.services.mlag_discovery import discover_mlag
+
+    SWITCH_TYPES = ("spine", "leaf", "tor", "switch", "access", "distribution", "core", "router")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Device).where(
+                Device.is_active == True,
+                Device.polling_enabled == True,
+                Device.device_type.in_(SWITCH_TYPES),
+            )
+        )
+        switches = result.scalars().all()
+
+    for device in switches:
+        try:
+            async with AsyncSessionLocal() as db:
+                await discover_mlag(device, db)
+        except Exception as e:
+            logger.warning(f"MLAG discovery failed for {device.hostname}: {e}")
 
 
 async def scheduled_block_sync():
@@ -239,10 +285,13 @@ async def run_migrations():
         ("cpu_usage",      "FLOAT"),
         ("memory_usage",   "FLOAT"),
         ("flow_enabled",   "BOOLEAN DEFAULT FALSE"),
+        ("rtt_ms",         "FLOAT"),
+        ("packet_loss_pct","FLOAT"),
     ]
 
     interfaces_columns = [
         ("is_wan",  "BOOLEAN DEFAULT FALSE"),
+        ("duplex",  "VARCHAR(10)"),
     ]
 
     # device_locations new columns
@@ -267,6 +316,22 @@ async def run_migrations():
                 )
             except Exception as e:
                 logger.warning("Migration ALTER interfaces.%s skipped: %s", col, e)
+
+        # interface_metrics: broadcast/multicast counters
+        for col, col_type in [
+            ("in_broadcast_pkts", "BIGINT DEFAULT 0"),
+            ("in_multicast_pkts", "BIGINT DEFAULT 0"),
+            ("out_broadcast_pkts", "BIGINT DEFAULT 0"),
+            ("out_multicast_pkts", "BIGINT DEFAULT 0"),
+            ("in_broadcast_pps", "FLOAT DEFAULT 0"),
+            ("in_multicast_pps", "FLOAT DEFAULT 0"),
+        ]:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE interface_metrics ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER interface_metrics.%s skipped: %s", col, e)
 
         # Composite indexes to speed up per-interface and per-device metric lookups
         for idx_sql in [
@@ -695,6 +760,20 @@ async def lifespan(app: FastAPI):
         "interval",
         seconds=60,
         id="block_sync",
+        max_instances=1,
+    )
+    scheduler.add_job(
+        scheduled_ping,
+        "interval",
+        seconds=60,
+        id="ping_monitor",
+        max_instances=1,
+    )
+    scheduler.add_job(
+        scheduled_mlag_discovery,
+        "interval",
+        seconds=60,
+        id="mlag_discovery",
         max_instances=1,
     )
 

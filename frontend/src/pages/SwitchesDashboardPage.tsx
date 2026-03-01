@@ -4,7 +4,7 @@ import { switchesApi } from '../services/api'
 import { Link } from 'react-router-dom'
 import {
   Network, Search, Cpu, HardDrive, AlertTriangle, ArrowUpDown,
-  ChevronUp, ChevronDown, Database,
+  ChevronUp, ChevronDown, Database, Thermometer, Radio,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -29,7 +29,7 @@ function statusDot(status: string) {
   return <span className={`status-dot ${cls}`} />
 }
 
-type SortKey = 'hostname' | 'status' | 'cpu_usage' | 'memory_usage' | 'ports_up' | 'error_ports' | 'total_traffic_bps' | 'uptime'
+type SortKey = 'hostname' | 'status' | 'cpu_usage' | 'memory_usage' | 'ports_up' | 'error_ports' | 'total_traffic_bps' | 'uptime' | 'max_temperature' | 'rtt_ms'
 
 interface SwitchRow {
   id: number
@@ -48,6 +48,9 @@ interface SwitchRow {
   ports_admin_down: number
   error_ports: number
   total_traffic_bps: number
+  max_temperature: number | null
+  rtt_ms: number | null
+  packet_loss_pct: number | null
 }
 
 export default function SwitchesDashboardPage() {
@@ -195,7 +198,7 @@ export default function SwitchesDashboardPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
         <div className="stat-card">
           <div className="stat-card__icon blue"><Network size={18} /></div>
           <div>
@@ -233,6 +236,15 @@ export default function SwitchesDashboardPage() {
             </div>
           </div>
         </div>
+        {(data?.broadcast_storm_ports ?? 0) > 0 && (
+          <div className="stat-card">
+            <div className="stat-card__icon" style={{ background: 'var(--bg-danger)' }}><Radio size={18} /></div>
+            <div>
+              <div className="stat-card__label">Bcast Storms</div>
+              <div className="stat-card__value" style={{ color: '#ef4444' }}>{data.broadcast_storm_ports}</div>
+            </div>
+          </div>
+        )}
         <div className="stat-card">
           <div className="stat-card__icon orange"><Cpu size={18} /></div>
           <div>
@@ -274,6 +286,8 @@ export default function SwitchesDashboardPage() {
                   <ThSort col="memory_usage" label="Memory" />
                   <ThSort col="ports_up" label="Ports" />
                   <ThSort col="error_ports" label="Errors" />
+                  <ThSort col="max_temperature" label="Temp" />
+                  <ThSort col="rtt_ms" label="RTT" />
                   <ThSort col="total_traffic_bps" label="Traffic" />
                 </tr>
               </thead>
@@ -329,6 +343,30 @@ export default function SwitchesDashboardPage() {
                         ) : (
                           <span className="text-light">0</span>
                         )}
+                      </td>
+                      <td>
+                        {sw.max_temperature != null ? (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600,
+                            color: sw.max_temperature > 70 ? '#ef4444' : sw.max_temperature > 55 ? '#f59e0b' : '#22c55e',
+                          }}>
+                            {sw.max_temperature}&deg;C
+                          </span>
+                        ) : <span className="text-light">-</span>}
+                      </td>
+                      <td>
+                        {sw.rtt_ms != null ? (
+                          <span style={{
+                            fontSize: 11,
+                            color: sw.rtt_ms > 100 ? '#ef4444' : sw.rtt_ms > 20 ? '#f59e0b' : '#22c55e',
+                            fontWeight: sw.rtt_ms > 100 ? 600 : 400,
+                          }}>
+                            {sw.rtt_ms}ms
+                            {sw.packet_loss_pct != null && sw.packet_loss_pct > 0 && (
+                              <span style={{ color: '#ef4444', marginLeft: 4 }}>({sw.packet_loss_pct}%)</span>
+                            )}
+                          </span>
+                        ) : <span className="text-light">-</span>}
                       </td>
                       <td style={{ fontSize: 11 }}>{formatBps(sw.total_traffic_bps)}</td>
                     </tr>

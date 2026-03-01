@@ -101,6 +101,10 @@ export const interfacesApi = {
   latest: (id: number) => api.get(`/interfaces/${id}/latest`),
   toggleMonitor: (id: number) => api.patch(`/interfaces/${id}/toggle-monitor`),
   toggleWan: (id: number) => api.patch(`/interfaces/${id}/toggle-wan`),
+  stateHistory: (id: number, hours?: number) =>
+    api.get(`/interfaces/${id}/state-history`, { params: { hours } }),
+  forecast: (id: number, params?: object) =>
+    api.get(`/interfaces/${id}/forecast`, { params }),
   wanList: () => api.get('/interfaces/wan/list'),
   wanMetrics: (params?: object) => api.get('/interfaces/wan/metrics', { params }),
 }
@@ -148,6 +152,12 @@ export const switchesApi = {
   arpTable: (deviceId: number) => api.get(`/switches/${deviceId}/arp-table`),
   discoverMac: (deviceId: number) => api.post(`/switches/${deviceId}/discover-mac`),
   macSearch: (q: string) => api.get('/switches/mac-search', { params: { q } }),
+  environment: (deviceId: number, hours?: number) =>
+    api.get(`/switches/${deviceId}/environment`, { params: { hours } }),
+  vlans: (deviceId: number) => api.get(`/switches/${deviceId}/vlans`),
+  pingMetrics: (deviceId: number, hours?: number) =>
+    api.get(`/switches/${deviceId}/ping-metrics`, { params: { hours } }),
+  mlag: (deviceId: number) => api.get(`/switches/${deviceId}/mlag`),
 }
 
 // Flows

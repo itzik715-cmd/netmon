@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.device import Device
 from app.models.interface import Interface
 from app.models.mac_entry import MacAddressEntry
+from app.models.vlan import DeviceVlan
 from app.services.snmp_poller import snmp_bulk_walk, make_auth_data
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,10 @@ OID_DOT1D_BASE_PORT_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"  # dot1dBasePortIfIndex
 # ARP (IP-MIB)
 OID_IP_NET_TO_MEDIA_PHYS = "1.3.6.1.2.1.4.22.1.2"     # ipNetToMediaPhysAddress
 OID_IP_NET_TO_MEDIA_NET = "1.3.6.1.2.1.4.22.1.3"       # ipNetToMediaNetAddress
+
+# Q-BRIDGE-MIB VLAN info
+OID_DOT1Q_VLAN_STATIC_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"  # dot1qVlanStaticName
+OID_DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"               # dot1qPvid (port → native VLAN)
 
 # Top OUI prefixes (first 3 bytes of MAC) → vendor name
 # This is a compact set of the most common vendors in datacenter/enterprise
@@ -339,6 +345,85 @@ async def discover_mac_table(device: Device, db: AsyncSession) -> int:
 
     except Exception as e:
         logger.error(f"[{device.hostname}] MAC discovery error: {e}")
+        await db.rollback()
+        return 0
+    finally:
+        try:
+            engine.close_dispatcher()
+        except Exception:
+            pass
+
+
+async def discover_vlans(device: Device, db: AsyncSession) -> int:
+    """
+    Discover VLANs on a switch via Q-BRIDGE-MIB.
+    Returns count of VLANs discovered/updated.
+    """
+    engine = SnmpEngine()
+    try:
+        # Walk VLAN names
+        vlan_names = await snmp_bulk_walk(device, OID_DOT1Q_VLAN_STATIC_NAME, engine)
+        if not vlan_names:
+            return 0
+
+        # Get interface list for port name resolution
+        ifaces = (await db.execute(
+            select(Interface).where(Interface.device_id == device.id)
+        )).scalars().all()
+        ifindex_to_name = {i.if_index: i.name for i in ifaces if i.if_index}
+
+        # Walk dot1qPvid (port → native VLAN) for untagged port mapping
+        pvid_data = await snmp_bulk_walk(device, OID_DOT1Q_PVID, engine)
+        vlan_untagged: Dict[int, list] = {}
+        for oid, vid in pvid_data.items():
+            try:
+                port_idx = int(oid.split(".")[-1])
+                vlan_id = int(vid)
+                port_name = ifindex_to_name.get(port_idx, f"port-{port_idx}")
+                vlan_untagged.setdefault(vlan_id, []).append(port_name)
+            except (ValueError, TypeError):
+                continue
+
+        count = 0
+        now = datetime.now(timezone.utc)
+
+        for oid, name_val in vlan_names.items():
+            try:
+                vlan_id = int(oid.split(".")[-1])
+            except (ValueError, TypeError):
+                continue
+
+            vlan_name = str(name_val).strip() or f"VLAN{vlan_id}"
+            untagged = vlan_untagged.get(vlan_id, [])
+
+            existing = (await db.execute(
+                select(DeviceVlan).where(
+                    DeviceVlan.device_id == device.id,
+                    DeviceVlan.vlan_id == vlan_id,
+                )
+            )).scalar_one_or_none()
+
+            if existing:
+                existing.vlan_name = vlan_name
+                existing.untagged_ports = json.dumps(untagged) if untagged else existing.untagged_ports
+                existing.updated_at = now
+            else:
+                db.add(DeviceVlan(
+                    device_id=device.id,
+                    vlan_id=vlan_id,
+                    vlan_name=vlan_name,
+                    status="active",
+                    untagged_ports=json.dumps(untagged) if untagged else None,
+                    updated_at=now,
+                ))
+            count += 1
+
+        await db.commit()
+        logger.info(f"[{device.hostname}] VLAN discovery: {count} VLANs upserted")
+        return count
+
+    except Exception as e:
+        logger.error(f"[{device.hostname}] VLAN discovery error: {e}")
         await db.rollback()
         return 0
     finally:

@@ -2,7 +2,7 @@ import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, interfacesApi, topologyApi, switchesApi } from '../services/api'
 import { Interface, DeviceRoute } from '../types'
-import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings, AlertTriangle, Database, Download } from 'lucide-react'
+import { Activity, ArrowLeft, Filter, RefreshCw, Search, Map, BarChart2, Settings, AlertTriangle, Database, Download, Thermometer, Fan, Zap } from 'lucide-react'
 import EditDeviceModal from '../components/forms/EditDeviceModal'
 import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns'
 import { useState, useRef, useEffect, useMemo } from 'react'
@@ -11,7 +11,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
-type Tab = 'interfaces' | 'routes' | 'metrics' | 'mac'
+type Tab = 'interfaces' | 'routes' | 'metrics' | 'mac' | 'environment' | 'vlans' | 'mlag'
 
 const SWITCH_TYPES = ['spine', 'leaf', 'tor', 'switch', 'access', 'distribution', 'core', 'router']
 
@@ -23,6 +23,7 @@ interface PortSummary {
   speed: number | null
   admin_status: string | null
   oper_status: string | null
+  duplex: string | null
   vlan_id: number | null
   ip_address: string | null
   mac_address: string | null
@@ -41,6 +42,10 @@ interface PortSummary {
   out_errors_total: number
   in_discards_total: number
   out_discards_total: number
+  in_broadcast_pps: number
+  in_multicast_pps: number
+  flap_count: number
+  is_flapping: boolean
 }
 type StatusVal = '' | 'up' | 'down'
 
@@ -258,6 +263,29 @@ export default function DeviceDetailPage() {
         setTimeout(() => qc.invalidateQueries({ queryKey: ['mac-table', deviceId] }), delay)
       )
     },
+  })
+
+  // MLAG data
+  const { data: mlagData, isLoading: mlagLoading } = useQuery({
+    queryKey: ['device-mlag', deviceId],
+    queryFn: () => switchesApi.mlag(deviceId).then(r => r.data),
+    enabled: isSwitch && (tab === 'mlag' || tab === 'interfaces'),
+  })
+
+  // VLANs data
+  const { data: vlansData, isLoading: vlansLoading } = useQuery({
+    queryKey: ['device-vlans', deviceId],
+    queryFn: () => switchesApi.vlans(deviceId).then(r => r.data),
+    enabled: isSwitch && tab === 'vlans',
+  })
+
+  // Environment data (temperature, fan, PSU)
+  const [envHours, setEnvHours] = useState(24)
+  const { data: envData, isLoading: envLoading } = useQuery({
+    queryKey: ['device-environment', deviceId, envHours],
+    queryFn: () => switchesApi.environment(deviceId, envHours).then(r => r.data),
+    enabled: isSwitch && tab === 'environment',
+    refetchInterval: tab === 'environment' ? 60_000 : false,
   })
 
   const pollMutation = useMutation({
@@ -479,6 +507,22 @@ export default function DeviceDetailPage() {
             MAC Table {macData ? `(${macData.total})` : ''}
           </button>
         )}
+        {isSwitch && (
+          <button className={`tab-btn${tab === 'vlans' ? ' active' : ''}`} onClick={() => setTab('vlans')}>
+            VLANs {vlansData ? `(${vlansData.length})` : ''}
+          </button>
+        )}
+        {isSwitch && mlagData?.domain && (
+          <button className={`tab-btn${tab === 'mlag' ? ' active' : ''}`} onClick={() => setTab('mlag')}>
+            MLAG
+          </button>
+        )}
+        {isSwitch && (
+          <button className={`tab-btn${tab === 'environment' ? ' active' : ''}`} onClick={() => setTab('environment')}>
+            <Thermometer size={13} />
+            Environment
+          </button>
+        )}
       </div>
 
       {/* Interfaces tab */}
@@ -591,10 +635,13 @@ export default function DeviceDetailPage() {
                       />
                     </FilterTh>
 
+                    {isSwitch && <th>Duplex</th>}
                     <th>Utilization</th>
                     {isSwitch && <th>In Errors</th>}
                     {isSwitch && <th>Out Errors</th>}
                     {isSwitch && <th>Discards</th>}
+                    {isSwitch && <th>Bcast</th>}
+                    {isSwitch && <th>Flaps</th>}
                     <th>IP Address</th>
                     <th>VLAN</th>
                     <th></th>
@@ -629,6 +676,15 @@ export default function DeviceDetailPage() {
                             ? <span className={iface.oper_status === 'up' ? 'tag-green' : 'tag-red'}>{iface.oper_status}</span>
                             : <span className="tag-gray">—</span>}
                         </td>
+                        {isSwitch && (
+                          <td>
+                            {ps?.duplex ? (
+                              <span className={ps.duplex === 'half' ? 'tag-red' : ps.duplex === 'full' ? 'tag-green' : 'tag-gray'}>
+                                {ps.duplex}
+                              </span>
+                            ) : <span className="text-light text-sm">—</span>}
+                          </td>
+                        )}
                         <td>
                           {pct != null && utilColor != null ? (
                             <div className="util-bar">
@@ -665,6 +721,31 @@ export default function DeviceDetailPage() {
                               : <span className="text-light text-sm">{ps ? (ps.in_discards_total + ps.out_discards_total).toLocaleString() : '—'}</span>}
                           </td>
                         )}
+                        {isSwitch && (
+                          <td>
+                            {ps && ps.in_broadcast_pps > 0 ? (
+                              <span style={{
+                                color: ps.in_broadcast_pps > 1000 ? '#ef4444' : 'var(--text-muted)',
+                                fontWeight: ps.in_broadcast_pps > 1000 ? 600 : 400,
+                                fontSize: 12,
+                              }}>
+                                {ps.in_broadcast_pps > 1000 ? `${Math.round(ps.in_broadcast_pps)} pps` : `${Math.round(ps.in_broadcast_pps)}`}
+                              </span>
+                            ) : <span className="text-light text-sm">0</span>}
+                          </td>
+                        )}
+                        {isSwitch && (
+                          <td>
+                            {ps && ps.flap_count > 0 ? (
+                              <span style={{
+                                color: ps.is_flapping ? '#ef4444' : '#f59e0b',
+                                fontWeight: 600, fontSize: 12,
+                              }}>
+                                {ps.flap_count}{ps.is_flapping ? ' !!!' : ''}
+                              </span>
+                            ) : <span className="text-light text-sm">0</span>}
+                          </td>
+                        )}
                         <td className="mono text-sm text-muted">{iface.ip_address || '—'}</td>
                         <td className="text-muted">{iface.vlan_id || '—'}</td>
                         <td>
@@ -674,7 +755,7 @@ export default function DeviceDetailPage() {
                     )
                   })}
                   {pagedIfs.length === 0 && (
-                    <tr><td colSpan={isSwitch ? 12 : 9} className="empty-table-cell">
+                    <tr><td colSpan={isSwitch ? 15 : 9} className="empty-table-cell">
                       {interfaces?.length === 0
                         ? 'No interfaces discovered. Click "Discover Interfaces" to scan.'
                         : 'No interfaces match the active filters'}
@@ -1006,6 +1087,309 @@ export default function DeviceDetailPage() {
               )}
             </>
           )}
+        </div>
+      )}
+      {/* MLAG tab */}
+      {tab === 'mlag' && isSwitch && mlagData?.domain && (
+        <div className="flex-col-gap">
+          {/* Peer status card */}
+          <div className="card">
+            <div className="card-header"><h3>MLAG Domain</h3></div>
+            <div className="card-body">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
+                <div>
+                  <div className="text-xs text-muted">Domain ID</div>
+                  <div style={{ fontWeight: 600 }}>{mlagData.domain.domain_id || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Protocol</div>
+                  <div style={{ fontWeight: 600, textTransform: 'uppercase' }}>{mlagData.domain.vendor_protocol}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Local Role</div>
+                  <div style={{ fontWeight: 600 }}>{mlagData.domain.local_role || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Peer Status</div>
+                  <span className={mlagData.domain.peer_status === 'active' ? 'tag-green' : 'tag-red'}>
+                    {mlagData.domain.peer_status}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Config Sanity</div>
+                  <span className={mlagData.domain.config_sanity === 'consistent' ? 'tag-green' : 'tag-red'}>
+                    {mlagData.domain.config_sanity}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Peer Link</div>
+                  <div className="mono text-sm">{mlagData.domain.peer_link || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">Peer Address</div>
+                  <div className="mono text-sm">{mlagData.domain.peer_address || '-'}</div>
+                </div>
+              </div>
+
+              {/* Port summary */}
+              <div style={{ display: 'flex', gap: 24, marginTop: 20 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#3b82f6' }}>{mlagData.domain.ports_configured}</div>
+                  <div className="text-xs text-muted">Configured</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#22c55e' }}>{mlagData.domain.ports_active}</div>
+                  <div className="text-xs text-muted">Active</div>
+                </div>
+                {mlagData.domain.ports_errdisabled > 0 && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: '#ef4444' }}>{mlagData.domain.ports_errdisabled}</div>
+                    <div className="text-xs text-muted">Err-Disabled</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* MLAG Interfaces table */}
+          {mlagData.interfaces.length > 0 && (
+            <div className="card">
+              <div className="card-header"><h3>MLAG Interfaces ({mlagData.interfaces.length})</h3></div>
+              <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>MLAG ID</th>
+                      <th>Interface</th>
+                      <th>Local Status</th>
+                      <th>Remote Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mlagData.interfaces.map((i: any) => {
+                      const localOk = i.local_status?.includes('active')
+                      const remoteOk = i.remote_status?.includes('active')
+                      return (
+                        <tr key={i.id}>
+                          <td style={{ fontWeight: 600 }}>{i.mlag_id}</td>
+                          <td className="mono text-sm">{i.interface_name}</td>
+                          <td>
+                            <span className={localOk ? 'tag-green' : 'tag-red'}>{i.local_status}</span>
+                          </td>
+                          <td>
+                            <span className={remoteOk ? 'tag-green' : i.remote_status === 'n/a' ? 'tag-gray' : 'tag-red'}>
+                              {i.remote_status}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VLANs tab */}
+      {tab === 'vlans' && isSwitch && (
+        <div className="card">
+          <div className="card-header">
+            <h3>VLANs</h3>
+          </div>
+          {vlansLoading ? (
+            <div className="empty-state card-body"><p>Loading VLANs...</p></div>
+          ) : !vlansData || vlansData.length === 0 ? (
+            <div className="empty-state card-body"><p>No VLANs discovered yet.</p></div>
+          ) : (
+            <div className="card-body" style={{ padding: 0, overflow: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>VLAN ID</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Untagged Ports</th>
+                    <th>MAC Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vlansData.map((v: any) => (
+                    <tr key={v.id}>
+                      <td style={{ fontWeight: 600 }}>{v.vlan_id}</td>
+                      <td>{v.vlan_name || '-'}</td>
+                      <td>
+                        <span className={v.status === 'active' ? 'tag-green' : 'tag-gray'}>{v.status}</span>
+                      </td>
+                      <td>
+                        {v.untagged_ports?.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {v.untagged_ports.slice(0, 10).map((p: string) => (
+                              <span key={p} className="tag-gray" style={{ fontSize: 11 }}>{p}</span>
+                            ))}
+                            {v.untagged_ports.length > 10 && (
+                              <span className="text-muted text-xs">+{v.untagged_ports.length - 10} more</span>
+                            )}
+                          </div>
+                        ) : <span className="text-light">-</span>}
+                      </td>
+                      <td>{v.mac_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Environment tab */}
+      {tab === 'environment' && isSwitch && (
+        <div className="flex-col-gap">
+          {/* Temperature chart */}
+          <div className="card">
+            <div className="card-header">
+              <Thermometer size={15} />
+              <h3>Temperature History</h3>
+              <div className="card__actions">
+                {[6, 12, 24, 48, 72, 168].map(h => (
+                  <button
+                    key={h}
+                    className={`btn btn-sm ${envHours === h ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setEnvHours(h)}
+                  >
+                    {h <= 24 ? `${h}h` : `${h / 24}d`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="card-body">
+              {envLoading ? (
+                <div className="empty-state"><p>Loading...</p></div>
+              ) : !envData?.metrics?.length ? (
+                <div className="empty-state"><p>No temperature data available yet.</p></div>
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={(() => {
+                    // Group metrics by sensor name
+                    const sensorNames = [...new Set(envData.metrics.map((m: any) => m.sensor_name))]
+                    const timeMap: Record<string, any> = {}
+                    for (const m of envData.metrics) {
+                      const t = m.timestamp
+                      if (!timeMap[t]) timeMap[t] = { time: new Date(t).toLocaleString() }
+                      timeMap[t][m.sensor_name] = m.value
+                    }
+                    return Object.values(timeMap)
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                    <YAxis unit="\u00b0C" tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend />
+                    {[...new Set(envData.metrics.map((m: any) => m.sensor_name))].map((name: any, i: number) => {
+                      const colors = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899']
+                      return <Line key={name} type="monotone" dataKey={name} stroke={colors[i % colors.length]} dot={false} strokeWidth={2} />
+                    })}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* Sensor status grids */}
+          {envData && envData.sensors && envData.sensors.length > 0 && (() => {
+            const temps = envData.sensors.filter((s: any) => s.sensor_type === 'temperature')
+            const fans = envData.sensors.filter((s: any) => s.sensor_type === 'fan')
+            const psus = envData.sensors.filter((s: any) => s.sensor_type === 'psu')
+            return (
+              <>
+                {/* Temperature sensors */}
+                {temps.length > 0 && (
+                  <div className="card">
+                    <div className="card-header"><Thermometer size={14} /><h3>Temperature Sensors ({temps.length})</h3></div>
+                    <div className="card-body">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                        {temps.map((s: any) => {
+                          const color = s.status === 'critical' ? '#ef4444' : s.status === 'warning' ? '#f59e0b' : '#22c55e'
+                          return (
+                            <div key={s.id} style={{
+                              padding: '12px 16px', borderRadius: 8,
+                              border: `1px solid ${color}33`, background: `${color}08`,
+                            }}>
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{s.sensor_name}</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color }}>
+                                {s.value != null ? `${s.value.toFixed(1)}\u00b0C` : 'N/A'}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.status || 'unknown'}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fan status */}
+                {fans.length > 0 && (
+                  <div className="card">
+                    <div className="card-header"><Fan size={14} /><h3>Fan Status ({fans.length})</h3></div>
+                    <div className="card-body">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+                        {fans.map((s: any) => {
+                          const color = s.status === 'ok' ? '#22c55e' : s.status === 'warning' ? '#f59e0b' : '#ef4444'
+                          return (
+                            <div key={s.id} style={{
+                              padding: '12px 16px', borderRadius: 8,
+                              border: `1px solid ${color}33`, background: `${color}08`,
+                              display: 'flex', alignItems: 'center', gap: 12,
+                            }}>
+                              <Fan size={20} style={{ color }} />
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 600 }}>{s.sensor_name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {s.value != null ? `${s.value} ${s.unit || 'RPM'}` : s.status || 'unknown'}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PSU status */}
+                {psus.length > 0 && (
+                  <div className="card">
+                    <div className="card-header"><Zap size={14} /><h3>Power Supplies ({psus.length})</h3></div>
+                    <div className="card-body">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                        {psus.map((s: any) => {
+                          const color = s.status === 'ok' ? '#22c55e' : s.status === 'warning' ? '#f59e0b' : '#ef4444'
+                          return (
+                            <div key={s.id} style={{
+                              padding: '12px 16px', borderRadius: 8,
+                              border: `1px solid ${color}33`, background: `${color}08`,
+                              display: 'flex', alignItems: 'center', gap: 12,
+                            }}>
+                              <Zap size={20} style={{ color }} />
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 600 }}>{s.sensor_name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                  {s.value != null ? `${s.value} ${s.unit || 'W'}` : ''} {s.status || 'unknown'}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
     </div>

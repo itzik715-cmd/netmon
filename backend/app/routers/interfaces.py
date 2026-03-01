@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sqlfunc
 from typing import List, Optional
@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.interface import Interface, InterfaceMetric
 from app.models.device import Device
 from app.models.settings import SystemSetting
+from app.models.port_state import PortStateChange
 from app.middleware.rbac import get_current_user
 from app.schemas.interface import InterfaceResponse, InterfaceMetricResponse
 from app.models.user import User
@@ -259,6 +260,21 @@ async def get_port_summary(
 
     iface_ids = [i.id for i in ifaces]
 
+    # Flap detection: count state changes per interface in last 10 minutes
+    flap_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    flap_q = (await db.execute(
+        select(
+            PortStateChange.interface_id,
+            sqlfunc.count(PortStateChange.id).label("flap_count"),
+        )
+        .where(
+            PortStateChange.interface_id.in_(iface_ids),
+            PortStateChange.changed_at >= flap_cutoff,
+        )
+        .group_by(PortStateChange.interface_id)
+    )).all()
+    flap_map = {r.interface_id: r.flap_count for r in flap_q}
+
     # Get latest 2 metrics per interface using a window function
     from sqlalchemy import text
     # Use raw SQL for the window function — cleaner than SQLAlchemy for ROW_NUMBER
@@ -315,6 +331,7 @@ async def get_port_summary(
             "speed": iface.speed,
             "admin_status": iface.admin_status,
             "oper_status": latest["oper_status"] if latest else iface.oper_status,
+            "duplex": iface.duplex,
             "vlan_id": iface.vlan_id,
             "ip_address": iface.ip_address,
             "mac_address": iface.mac_address,
@@ -333,6 +350,10 @@ async def get_port_summary(
             "out_errors_total": latest["out_errors"] or 0 if latest else 0,
             "in_discards_total": latest["in_discards"] or 0 if latest else 0,
             "out_discards_total": latest["out_discards"] or 0 if latest else 0,
+            "in_broadcast_pps": round(latest.get("in_broadcast_pps") or 0, 1) if latest else 0,
+            "in_multicast_pps": round(latest.get("in_multicast_pps") or 0, 1) if latest else 0,
+            "flap_count": flap_map.get(iface.id, 0),
+            "is_flapping": flap_map.get(iface.id, 0) > 5,
         })
 
     return result
@@ -431,3 +452,152 @@ async def toggle_wan(
     iface.is_wan = not iface.is_wan
     await db.commit()
     return {"interface_id": interface_id, "is_wan": iface.is_wan}
+
+
+@router.get("/{interface_id}/forecast")
+async def get_forecast(
+    interface_id: int,
+    days_history: int = Query(90, ge=7, le=365),
+    forecast_days: int = Query(90, ge=7, le=365),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    Forecast bandwidth utilization using linear regression on daily peaks.
+    Returns historical daily peaks, trend line, projections, and days until 80%.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days_history)
+
+    # Get all metrics for this interface over the history period
+    result = await db.execute(
+        select(InterfaceMetric.timestamp, InterfaceMetric.utilization_in, InterfaceMetric.utilization_out)
+        .where(
+            InterfaceMetric.interface_id == interface_id,
+            InterfaceMetric.timestamp >= cutoff,
+        )
+        .order_by(InterfaceMetric.timestamp)
+    )
+    metrics = result.all()
+
+    if len(metrics) < 10:
+        return {"error": "Insufficient data for forecasting", "data_points": len(metrics)}
+
+    # Downsample to daily peaks
+    daily_peaks: dict[str, dict] = {}
+    for ts, util_in, util_out in metrics:
+        day = ts.strftime("%Y-%m-%d")
+        if day not in daily_peaks:
+            daily_peaks[day] = {"in": 0, "out": 0}
+        daily_peaks[day]["in"] = max(daily_peaks[day]["in"], util_in or 0)
+        daily_peaks[day]["out"] = max(daily_peaks[day]["out"], util_out or 0)
+
+    if len(daily_peaks) < 3:
+        return {"error": "Insufficient daily data for forecasting", "data_points": len(daily_peaks)}
+
+    # Sort by date and assign day numbers (0, 1, 2, ...)
+    sorted_days = sorted(daily_peaks.keys())
+    base_date = datetime.strptime(sorted_days[0], "%Y-%m-%d")
+    x_vals = [(datetime.strptime(d, "%Y-%m-%d") - base_date).days for d in sorted_days]
+    y_in = [daily_peaks[d]["in"] for d in sorted_days]
+    y_out = [daily_peaks[d]["out"] for d in sorted_days]
+
+    # Pure Python linear regression: y = slope * x + intercept
+    def linear_regression(x: list, y: list):
+        n = len(x)
+        if n == 0:
+            return 0, 0, 0
+        sum_x = sum(x)
+        sum_y = sum(y)
+        sum_xy = sum(xi * yi for xi, yi in zip(x, y))
+        sum_x2 = sum(xi ** 2 for xi in x)
+        denom = n * sum_x2 - sum_x ** 2
+        if denom == 0:
+            return 0, sum_y / n if n else 0, 0
+        slope = (n * sum_xy - sum_x * sum_y) / denom
+        intercept = (sum_y - slope * sum_x) / n
+
+        # R-squared
+        y_mean = sum_y / n
+        ss_tot = sum((yi - y_mean) ** 2 for yi in y)
+        ss_res = sum((yi - (slope * xi + intercept)) ** 2 for xi, yi in zip(x, y))
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+        return slope, intercept, r_squared
+
+    slope_in, intercept_in, r2_in = linear_regression(x_vals, y_in)
+    slope_out, intercept_out, r2_out = linear_regression(x_vals, y_out)
+
+    # Project at +30, +60, +90 days from last data point
+    last_x = x_vals[-1]
+    projections = {}
+    for delta in [30, 60, 90]:
+        proj_x = last_x + delta
+        projections[f"+{delta}d"] = {
+            "utilization_in": round(max(0, min(100, slope_in * proj_x + intercept_in)), 1),
+            "utilization_out": round(max(0, min(100, slope_out * proj_x + intercept_out)), 1),
+        }
+
+    # Days until 80% utilization
+    def days_until_threshold(slope, intercept, threshold=80.0):
+        if slope <= 0:
+            return None
+        x_target = (threshold - intercept) / slope
+        days_from_last = x_target - last_x
+        return max(0, round(days_from_last))
+
+    days_until_80_in = days_until_threshold(slope_in, intercept_in)
+    days_until_80_out = days_until_threshold(slope_out, intercept_out)
+
+    # Build historical daily array
+    historical = [
+        {
+            "date": d,
+            "peak_in": round(daily_peaks[d]["in"], 1),
+            "peak_out": round(daily_peaks[d]["out"], 1),
+            "trend_in": round(max(0, slope_in * x + intercept_in), 1),
+            "trend_out": round(max(0, slope_out * x + intercept_out), 1),
+        }
+        for d, x in zip(sorted_days, x_vals)
+    ]
+
+    return {
+        "historical_daily": historical,
+        "trend": {
+            "in": {"slope": round(slope_in, 4), "intercept": round(intercept_in, 2)},
+            "out": {"slope": round(slope_out, 4), "intercept": round(intercept_out, 2)},
+        },
+        "projections": projections,
+        "days_until_80_in": days_until_80_in,
+        "days_until_80_out": days_until_80_out,
+        "r_squared": {"in": round(r2_in, 3), "out": round(r2_out, 3)},
+        "data_points": len(daily_peaks),
+    }
+
+
+@router.get("/{interface_id}/state-history")
+async def get_state_history(
+    interface_id: int,
+    hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return port state change history for flap detection timeline."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = await db.execute(
+        select(PortStateChange)
+        .where(
+            PortStateChange.interface_id == interface_id,
+            PortStateChange.changed_at >= cutoff,
+        )
+        .order_by(PortStateChange.changed_at.desc())
+    )
+    changes = result.scalars().all()
+    return [
+        {
+            "id": c.id,
+            "old_status": c.old_status,
+            "new_status": c.new_status,
+            "changed_at": c.changed_at.isoformat() if c.changed_at else None,
+        }
+        for c in changes
+    ]

@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_
+from sqlalchemy import func as sqlfunc
 from app.models.alert import AlertRule, AlertEvent
 from app.models.device import Device
 from app.models.interface import Interface, InterfaceMetric
@@ -108,6 +109,127 @@ async def get_metric_value(rule: AlertRule, db: AsyncSession) -> Optional[float]
             return 0.0 if m.oper_status == "up" else 1.0
         elif metric == "if_errors":
             return float((m.in_errors or 0) + (m.out_errors or 0))
+
+    elif metric == "mlag_peer_status":
+        if not rule.device_id:
+            return None
+        from app.models.mlag import MlagDomain
+        result = await db.execute(
+            select(MlagDomain).where(MlagDomain.device_id == rule.device_id)
+        )
+        domain = result.scalar_one_or_none()
+        if not domain:
+            return None
+        return 0.0 if domain.peer_status == "active" else 1.0
+
+    elif metric == "mlag_config_sanity":
+        if not rule.device_id:
+            return None
+        from app.models.mlag import MlagDomain
+        result = await db.execute(
+            select(MlagDomain).where(MlagDomain.device_id == rule.device_id)
+        )
+        domain = result.scalar_one_or_none()
+        if not domain:
+            return None
+        return 0.0 if domain.config_sanity == "consistent" else 1.0
+
+    elif metric == "device_rtt":
+        if not rule.device_id:
+            return None
+        result = await db.execute(select(Device).where(Device.id == rule.device_id))
+        device = result.scalar_one_or_none()
+        if not device or device.rtt_ms is None:
+            return None
+        return float(device.rtt_ms)
+
+    elif metric == "device_packet_loss":
+        if not rule.device_id:
+            return None
+        result = await db.execute(select(Device).where(Device.id == rule.device_id))
+        device = result.scalar_one_or_none()
+        if not device or device.packet_loss_pct is None:
+            return None
+        return float(device.packet_loss_pct)
+
+    elif metric == "device_temperature":
+        if not rule.device_id:
+            return None
+        from app.models.environment import DeviceEnvironment
+        result = await db.execute(
+            select(sqlfunc.max(DeviceEnvironment.value)).where(
+                DeviceEnvironment.device_id == rule.device_id,
+                DeviceEnvironment.sensor_type == "temperature",
+            )
+        )
+        return _safe_float(result.scalar())
+
+    elif metric == "device_fan_status":
+        if not rule.device_id:
+            return None
+        from app.models.environment import DeviceEnvironment
+        result = await db.execute(
+            select(DeviceEnvironment).where(
+                DeviceEnvironment.device_id == rule.device_id,
+                DeviceEnvironment.sensor_type == "fan",
+                DeviceEnvironment.status != "ok",
+            )
+        )
+        fans_bad = result.scalars().all()
+        return 1.0 if fans_bad else 0.0
+
+    elif metric == "device_psu_status":
+        if not rule.device_id:
+            return None
+        from app.models.environment import DeviceEnvironment
+        result = await db.execute(
+            select(DeviceEnvironment).where(
+                DeviceEnvironment.device_id == rule.device_id,
+                DeviceEnvironment.sensor_type == "psu",
+                DeviceEnvironment.status != "ok",
+            )
+        )
+        psu_bad = result.scalars().all()
+        return 1.0 if psu_bad else 0.0
+
+    elif metric == "if_broadcast_rate":
+        if not rule.interface_id:
+            return None
+        result = await db.execute(
+            select(InterfaceMetric)
+            .where(InterfaceMetric.interface_id == rule.interface_id)
+            .order_by(InterfaceMetric.timestamp.desc())
+            .limit(1)
+        )
+        m = result.scalar_one_or_none()
+        if not m:
+            return None
+        return _safe_float(getattr(m, 'in_broadcast_pps', None))
+
+    elif metric == "if_flapping":
+        if not rule.interface_id:
+            return None
+        from app.models.port_state import PortStateChange
+        from datetime import timedelta as td
+        flap_cutoff = datetime.now(timezone.utc) - td(minutes=10)
+        result = await db.execute(
+            select(sqlfunc.count(PortStateChange.id)).where(
+                PortStateChange.interface_id == rule.interface_id,
+                PortStateChange.changed_at >= flap_cutoff,
+            )
+        )
+        return _safe_float(result.scalar())
+
+    elif metric == "if_duplex_mismatch":
+        if not rule.interface_id:
+            return None
+        iface_result = await db.execute(
+            select(Interface).where(Interface.id == rule.interface_id)
+        )
+        iface = iface_result.scalar_one_or_none()
+        if not iface or not iface.duplex:
+            return None
+        return 1.0 if iface.duplex == "half" else 0.0
 
     elif metric.startswith("pdu_"):
         if not rule.device_id:

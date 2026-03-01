@@ -24,6 +24,7 @@ class Interface(Base):
     is_uplink = Column(Boolean, default=False)
     is_monitored = Column(Boolean, default=True)
     is_wan = Column(Boolean, default=False)
+    duplex = Column(String(10))   # full, half, auto, unknown
     last_change = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -54,6 +55,12 @@ class InterfaceMetric(Base):
     utilization_in = Column(Float, default=0.0)   # percentage
     utilization_out = Column(Float, default=0.0)
     oper_status = Column(String(20))
+    in_broadcast_pkts = Column(BigInteger, default=0)
+    in_multicast_pkts = Column(BigInteger, default=0)
+    out_broadcast_pkts = Column(BigInteger, default=0)
+    out_multicast_pkts = Column(BigInteger, default=0)
+    in_broadcast_pps = Column(Float, default=0.0)
+    in_multicast_pps = Column(Float, default=0.0)
 
     interface = relationship("Interface", back_populates="metrics")
 

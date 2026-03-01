@@ -10,6 +10,10 @@ from app.database import get_db
 from app.models.device import Device, DeviceLocation
 from app.models.interface import Interface, InterfaceMetric
 from app.models.mac_entry import MacAddressEntry
+from app.models.environment import DeviceEnvironment, DeviceEnvMetric
+from app.models.vlan import DeviceVlan
+from app.models.ping import PingMetric
+from app.models.mlag import MlagDomain, MlagInterface
 from app.middleware.rbac import get_current_user
 from app.models.user import User
 
@@ -94,9 +98,10 @@ async def switches_dashboard(
     for iid, did in iface_rows:
         iface_to_device[iid] = did
 
-    # Aggregate per device: total traffic, error port count
+    # Aggregate per device: total traffic, error port count, broadcast storm ports
     device_traffic: dict[int, float] = {}
     device_error_ports: dict[int, int] = {}
+    device_bcast_storm_ports: dict[int, int] = {}
     for m in latest_metrics:
         did = iface_to_device.get(m.interface_id)
         if did is None:
@@ -104,8 +109,25 @@ async def switches_dashboard(
         device_traffic[did] = device_traffic.get(did, 0) + (m.in_bps or 0) + (m.out_bps or 0)
         if (m.in_errors or 0) > 0 or (m.out_errors or 0) > 0:
             device_error_ports[did] = device_error_ports.get(did, 0) + 1
+        bcast_pps = getattr(m, 'in_broadcast_pps', None) or 0
+        if bcast_pps > 1000:
+            device_bcast_storm_ports[did] = device_bcast_storm_ports.get(did, 0) + 1
 
-    # 4. Build response
+    # 4. Max temperature per device
+    temp_q = (await db.execute(
+        select(
+            DeviceEnvironment.device_id,
+            sqlfunc.max(DeviceEnvironment.value).label("max_temp"),
+        )
+        .where(
+            DeviceEnvironment.device_id.in_(device_ids),
+            DeviceEnvironment.sensor_type == "temperature",
+        )
+        .group_by(DeviceEnvironment.device_id)
+    )).all()
+    device_max_temp = {r.device_id: r.max_temp for r in temp_q}
+
+    # 5. Build response
     switches = []
     total_up = total_down = total_degraded = 0
     cpu_vals = []
@@ -148,7 +170,12 @@ async def switches_dashboard(
             "ports_admin_down": ps["admin_down"],
             "error_ports": ep,
             "total_traffic_bps": round(device_traffic.get(device.id, 0), 0),
+            "max_temperature": round(device_max_temp[device.id], 1) if device.id in device_max_temp else None,
+            "rtt_ms": round(device.rtt_ms, 1) if device.rtt_ms is not None else None,
+            "packet_loss_pct": round(device.packet_loss_pct, 1) if device.packet_loss_pct is not None else None,
         })
+
+    grand_bcast_storm = sum(device_bcast_storm_ports.values())
 
     return {
         "total": len(rows),
@@ -157,10 +184,182 @@ async def switches_dashboard(
         "degraded": total_degraded,
         "total_ports": grand_total_ports,
         "error_ports": grand_error_ports,
+        "broadcast_storm_ports": grand_bcast_storm,
         "avg_cpu": round(sum(cpu_vals) / len(cpu_vals), 1) if cpu_vals else 0,
         "avg_memory": round(sum(mem_vals) / len(mem_vals), 1) if mem_vals else 0,
         "switches": switches,
     }
+
+
+@router.get("/{device_id}/environment")
+async def get_environment(
+    device_id: int,
+    hours: int = Query(24, ge=1, le=168),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return current environment sensors + temperature time-series for a device."""
+    # Current sensor states
+    sensors_result = await db.execute(
+        select(DeviceEnvironment)
+        .where(DeviceEnvironment.device_id == device_id)
+        .order_by(DeviceEnvironment.sensor_type, DeviceEnvironment.sensor_name)
+    )
+    sensors = sensors_result.scalars().all()
+
+    # Temperature time-series
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    metrics_result = await db.execute(
+        select(DeviceEnvMetric)
+        .where(
+            DeviceEnvMetric.device_id == device_id,
+            DeviceEnvMetric.sensor_type == "temperature",
+            DeviceEnvMetric.timestamp >= cutoff,
+        )
+        .order_by(DeviceEnvMetric.timestamp)
+    )
+    metrics = metrics_result.scalars().all()
+
+    return {
+        "sensors": [
+            {
+                "id": s.id,
+                "sensor_name": s.sensor_name,
+                "sensor_type": s.sensor_type,
+                "value": s.value,
+                "status": s.status,
+                "unit": s.unit,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            }
+            for s in sensors
+        ],
+        "metrics": [
+            {
+                "sensor_name": m.sensor_name,
+                "value": m.value,
+                "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+            }
+            for m in metrics
+        ],
+    }
+
+
+@router.get("/{device_id}/vlans")
+async def get_vlans(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return discovered VLANs for a switch with MAC count per VLAN."""
+    import json as _json
+
+    vlans = (await db.execute(
+        select(DeviceVlan)
+        .where(DeviceVlan.device_id == device_id)
+        .order_by(DeviceVlan.vlan_id)
+    )).scalars().all()
+
+    # Get MAC count per VLAN
+    mac_counts = (await db.execute(
+        select(
+            MacAddressEntry.vlan_id,
+            sqlfunc.count(MacAddressEntry.id).label("cnt"),
+        )
+        .where(
+            MacAddressEntry.device_id == device_id,
+            MacAddressEntry.vlan_id.isnot(None),
+        )
+        .group_by(MacAddressEntry.vlan_id)
+    )).all()
+    mac_count_map = {r.vlan_id: r.cnt for r in mac_counts}
+
+    return [
+        {
+            "id": v.id,
+            "vlan_id": v.vlan_id,
+            "vlan_name": v.vlan_name,
+            "status": v.status,
+            "tagged_ports": _json.loads(v.tagged_ports) if v.tagged_ports else [],
+            "untagged_ports": _json.loads(v.untagged_ports) if v.untagged_ports else [],
+            "mac_count": mac_count_map.get(v.vlan_id, 0),
+            "updated_at": v.updated_at.isoformat() if v.updated_at else None,
+        }
+        for v in vlans
+    ]
+
+
+@router.get("/{device_id}/mlag")
+async def get_mlag(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return MLAG domain and interface info for a device."""
+    domain = (await db.execute(
+        select(MlagDomain).where(MlagDomain.device_id == device_id)
+    )).scalar_one_or_none()
+
+    if not domain:
+        return {"domain": None, "interfaces": []}
+
+    interfaces = (await db.execute(
+        select(MlagInterface).where(MlagInterface.domain_id == domain.id)
+    )).scalars().all()
+
+    return {
+        "domain": {
+            "id": domain.id,
+            "domain_id": domain.domain_id,
+            "peer_address": domain.peer_address,
+            "peer_link": domain.peer_link,
+            "local_role": domain.local_role,
+            "peer_status": domain.peer_status,
+            "config_sanity": domain.config_sanity,
+            "ports_configured": domain.ports_configured,
+            "ports_active": domain.ports_active,
+            "ports_errdisabled": domain.ports_errdisabled,
+            "vendor_protocol": domain.vendor_protocol,
+            "last_seen": domain.last_seen.isoformat() if domain.last_seen else None,
+        },
+        "interfaces": [
+            {
+                "id": i.id,
+                "mlag_id": i.mlag_id,
+                "interface_name": i.interface_name,
+                "local_status": i.local_status,
+                "remote_status": i.remote_status,
+            }
+            for i in interfaces
+        ],
+    }
+
+
+@router.get("/{device_id}/ping-metrics")
+async def get_ping_metrics(
+    device_id: int,
+    hours: int = Query(24, ge=1, le=168),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return ICMP ping time-series for a device."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = await db.execute(
+        select(PingMetric)
+        .where(PingMetric.device_id == device_id, PingMetric.timestamp >= cutoff)
+        .order_by(PingMetric.timestamp)
+    )
+    metrics = result.scalars().all()
+    return [
+        {
+            "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+            "rtt_avg_ms": m.rtt_avg_ms,
+            "rtt_min_ms": m.rtt_min_ms,
+            "rtt_max_ms": m.rtt_max_ms,
+            "packet_loss_pct": m.packet_loss_pct,
+            "status": m.status,
+        }
+        for m in metrics
+    ]
 
 
 @router.get("/{device_id}/mac-table")

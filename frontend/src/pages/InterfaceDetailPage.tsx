@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { interfacesApi } from '../services/api'
-import { ArrowLeft, Activity } from 'lucide-react'
+import { ArrowLeft, Activity, TrendingUp } from 'lucide-react'
 import { InterfaceMetric } from '../types'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ReferenceArea } from 'recharts'
 import { format } from 'date-fns'
@@ -43,6 +43,12 @@ export default function InterfaceDetailPage() {
     queryKey: ['interface-latest', ifId],
     queryFn: () => interfacesApi.latest(ifId).then((r) => r.data),
     refetchInterval: 30_000,
+  })
+
+  const { data: forecast } = useQuery({
+    queryKey: ['interface-forecast', ifId],
+    queryFn: () => interfacesApi.forecast(ifId).then((r) => r.data),
+    staleTime: 300_000,
   })
 
   // Determine if we should display in Gbps
@@ -320,6 +326,92 @@ export default function InterfaceDetailPage() {
                 <Legend />
                 <Line type="monotone" dataKey="In Discards" stroke="#8b5cf6" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="Out Discards" stroke="#6366f1" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Bandwidth Forecast */}
+      {forecast && !forecast.error && (
+        <div className="card">
+          <div className="card-header">
+            <TrendingUp size={15} />
+            <h3>Bandwidth Utilization Forecast</h3>
+            <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)' }}>
+              Based on {forecast.data_points} days of daily peak data
+            </span>
+          </div>
+          <div className="card-body">
+            {/* Days until 80% + Confidence badges */}
+            <div className="stats-grid" style={{ marginBottom: '16px' }}>
+              <div className="info-card">
+                <div className="stat-label">Days to 80% (In)</div>
+                <div className="stat-value-sm" style={{ color: forecast.days_until_80_in !== null && forecast.days_until_80_in < 30 ? 'var(--accent-red)' : forecast.days_until_80_in !== null && forecast.days_until_80_in < 90 ? '#f59e0b' : 'var(--accent-green)' }}>
+                  {forecast.days_until_80_in !== null ? `${forecast.days_until_80_in}d` : 'N/A'}
+                </div>
+              </div>
+              <div className="info-card">
+                <div className="stat-label">Days to 80% (Out)</div>
+                <div className="stat-value-sm" style={{ color: forecast.days_until_80_out !== null && forecast.days_until_80_out < 30 ? 'var(--accent-red)' : forecast.days_until_80_out !== null && forecast.days_until_80_out < 90 ? '#f59e0b' : 'var(--accent-green)' }}>
+                  {forecast.days_until_80_out !== null ? `${forecast.days_until_80_out}d` : 'N/A'}
+                </div>
+              </div>
+              <div className="info-card">
+                <div className="stat-label">Confidence (In)</div>
+                <div className="stat-value-sm" style={{ color: forecast.r_squared.in > 0.7 ? 'var(--accent-green)' : forecast.r_squared.in > 0.4 ? '#f59e0b' : 'var(--accent-red)' }}>
+                  R²={forecast.r_squared.in.toFixed(2)}
+                </div>
+              </div>
+              <div className="info-card">
+                <div className="stat-label">Confidence (Out)</div>
+                <div className="stat-value-sm" style={{ color: forecast.r_squared.out > 0.7 ? 'var(--accent-green)' : forecast.r_squared.out > 0.4 ? '#f59e0b' : 'var(--accent-red)' }}>
+                  R²={forecast.r_squared.out.toFixed(2)}
+                </div>
+              </div>
+              {['+30d', '+60d', '+90d'].map((key) => (
+                <div key={key} className="info-card">
+                  <div className="stat-label">Proj {key}</div>
+                  <div style={{ fontSize: '12px', fontFamily: 'monospace' }}>
+                    <span style={{ color: '#1a9dc8' }}>In: {forecast.projections[key].utilization_in}%</span>
+                    {' / '}
+                    <span style={{ color: '#a78bfa' }}>Out: {forecast.projections[key].utilization_out}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Forecast chart with historical peaks + trend lines */}
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart
+                data={[
+                  ...forecast.historical_daily.map((d: any) => ({
+                    date: d.date.slice(5),
+                    'Peak In %': d.peak_in,
+                    'Peak Out %': d.peak_out,
+                    'Trend In %': d.trend_in,
+                    'Trend Out %': d.trend_out,
+                  })),
+                  ...(forecast.projections ? ['+30d', '+60d', '+90d'].map((k) => ({
+                    date: k,
+                    'Peak In %': null,
+                    'Peak Out %': null,
+                    'Trend In %': forecast.projections[k].utilization_in,
+                    'Trend Out %': forecast.projections[k].utilization_out,
+                  })) : []),
+                ]}
+                margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis dataKey="date" tick={{ fill: chartTheme.tick, fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: chartTheme.tick, fontSize: 11 }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} width={45} />
+                <Tooltip contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}`, borderRadius: '8px', color: chartTheme.tooltipText }} />
+                <Legend />
+                <ReferenceLine y={80} stroke="#e74c3c" strokeDasharray="6 4" strokeWidth={1.5} label={{ value: '80% threshold', position: 'insideTopRight', fill: '#e74c3c', fontSize: 11 }} />
+                <Line type="monotone" dataKey="Peak In %" stroke="#1a9dc8" strokeWidth={1} dot={false} opacity={0.5} />
+                <Line type="monotone" dataKey="Peak Out %" stroke="#a78bfa" strokeWidth={1} dot={false} opacity={0.5} />
+                <Line type="monotone" dataKey="Trend In %" stroke="#1a9dc8" strokeWidth={2} strokeDasharray="8 4" dot={false} connectNulls />
+                <Line type="monotone" dataKey="Trend Out %" stroke="#a78bfa" strokeWidth={2} strokeDasharray="8 4" dot={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>

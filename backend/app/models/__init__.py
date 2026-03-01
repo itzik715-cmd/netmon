@@ -8,6 +8,11 @@ from app.models.config_backup import ConfigBackup, BackupSchedule
 from app.models.owned_subnet import OwnedSubnet
 from app.models.pdu import PduMetric, PduBank, PduBankMetric, PduOutlet  # noqa: F401
 from app.models.mac_entry import MacAddressEntry  # noqa: F401
+from app.models.environment import DeviceEnvironment, DeviceEnvMetric  # noqa: F401
+from app.models.port_state import PortStateChange  # noqa: F401
+from app.models.vlan import DeviceVlan  # noqa: F401
+from app.models.ping import PingMetric  # noqa: F401
+from app.models.mlag import MlagDomain, MlagInterface  # noqa: F401
 
 __all__ = [
     "User", "Role", "AuditLog",
@@ -20,4 +25,9 @@ __all__ = [
     "OwnedSubnet",
     "PduMetric", "PduBank", "PduBankMetric", "PduOutlet",
     "MacAddressEntry",
+    "DeviceEnvironment", "DeviceEnvMetric",
+    "PortStateChange",
+    "DeviceVlan",
+    "PingMetric",
+    "MlagDomain", "MlagInterface",
 ]
