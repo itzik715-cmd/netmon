@@ -244,27 +244,29 @@ function TrafficPanel() {
             <thead>
               <tr>
                 <th>IP Address</th>
-                <th>In Packets</th>
+                <th>In PPS</th>
                 <th>In Bytes</th>
-                <th>Out Packets</th>
-                <th>Out Bytes</th>
                 <th>TCP In</th>
                 <th>UDP In</th>
+                <th>ICMP In</th>
+                <th>SYN In</th>
+                <th>Flows</th>
               </tr>
             </thead>
             <tbody>
               {hostsArr.length === 0 && !hLoading && (
-                <tr><td colSpan={7}><div className="empty-state">No host data</div></td></tr>
+                <tr><td colSpan={8}><div className="empty-state">No host data</div></td></tr>
               )}
               {hostsArr.map((h: any) => (
                 <tr key={h.host}>
                   <td><strong className="mono">{h.host}</strong></td>
                   <td className="mono">{fmtPps(h.incoming_packets || 0)}</td>
                   <td className="mono">{fmtBytes(h.incoming_bytes || 0)}</td>
-                  <td className="mono">{fmtPps(h.outgoing_packets || 0)}</td>
-                  <td className="mono">{fmtBytes(h.outgoing_bytes || 0)}</td>
                   <td className="mono">{fmtPps(h.tcp_incoming_packets || 0)}</td>
                   <td className="mono">{fmtPps(h.udp_incoming_packets || 0)}</td>
+                  <td className="mono">{fmtPps(h.icmp_incoming_packets || 0)}</td>
+                  <td className="mono">{fmtPps(h.tcp_syn_incoming_packets || 0)}</td>
+                  <td className="mono">{h.incoming_flows || 0}</td>
                 </tr>
               ))}
             </tbody>
@@ -297,9 +299,9 @@ function TrafficPanel() {
             <thead>
               <tr>
                 <th>Subnet</th>
-                <th>In Packets</th>
+                <th>In PPS</th>
                 <th>In Bytes</th>
-                <th>Out Packets</th>
+                <th>Out PPS</th>
                 <th>Out Bytes</th>
                 <th>TCP In</th>
                 <th>UDP In</th>
@@ -645,7 +647,7 @@ function ConfigPanel() {
   const [showRemoteWl, setShowRemoteWl] = useState(false)
 
   const { data: config, isLoading } = useQuery({
-    queryKey: ['fnm-config'],
+    queryKey: ['fnm-internal-config'],
     queryFn: () => fastnetmonApi.config().then((r) => r.data),
     refetchInterval: 60_000,
   })

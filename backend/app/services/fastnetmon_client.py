@@ -142,14 +142,54 @@ class FastNetMonClient:
     # ── Traffic Counters ────────────────────────────────────────────────────
 
     async def get_total_traffic(self) -> list:
-        """GET /total_traffic_counters — aggregate traffic counters."""
+        """GET /total_traffic_counters — aggregate traffic counters.
+        Raw format: [{"counter_name":"incoming traffic","value":123,"unit":"pps"}, ...]
+        Returns grouped: [{"direction":"incoming","total_pps":...,"total_mbps":...,...}, ...]
+        """
         try:
             resp = await self._request("GET", "/total_traffic_counters")
             resp.raise_for_status()
-            return self._parse_values(resp.json())
+            raw = self._parse_values(resp.json())
+            return self._group_traffic_counters(raw)
         except Exception as e:
             logger.warning("FastNetMon get_total_traffic failed (%s): %s", self.node_label, e)
             return []
+
+    @staticmethod
+    def _group_traffic_counters(raw: list) -> list:
+        """Group flat counter entries into per-direction dicts."""
+        # Map counter_name prefixes to (direction, field_prefix)
+        directions: dict[str, dict] = {}
+        for entry in raw:
+            name = entry.get("counter_name", "")
+            value = entry.get("value", 0)
+            unit = entry.get("unit", "")
+
+            # Parse "incoming traffic", "incoming tcp traffic", "outgoing udp traffic", etc.
+            parts = name.split(" ")
+            if len(parts) < 2:
+                continue
+            direction = parts[0]  # incoming, outgoing, internal, other
+            if direction not in directions:
+                directions[direction] = {"direction": direction}
+            d = directions[direction]
+
+            # Build the field name
+            rest = " ".join(parts[1:])  # e.g. "traffic", "tcp traffic", "tcp_syn traffic", "dropped traffic", "fragmented traffic"
+            rest = rest.replace(" traffic", "")  # e.g. "", "tcp", "tcp_syn", "dropped", "fragmented"
+            if rest == "":
+                prefix = "total"
+            else:
+                prefix = rest.replace(" ", "_")
+
+            if unit == "pps":
+                d[f"{prefix}_pps"] = value
+            elif unit == "mbps":
+                d[f"{prefix}_mbps"] = value
+            elif unit == "flows":
+                d[f"{prefix}_flows"] = value
+
+        return list(directions.values())
 
     async def get_host_counters(self) -> list:
         """GET /host_counters — top hosts by traffic."""
