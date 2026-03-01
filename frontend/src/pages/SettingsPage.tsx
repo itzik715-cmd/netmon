@@ -597,16 +597,16 @@ function FastNetMonPanel() {
 
   const saveFnmMutation = useMutation({
     mutationFn: () => settingsApi.saveFastnetmon({
-      fnm_enabled: config.enabled,
-      fnm_shared_node: config.shared_node,
+      fnm_enabled: String(config.enabled),
+      fnm_shared_node: String(config.shared_node),
       fnm_monitor_host: config.monitor_host,
       fnm_monitor_port: config.monitor_port,
-      fnm_monitor_use_ssl: config.monitor_use_ssl,
+      fnm_monitor_use_ssl: String(config.monitor_use_ssl),
       fnm_monitor_api_user: config.monitor_api_user,
       fnm_monitor_api_password: config.monitor_api_password,
       fnm_blocker_host: config.blocker_host,
       fnm_blocker_port: config.blocker_port,
-      fnm_blocker_use_ssl: config.blocker_use_ssl,
+      fnm_blocker_use_ssl: String(config.blocker_use_ssl),
       fnm_blocker_api_user: config.blocker_api_user,
       fnm_blocker_api_password: config.blocker_api_password,
     }),

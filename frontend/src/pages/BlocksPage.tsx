@@ -118,7 +118,7 @@ export default function BlocksPage() {
     queryKey: ['fnm-config'],
     queryFn: () => settingsApi.getFastnetmon().then((r) => r.data),
   })
-  const fnmEnabled = fnmConfig?.fnm_enabled === 'true'
+  const fnmEnabled = String(fnmConfig?.fnm_enabled).toLowerCase() === 'true'
 
   // FastNetMon blackholes
   const { data: fnmData, isLoading: fnmLoading } = useQuery({
