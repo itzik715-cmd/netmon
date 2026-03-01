@@ -207,6 +207,12 @@ export const topologyApi = {
   deleteLink: (id: number) => api.delete(`/topology/link/${id}`),
   deviceMetrics: (deviceId: number, hours?: number) =>
     api.get(`/topology/device/${deviceId}/metrics`, { params: { hours } }),
+  rackItems: () => api.get('/topology/rack-items'),
+  createRackItem: (data: { rack_location: string; item_type: string; label: string; u_slot: number; u_size: number; color?: string }) =>
+    api.post('/topology/rack-items', data),
+  updateRackItem: (id: number, data: { label?: string; u_slot?: number; color?: string }) =>
+    api.put(`/topology/rack-items/${id}`, data),
+  deleteRackItem: (id: number) => api.delete(`/topology/rack-items/${id}`),
 }
 
 // Reports

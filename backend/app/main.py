@@ -639,6 +639,25 @@ async def run_migrations():
     except Exception as e:
         logger.warning("TimescaleDB setup skipped (running on plain PostgreSQL?): %s", e)
 
+    # Rack store items table
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS rack_items (
+                id SERIAL PRIMARY KEY,
+                rack_location VARCHAR(100) NOT NULL,
+                item_type VARCHAR(50) NOT NULL,
+                label VARCHAR(100) NOT NULL,
+                u_slot INTEGER NOT NULL,
+                u_size INTEGER NOT NULL DEFAULT 1,
+                color VARCHAR(20),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(rack_location, u_slot)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_rack_items_location ON rack_items (rack_location)"
+        ))
+
     logger.info("Database migrations applied")
 
 

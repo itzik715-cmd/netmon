@@ -7,9 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List
 
+from pydantic import BaseModel
+from typing import Optional
+
 from app.database import get_db
 from app.models.device import Device, DeviceLink, DeviceMetricHistory, DeviceLocation
 from app.models.interface import Interface
+from app.models.rack_item import RackItem
 from app.middleware.rbac import get_current_user, require_operator_or_above
 from app.models.user import User
 
@@ -173,3 +177,111 @@ async def get_device_metrics(
         }
         for r in rows
     ]
+
+
+# ─── Rack Store Items ─────────────────────────────────────────────────────────
+
+class RackItemCreate(BaseModel):
+    rack_location: str
+    item_type: str
+    label: str
+    u_slot: int
+    u_size: int = 1
+    color: Optional[str] = None
+
+class RackItemUpdate(BaseModel):
+    label: Optional[str] = None
+    u_slot: Optional[int] = None
+    color: Optional[str] = None
+
+
+@router.get("/rack-items")
+async def list_rack_items(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(select(RackItem).order_by(RackItem.rack_location, RackItem.u_slot))
+    items = result.scalars().all()
+    return [
+        {
+            "id": i.id,
+            "rack_location": i.rack_location,
+            "item_type": i.item_type,
+            "label": i.label,
+            "u_slot": i.u_slot,
+            "u_size": i.u_size,
+            "color": i.color,
+        }
+        for i in items
+    ]
+
+
+@router.post("/rack-items", status_code=201)
+async def create_rack_item(
+    payload: RackItemCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    item = RackItem(
+        rack_location=payload.rack_location,
+        item_type=payload.item_type,
+        label=payload.label,
+        u_slot=payload.u_slot,
+        u_size=payload.u_size,
+        color=payload.color,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return {
+        "id": item.id,
+        "rack_location": item.rack_location,
+        "item_type": item.item_type,
+        "label": item.label,
+        "u_slot": item.u_slot,
+        "u_size": item.u_size,
+        "color": item.color,
+    }
+
+
+@router.put("/rack-items/{item_id}")
+async def update_rack_item(
+    item_id: int,
+    payload: RackItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    result = await db.execute(select(RackItem).where(RackItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Item not found")
+    if payload.label is not None:
+        item.label = payload.label
+    if payload.u_slot is not None:
+        item.u_slot = payload.u_slot
+    if payload.color is not None:
+        item.color = payload.color
+    await db.commit()
+    return {
+        "id": item.id,
+        "rack_location": item.rack_location,
+        "item_type": item.item_type,
+        "label": item.label,
+        "u_slot": item.u_slot,
+        "u_size": item.u_size,
+        "color": item.color,
+    }
+
+
+@router.delete("/rack-items/{item_id}", status_code=204)
+async def delete_rack_item(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    result = await db.execute(select(RackItem).where(RackItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if item:
+        await db.delete(item)
+        await db.commit()

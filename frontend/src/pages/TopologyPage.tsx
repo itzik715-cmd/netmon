@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { topologyApi, pduApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw, Focus } from 'lucide-react'
+import { Loader2, RefreshCw, Search, ZoomIn, ZoomOut, Maximize2, RotateCcw, Focus, Package, X, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useThemeStore } from '../store/themeStore'
 import NocViewButton from '../components/NocViewButton'
@@ -39,6 +39,35 @@ interface RackServerInfo {
   name: string
   pduCount: number  // 1 = single PDU (red warning), 2+ = dual (normal)
 }
+
+interface RackItemData {
+  id: number
+  rack_location: string
+  item_type: string
+  label: string
+  u_slot: number
+  u_size: number
+  color: string | null
+}
+
+interface StoreCatalogEntry {
+  type: string
+  label: string
+  uSize: number
+  color: string
+}
+
+const STORE_CATALOG: StoreCatalogEntry[] = [
+  { type: 'ats', label: 'ATS', uSize: 2, color: '#8b5cf6' },
+  { type: 'ats', label: 'ATS', uSize: 3, color: '#8b5cf6' },
+  { type: 'ats', label: 'ATS', uSize: 4, color: '#8b5cf6' },
+  { type: 'shelf', label: 'Shelf', uSize: 1, color: '#64748b' },
+  { type: 'modem', label: 'Modem', uSize: 1, color: '#0ea5e9' },
+  { type: 'oob_switch', label: 'OOB Switch', uSize: 1, color: '#f59e0b' },
+  { type: 'server', label: 'Server', uSize: 2, color: '#6366f1' },
+  { type: 'blank', label: 'Blank Panel', uSize: 1, color: '#475569' },
+  { type: 'blank', label: 'Blank Panel', uSize: 2, color: '#475569' },
+]
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const RACK_W = 200
@@ -220,6 +249,12 @@ export default function TopologyPage() {
   const [unitDragging, setUnitDragging] = useState<{ rackKey: string; unitKey: string; startY: number; startU: number } | null>(null)
   const [hoveredNode, setHoveredNode] = useState<number | null>(null)
   const [search, setSearch] = useState('')
+  const [storeOpen, setStoreOpen] = useState(false)
+  const [placingItem, setPlacingItem] = useState<StoreCatalogEntry | null>(null)
+  const [hoveredSlot, setHoveredSlot] = useState<{ rackKey: string; u: number } | null>(null)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [editLabel, setEditLabel] = useState('')
+  const [hoveredItemId, setHoveredItemId] = useState<number | null>(null)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['topology'],
@@ -265,6 +300,38 @@ export default function TopologyPage() {
     }
     return result
   }, [pduData])
+
+  const { data: rackItemsData } = useQuery({
+    queryKey: ['rack-items'],
+    queryFn: () => topologyApi.rackItems().then(r => r.data as RackItemData[]),
+    refetchInterval: 60_000,
+  })
+  const rackItems = rackItemsData || []
+
+  const rackItemsByLocation = useMemo(() => {
+    const map: Record<string, RackItemData[]> = {}
+    rackItems.forEach(i => {
+      ;(map[i.rack_location] = map[i.rack_location] || []).push(i)
+    })
+    return map
+  }, [rackItems])
+
+  const createItemMut = useMutation({
+    mutationFn: (data: { rack_location: string; item_type: string; label: string; u_slot: number; u_size: number; color?: string }) =>
+      topologyApi.createRackItem(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rack-items'] }),
+  })
+
+  const updateItemMut = useMutation({
+    mutationFn: ({ id, ...data }: { id: number; label?: string; u_slot?: number; color?: string }) =>
+      topologyApi.updateRackItem(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rack-items'] }),
+  })
+
+  const deleteItemMut = useMutation({
+    mutationFn: (id: number) => topologyApi.deleteRackItem(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rack-items'] }),
+  })
 
   const discoverMutation = useMutation({
     mutationFn: () => topologyApi.discover(),
@@ -352,10 +419,21 @@ export default function TopologyPage() {
   }, [unitDragging, rackDragging, panDragging, svgPoint])
 
   const onSvgMouseUp = useCallback(() => {
+    if (unitDragging) {
+      // If dragging a store item, persist the new U position via API
+      const match = unitDragging.unitKey.match(/^item-(\d+)$/)
+      if (match) {
+        const itemId = parseInt(match[1])
+        const newU = unitPositions[unitDragging.rackKey]?.[unitDragging.unitKey]
+        if (newU != null && newU !== unitDragging.startU) {
+          updateItemMut.mutate({ id: itemId, u_slot: newU })
+        }
+      }
+    }
     setUnitDragging(null)
     setRackDragging(null)
     setPanDragging(null)
-  }, [])
+  }, [unitDragging, unitPositions, updateItemMut])
 
   const onSvgMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 1 || (e.target as SVGElement).tagName === 'svg') {
@@ -437,6 +515,7 @@ export default function TopologyPage() {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'f' || e.key === 'F') fitAll()
+      if (e.key === 'Escape') { setPlacingItem(null); setEditingItemId(null) }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
@@ -666,6 +745,174 @@ export default function TopologyPage() {
         {/* Footer */}
         <rect x={0} y={RACK_TOTAL_H - RACK_FOOTER_H} width={RACK_W} height={RACK_FOOTER_H} rx={2} className="topo-rack-footer" />
 
+        {/* Placement hover preview (ghost item) */}
+        {placingItem && hoveredSlot?.rackKey === rack.key && (() => {
+          const ghostY = uToY(hoveredSlot.u + placingItem.uSize - 1)
+          const ghostH = placingItem.uSize * U_HEIGHT
+          return (
+            <rect x={EQUIP_X} y={ghostY} width={EQUIP_W} height={ghostH} rx={2}
+              fill={placingItem.color} opacity={0.35} stroke={placingItem.color} strokeWidth={1.5}
+              strokeDasharray="4,2" style={{ pointerEvents: 'none' }} />
+          )
+        })()}
+
+        {/* Clickable U-slot zones for placement mode */}
+        {placingItem && Array.from({ length: RACK_UNITS }, (_, i) => {
+          const u = i + 1
+          const slotY = uToY(u)
+          return (
+            <rect
+              key={`place-${u}`}
+              x={EQUIP_X} y={slotY} width={EQUIP_W} height={U_HEIGHT}
+              fill="transparent"
+              style={{ cursor: 'copy' }}
+              onMouseEnter={() => setHoveredSlot({ rackKey: rack.key, u })}
+              onMouseLeave={() => setHoveredSlot(null)}
+              onClick={e => {
+                e.stopPropagation()
+                createItemMut.mutate({
+                  rack_location: rack.key,
+                  item_type: placingItem.type,
+                  label: placingItem.label,
+                  u_slot: u,
+                  u_size: placingItem.uSize,
+                  color: placingItem.color,
+                })
+                setPlacingItem(null)
+                setHoveredSlot(null)
+              }}
+            />
+          )
+        })}
+
+        {/* Store items (manually placed) */}
+        {(rackItemsByLocation[rack.key] || []).map(item => {
+          const unitKey = `item-${item.id}`
+          const savedU = unitPositions[rack.key]?.[unitKey]
+          const uSlot = savedU != null ? savedU : item.u_slot
+          const itemY = uToY(uSlot + item.u_size - 1)
+          const itemH = item.u_size * U_HEIGHT
+          const itemColor = item.color || '#64748b'
+          const isDragging = unitDragging?.rackKey === rack.key && unitDragging?.unitKey === unitKey
+          const isHovered = hoveredItemId === item.id
+          const isEditing = editingItemId === item.id
+
+          return (
+            <g
+              key={unitKey}
+              transform={`translate(0,${itemY})`}
+              opacity={isDragging ? 0.6 : 1}
+              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+              onMouseDown={e => { if (!isEditing) onUnitMouseDown(e, rack.key, unitKey, uSlot) }}
+              onMouseEnter={() => setHoveredItemId(item.id)}
+              onMouseLeave={() => setHoveredItemId(null)}
+              onDoubleClick={e => {
+                e.stopPropagation()
+                setEditingItemId(item.id)
+                setEditLabel(item.label)
+              }}
+            >
+              {/* Item body */}
+              <rect x={EQUIP_X} y={0} width={EQUIP_W} height={itemH} rx={2}
+                fill={itemColor} opacity={0.85} />
+              {/* Left accent bar */}
+              <rect x={EQUIP_X} y={0} width={3} height={itemH} rx={0.5} fill={itemColor} />
+
+              {/* Type-specific visuals */}
+              {item.item_type === 'ats' && <>
+                {/* Power symbol */}
+                <text x={EQUIP_X + 10} y={itemH / 2 + 1} dominantBaseline="middle" fontSize={10}
+                  fill="rgba(255,255,255,0.7)" style={{ pointerEvents: 'none' }}>⚡</text>
+                {/* Transfer switch indicators */}
+                <circle cx={EQUIP_X + EQUIP_W - 20} cy={itemH / 2 - 4} r={2} fill="rgba(255,255,255,0.5)" />
+                <circle cx={EQUIP_X + EQUIP_W - 20} cy={itemH / 2 + 4} r={2} fill="rgba(255,255,255,0.5)" />
+                <line x1={EQUIP_X + EQUIP_W - 22} y1={itemH / 2} x2={EQUIP_X + EQUIP_W - 18} y2={itemH / 2}
+                  stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
+              </>}
+              {item.item_type === 'shelf' && <>
+                {/* Horizontal line pattern */}
+                <line x1={EQUIP_X + 8} y1={itemH / 2} x2={EQUIP_X + EQUIP_W - 8} y2={itemH / 2}
+                  stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
+              </>}
+              {item.item_type === 'modem' && <>
+                {/* Signal bars */}
+                {[0, 1, 2, 3].map(b => (
+                  <rect key={b} x={EQUIP_X + EQUIP_W - 24 + b * 4} y={itemH - 4 - (b + 1) * 2.5}
+                    width={2.5} height={(b + 1) * 2.5} rx={0.5} fill="rgba(255,255,255,0.5)" />
+                ))}
+              </>}
+              {item.item_type === 'oob_switch' && <>
+                {/* Small port indicators */}
+                {[0, 1, 2, 3].map(p => (
+                  <rect key={p} x={EQUIP_X + EQUIP_W - 28 + p * 5} y={4} width={3.5} height={itemH - 8}
+                    rx={0.5} fill="rgba(255,255,255,0.3)" />
+                ))}
+              </>}
+              {item.item_type === 'server' && <>
+                {/* Drive bays */}
+                {[0, 1, 2, 3].map(b => (
+                  <rect key={b} x={EQUIP_X + 22 + b * 10} y={4} width={8} height={itemH - 8}
+                    rx={1} fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.2)" strokeWidth={0.5} />
+                ))}
+              </>}
+              {item.item_type === 'blank' && <>
+                {/* Subtle ventilation pattern */}
+                {Array.from({ length: Math.min(item.u_size * 3, 8) }, (_, i) => (
+                  <line key={i} x1={EQUIP_X + 20 + i * 14} y1={3} x2={EQUIP_X + 20 + i * 14} y2={itemH - 3}
+                    stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
+                ))}
+              </>}
+
+              {/* Label */}
+              {isEditing ? (
+                <foreignObject x={EQUIP_X + 18} y={itemH / 2 - 8} width={EQUIP_W - 36} height={16}>
+                  <input
+                    type="text"
+                    value={editLabel}
+                    onChange={e => setEditLabel(e.target.value)}
+                    onBlur={() => {
+                      if (editLabel.trim() && editLabel !== item.label) {
+                        updateItemMut.mutate({ id: item.id, label: editLabel.trim() })
+                      }
+                      setEditingItemId(null)
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                      if (e.key === 'Escape') setEditingItemId(null)
+                    }}
+                    autoFocus
+                    style={{
+                      width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', color: '#fff',
+                      border: '1px solid rgba(255,255,255,0.4)', borderRadius: 2, fontSize: 7,
+                      padding: '0 3px', outline: 'none', fontFamily: 'inherit',
+                    }}
+                  />
+                </foreignObject>
+              ) : (
+                <text x={EQUIP_X + 18} y={itemH / 2 + 1} dominantBaseline="middle" fontSize={7}
+                  fill="#fff" fontWeight={600} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                  {item.label}{item.u_size > 1 ? ` ${item.u_size}U` : ''}
+                </text>
+              )}
+
+              {/* Delete button on hover */}
+              {isHovered && !isEditing && (
+                <g
+                  style={{ cursor: 'pointer' }}
+                  onClick={e => {
+                    e.stopPropagation()
+                    deleteItemMut.mutate(item.id)
+                  }}
+                >
+                  <circle cx={EQUIP_X + EQUIP_W - 7} cy={7} r={5} fill="rgba(239,68,68,0.9)" />
+                  <text x={EQUIP_X + EQUIP_W - 7} y={8} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={7} fill="#fff" fontWeight={700} style={{ pointerEvents: 'none' }}>×</text>
+                </g>
+              )}
+            </g>
+          )
+        })}
+
         {/* Switch units */}
         {switchElements}
 
@@ -838,6 +1085,14 @@ export default function TopologyPage() {
             Discover LLDP
           </button>
           <button
+            className={`btn ${storeOpen ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setStoreOpen(s => !s); setPlacingItem(null) }}
+            title="Rack store — add passive equipment"
+          >
+            <Package size={13} />
+            Store
+          </button>
+          <button
             className="btn btn-outline"
             onClick={() => qc.invalidateQueries({ queryKey: ['topology'] })}
           >Refresh</button>
@@ -910,7 +1165,7 @@ export default function TopologyPage() {
           ref={svgRef}
           width="100%"
           height="100%"
-          style={{ display: 'block', cursor: unitDragging ? 'grabbing' : rackDragging ? 'grabbing' : panDragging ? 'grabbing' : 'grab' }}
+          style={{ display: 'block', cursor: unitDragging ? 'grabbing' : rackDragging ? 'grabbing' : panDragging ? 'grabbing' : placingItem ? 'crosshair' : 'grab' }}
           onMouseMove={onSvgMouseMove}
           onMouseUp={onSvgMouseUp}
           onMouseDown={onSvgMouseDown}
@@ -934,6 +1189,65 @@ export default function TopologyPage() {
           </div>
         )}
       </div>
+
+      {/* Store Panel */}
+      {storeOpen && (
+        <div className="topo-store-panel">
+          <div className="topo-store-header">
+            <h3>Rack Store</h3>
+            <button className="btn btn-ghost btn--icon" onClick={() => { setStoreOpen(false); setPlacingItem(null) }}>
+              <X size={14} />
+            </button>
+          </div>
+          {placingItem && (
+            <div className="topo-store-placing">
+              Placing: <strong>{placingItem.label} {placingItem.uSize}U</strong>
+              <span style={{ fontSize: 10, opacity: 0.7 }}> — click a U slot in any rack</span>
+              <button className="btn btn-ghost btn--icon" style={{ marginLeft: 'auto' }}
+                onClick={() => setPlacingItem(null)}>
+                <X size={12} />
+              </button>
+            </div>
+          )}
+          <div className="topo-store-grid">
+            {STORE_CATALOG.map((entry, i) => (
+              <button
+                key={i}
+                className={`topo-store-card${placingItem === entry ? ' topo-store-card--active' : ''}`}
+                onClick={() => setPlacingItem(placingItem === entry ? null : entry)}
+              >
+                <div className="topo-store-card__preview" style={{ background: entry.color, height: Math.max(entry.uSize * 10, 16) }}>
+                  {entry.type === 'ats' && <span>⚡</span>}
+                  {entry.type === 'shelf' && <span style={{ fontSize: 10 }}>━</span>}
+                  {entry.type === 'modem' && <span style={{ fontSize: 9 }}>📡</span>}
+                  {entry.type === 'oob_switch' && <span style={{ fontSize: 9 }}>🔌</span>}
+                  {entry.type === 'server' && <span style={{ fontSize: 9 }}>🖥</span>}
+                  {entry.type === 'blank' && <span style={{ fontSize: 8, opacity: 0.5 }}>—</span>}
+                </div>
+                <div className="topo-store-card__info">
+                  <span className="topo-store-card__name">{entry.label}</span>
+                  <span className="topo-store-card__size">{entry.uSize}U</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          {rackItems.length > 0 && (
+            <div className="topo-store-placed">
+              <div className="topo-store-placed__header">Placed Items ({rackItems.length})</div>
+              {rackItems.map(item => (
+                <div key={item.id} className="topo-store-placed__item">
+                  <div className="topo-store-placed__color" style={{ background: item.color || '#64748b' }} />
+                  <span className="topo-store-placed__label">{item.label} {item.u_size}U</span>
+                  <span className="topo-store-placed__loc">{item.rack_location} U{item.u_slot}</span>
+                  <button className="btn btn-ghost btn--icon" onClick={() => deleteItemMut.mutate(item.id)}>
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search results */}
       {search && filtered.length > 0 && (

@@ -2802,6 +2802,159 @@ a.stat-card {
   opacity: 0.6;
 }
 
+/* ─── Rack Store Panel ──────────────────────────────────── */
+.topo-store-panel {
+  position: fixed;
+  top: 64px;
+  right: 0;
+  width: 260px;
+  bottom: 0;
+  background: var(--card-bg);
+  border-left: 1px solid var(--border);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.08);
+  overflow-y: auto;
+}
+
+.topo-store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.topo-store-header h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.topo-store-placing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  background: var(--primary-50);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--primary-700);
+}
+
+.topo-store-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  padding: 12px;
+}
+
+.topo-store-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 10px;
+}
+
+.topo-store-card:hover {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+}
+
+.topo-store-card--active {
+  border-color: var(--primary-500);
+  background: var(--primary-100);
+  box-shadow: 0 0 0 2px var(--primary-200);
+}
+
+.topo-store-card__preview {
+  width: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  min-height: 16px;
+}
+
+.topo-store-card__info {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  justify-content: center;
+}
+
+.topo-store-card__name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.topo-store-card__size {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.topo-store-placed {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.topo-store-placed__header {
+  padding: 4px 14px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.topo-store-placed__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 11px;
+}
+
+.topo-store-placed__item:hover {
+  background: var(--surface);
+}
+
+.topo-store-placed__color {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.topo-store-placed__label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.topo-store-placed__loc {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: 'DM Mono', monospace;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .topo-store-placing {
+  background: rgba(14, 165, 233, 0.1);
+  color: var(--primary-300);
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    IP PROFILE — Redesigned Flow Analysis

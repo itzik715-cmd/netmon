@@ -13,6 +13,7 @@ from app.models.port_state import PortStateChange  # noqa: F401
 from app.models.vlan import DeviceVlan  # noqa: F401
 from app.models.ping import PingMetric  # noqa: F401
 from app.models.mlag import MlagDomain, MlagInterface  # noqa: F401
+from app.models.rack_item import RackItem  # noqa: F401
 
 __all__ = [
     "User", "Role", "AuditLog",
@@ -30,4 +31,5 @@ __all__ = [
     "DeviceVlan",
     "PingMetric",
     "MlagDomain", "MlagInterface",
+    "RackItem",
 ]
