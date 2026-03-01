@@ -242,12 +242,21 @@ export default function DeviceDetailPage() {
   // MAC table state
   const [macSearch, setMacSearch] = useState('')
   const [macPage, setMacPage] = useState(0)
+  const [macVendorFilter, setMacVendorFilter] = useState('')
   const macLimit = 50
 
+  const { data: macVendors } = useQuery({
+    queryKey: ['mac-vendors', deviceId],
+    queryFn: () => switchesApi.macVendors(deviceId).then(r => r.data),
+    enabled: isSwitch && tab === 'mac',
+    staleTime: 60_000,
+  })
+
   const { data: macData, isLoading: macLoading } = useQuery({
-    queryKey: ['mac-table', deviceId, macSearch, macPage],
+    queryKey: ['mac-table', deviceId, macSearch, macPage, macVendorFilter],
     queryFn: () => switchesApi.macTable(deviceId, {
       q: macSearch || undefined,
+      vendor: macVendorFilter || undefined,
       limit: macLimit,
       offset: macPage * macLimit,
     }).then(r => r.data),
@@ -1004,7 +1013,7 @@ export default function DeviceDetailPage() {
           <div className="card-header">
             <Database size={15} />
             <h3>MAC Address Table</h3>
-            <div className="card__actions">
+            <div className="card__actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div className="search-bar">
                 <Search size={13} />
                 <input
@@ -1013,13 +1022,23 @@ export default function DeviceDetailPage() {
                   onChange={e => { setMacSearch(e.target.value); setMacPage(0) }}
                 />
               </div>
+              <select
+                value={macVendorFilter}
+                onChange={e => { setMacVendorFilter(e.target.value); setMacPage(0) }}
+                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
+              >
+                <option value="">All Vendors</option>
+                {(macVendors || []).map((v: string) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
             </div>
           </div>
           {macLoading ? (
             <div className="empty-state card-body"><p>Loading MAC table...</p></div>
           ) : !macData || macData.entries.length === 0 ? (
             <div className="empty-state card-body">
-              <p>{macSearch ? 'No MAC entries match your search.' : 'No MAC entries discovered yet.'}</p>
+              <p>{macSearch || macVendorFilter ? 'No MAC entries match your filters.' : 'No MAC entries discovered yet.'}</p>
               <p className="text-xs text-muted">Click "Discover MAC Table" to scan this switch via SNMP.</p>
             </div>
           ) : (

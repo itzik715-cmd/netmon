@@ -362,12 +362,31 @@ async def get_ping_metrics(
     ]
 
 
+@router.get("/{device_id}/mac-vendors")
+async def get_mac_vendors(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return distinct vendor names for a device's MAC entries."""
+    result = await db.execute(
+        select(MacAddressEntry.vendor)
+        .where(MacAddressEntry.device_id == device_id)
+        .where(MacAddressEntry.vendor.isnot(None))
+        .where(MacAddressEntry.vendor != "")
+        .distinct()
+        .order_by(MacAddressEntry.vendor)
+    )
+    return [row[0] for row in result.all()]
+
+
 @router.get("/{device_id}/mac-table")
 async def get_mac_table(
     device_id: int,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
     q: Optional[str] = Query(None, description="Search MAC, IP, hostname, vendor"),
+    vendor: Optional[str] = Query(None, description="Filter by vendor name"),
     vlan: Optional[int] = Query(None),
     interface_id: Optional[int] = Query(None),
     entry_type: Optional[str] = Query(None),
@@ -389,6 +408,8 @@ async def get_mac_table(
             MacAddressEntry.hostname.ilike(like),
             MacAddressEntry.vendor.ilike(like),
         ))
+    if vendor:
+        query = query.where(MacAddressEntry.vendor == vendor)
     if vlan is not None:
         query = query.where(MacAddressEntry.vlan_id == vlan)
     if interface_id is not None:
