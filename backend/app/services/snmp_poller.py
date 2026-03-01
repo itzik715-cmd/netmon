@@ -1147,22 +1147,11 @@ async def cleanup_old_metrics(db: AsyncSession) -> None:
         )
         dmh_deleted = result.rowcount
 
-        # flow_records (if table exists)
-        result = await db.execute(
-            text("DELETE FROM flow_records WHERE timestamp < :cutoff"),
-            {"cutoff": flow_cutoff},
-        )
-        flow_deleted = result.rowcount
-
-        # flow_summary_5m — keep same retention as flow_records
-        try:
-            result = await db.execute(
-                text("DELETE FROM flow_summary_5m WHERE bucket < :cutoff"),
-                {"cutoff": flow_cutoff},
-            )
-            summary_deleted = result.rowcount
-        except Exception:
-            summary_deleted = 0
+        # Flow retention is now managed by TimescaleDB retention policy.
+        # Raw records: 7 days. Summary 5m: 14 days.
+        # Policy registered in run_migrations() via add_retention_policy().
+        flow_deleted = 0
+        summary_deleted = 0
 
         # device_env_metrics
         try:

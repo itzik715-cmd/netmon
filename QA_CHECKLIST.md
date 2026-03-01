@@ -234,6 +234,17 @@ echo "── Flow Ingestion Check ──"
 # ────────────────────────────────────────────────────
 
 # 27. Send synthetic NetFlow v5 packet and verify it appears
+# First, ensure a test device with flow_enabled exists at 127.0.0.1
+echo "  Creating test device (127.0.0.1, flow_enabled=true)..."
+docker exec netmon-db psql -U netmon -d netmon -c \
+  "INSERT INTO devices (hostname, ip_address, device_type, is_active, polling_enabled, flow_enabled, snmp_version)
+   VALUES ('qa-test-device', '127.0.0.1', 'router', true, false, true, '2c')
+   ON CONFLICT (ip_address) DO UPDATE SET flow_enabled = true" >/dev/null 2>&1
+
+# Wait for flow_enabled_ips cache to refresh (refreshes every 30 seconds)
+echo "  Waiting 35 seconds for flow-enabled IP cache to refresh..."
+sleep 35
+
 echo "  Sending synthetic NetFlow v5 packet to UDP:2055..."
 docker exec netmon-backend python3 -c "
 import socket, struct, time
@@ -273,20 +284,31 @@ sock.close()
 print('Sent NetFlow v5 test packet')
 " 2>/dev/null
 
-sleep 10
+# Poll for up to 60 seconds (flow buffer flushes every 5s, but cache may need time)
+echo "  Waiting for flow record to appear (polling up to 60 seconds)..."
+QA_FLOW=0
+for i in $(seq 1 12); do
+  QA_FLOW=$(docker exec netmon-db psql -U netmon -d netmon -tAc \
+    "SELECT count(*) FROM flow_records WHERE src_ip='10.255.255.1' AND dst_ip='10.255.255.2'" 2>/dev/null | tr -d '[:space:]')
+  if [ "$QA_FLOW" -ge 1 ] 2>/dev/null; then
+    break
+  fi
+  sleep 5
+done
 
-# Check if it appeared (look for the distinctive QA test IPs)
-QA_FLOW=$(docker exec netmon-db psql -U netmon -d netmon -tAc \
-  "SELECT count(*) FROM flow_records WHERE src_ip='10.255.255.1' AND dst_ip='10.255.255.2'" 2>/dev/null | tr -d '[:space:]')
 if [ "$QA_FLOW" -ge 1 ] 2>/dev/null; then
   green "Synthetic NetFlow v5 packet ingested into flow_records"
   # Clean up test data
   docker exec netmon-db psql -U netmon -d netmon -c \
     "DELETE FROM flow_records WHERE src_ip='10.255.255.1' AND dst_ip='10.255.255.2'" >/dev/null 2>&1
 else
-  red "Synthetic NetFlow packet NOT found in flow_records after 10 seconds"
-  echo "    Note: This can fail if no device with IP 127.0.0.1 has flow_enabled=True"
+  red "Synthetic NetFlow packet NOT found in flow_records after 60 seconds"
+  echo "    Note: If the flow-enabled IP cache hasn't refreshed yet, re-run the test"
 fi
+
+# Clean up test device
+docker exec netmon-db psql -U netmon -d netmon -c \
+  "DELETE FROM devices WHERE hostname='qa-test-device' AND ip_address='127.0.0.1'" >/dev/null 2>&1
 
 # ────────────────────────────────────────────────────
 echo ""
@@ -373,7 +395,7 @@ fi
 
 | # | Check | Expected | FAIL means |
 |---|-------|----------|------------|
-| 27 | Synthetic NetFlow v5 | Row appears in flow_records within 10s | Collector not running, table schema changed, or no flow-enabled device at 127.0.0.1 |
+| 27 | Synthetic NetFlow v5 | Row appears in flow_records within 60s | Collector not running, table schema changed, or flow-enabled IP cache not refreshed yet (30s cycle) |
 
 ### Rollup Job Check
 

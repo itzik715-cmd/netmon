@@ -535,6 +535,86 @@ async def run_migrations():
         except Exception as e:
             logger.warning("Migration ALTER alert_events.rule_id nullable skipped: %s", e)
 
+    # ── TimescaleDB hypertable conversion ──
+    # Safe to re-run: if_not_exists => TRUE on all calls.
+    # Wrapped in try/except so the app starts even on plain PostgreSQL.
+    try:
+        async with engine.begin() as conn:
+            # Convert flow tables to hypertables
+            await conn.execute(text("""
+                SELECT create_hypertable(
+                    'flow_records',
+                    'timestamp',
+                    chunk_time_interval => INTERVAL '1 day',
+                    if_not_exists => TRUE,
+                    migrate_data => TRUE
+                )
+            """))
+            await conn.execute(text("""
+                SELECT create_hypertable(
+                    'flow_summary_5m',
+                    'bucket',
+                    chunk_time_interval => INTERVAL '1 day',
+                    if_not_exists => TRUE,
+                    migrate_data => TRUE
+                )
+            """))
+
+            # Compression settings
+            # Note: uq_flow_summary_5m_key includes non-partition columns which
+            # may conflict with compression segmentby in some edge cases, but it
+            # is required for the ON CONFLICT upsert in flow_rollup — leave it.
+            await conn.execute(text("""
+                ALTER TABLE flow_records SET (
+                    timescaledb.compress,
+                    timescaledb.compress_segmentby = 'device_id',
+                    timescaledb.compress_orderby = 'timestamp DESC'
+                )
+            """))
+            await conn.execute(text("""
+                ALTER TABLE flow_summary_5m SET (
+                    timescaledb.compress,
+                    timescaledb.compress_segmentby = 'device_id',
+                    timescaledb.compress_orderby = 'bucket DESC'
+                )
+            """))
+
+            # Compression policies
+            await conn.execute(text("""
+                SELECT add_compression_policy(
+                    'flow_records',
+                    INTERVAL '2 days',
+                    if_not_exists => TRUE
+                )
+            """))
+            await conn.execute(text("""
+                SELECT add_compression_policy(
+                    'flow_summary_5m',
+                    INTERVAL '3 days',
+                    if_not_exists => TRUE
+                )
+            """))
+
+            # Retention policies
+            await conn.execute(text("""
+                SELECT add_retention_policy(
+                    'flow_records',
+                    INTERVAL '7 days',
+                    if_not_exists => TRUE
+                )
+            """))
+            await conn.execute(text("""
+                SELECT add_retention_policy(
+                    'flow_summary_5m',
+                    INTERVAL '14 days',
+                    if_not_exists => TRUE
+                )
+            """))
+
+        logger.info("TimescaleDB hypertables, compression, and retention policies configured")
+    except Exception as e:
+        logger.warning("TimescaleDB setup skipped (running on plain PostgreSQL?): %s", e)
+
     logger.info("Database migrations applied")
 
 

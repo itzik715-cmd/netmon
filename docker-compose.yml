@@ -1,7 +1,11 @@
 services:
-  # PostgreSQL Database
+  # ⚠️ IMPORTANT: If upgrading from plain PostgreSQL, delete the postgres_data
+  # volume before starting: docker compose down && docker volume rm netmon_postgres_data
+  # Then restore from backup per ROLLBACK.md before starting fresh.
+
+  # TimescaleDB (PostgreSQL 16 + time-series extensions)
   db:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     container_name: netmon-db
     restart: unless-stopped
     environment:

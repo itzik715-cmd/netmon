@@ -54,8 +54,16 @@ async def rollup_flows(db: AsyncSession) -> None:
         await db.commit()
         logger.info("Flow rollup: upserted summary rows for buckets since %s", since.strftime("%H:%M"))
     except Exception as e:
-        logger.error("Flow rollup failed: %s", e)
-        await db.rollback()
+        err_msg = str(e).lower()
+        if "compress" in err_msg or "insert into compressed chunk" in err_msg:
+            logger.warning(
+                "Flow rollup skipped: target chunk is compressed. "
+                "This should not happen with correct retention settings."
+            )
+            await db.rollback()
+        else:
+            logger.error("Flow rollup failed: %s", e)
+            await db.rollback()
 
 
 async def backfill_summaries(db: AsyncSession, days: int = 30) -> None:
