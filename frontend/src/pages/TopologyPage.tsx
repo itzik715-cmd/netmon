@@ -349,6 +349,16 @@ export default function TopologyPage() {
     [nodes, rackPositions, rackServers]
   )
 
+  // Compute dynamic SVG height from rack layout bounding box
+  const svgHeight = useMemo(() => {
+    if (racks.length === 0) return 600
+    let maxBottom = 0
+    for (const rack of racks) {
+      maxBottom = Math.max(maxBottom, rack.y + rack.height)
+    }
+    return Math.max(600, maxBottom + RACK_GAP * 2)
+  }, [racks])
+
   const filtered = search
     ? nodes.filter(n => n.hostname.toLowerCase().includes(search.toLowerCase()) || n.ip_address.includes(search))
     : nodes
@@ -495,16 +505,18 @@ export default function TopologyPage() {
     const contentW = maxX - minX
     const contentH = maxY - minY
     const svgRect = svgEl.getBoundingClientRect()
+    // Use viewport height minus sticky toolbar for vertical fitting
+    const viewH = Math.min(svgRect.height, window.innerHeight - 160)
     const pad = 0.9
 
     const scaleX = (svgRect.width * pad) / contentW
-    const scaleY = (svgRect.height * pad) / contentH
+    const scaleY = (viewH * pad) / contentH
     const newZoom = Math.min(scaleX, scaleY, 1.5)
 
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
     const newPanX = svgRect.width / 2 - centerX * newZoom
-    const newPanY = svgRect.height / 2 - centerY * newZoom
+    const newPanY = viewH / 2 - centerY * newZoom
 
     setZoom(newZoom)
     setPan({ x: newPanX, y: newPanY })
@@ -1044,10 +1056,10 @@ export default function TopologyPage() {
   }
 
   return (
-    <div className="flex-col-gap" style={{ height: '100%' }}>
-      {/* Header */}
-      <div className="page-header">
-        <div>
+    <div className="topo-page-root">
+      {/* Sticky toolbar */}
+      <div className="topo-sticky-toolbar">
+        <div className="topo-sticky-toolbar__title">
           <h1>Datacenter Topology</h1>
           <p>Live datacenter view — 45U rack layout with PDU power & device connectivity</p>
         </div>
@@ -1098,53 +1110,53 @@ export default function TopologyPage() {
           >Refresh</button>
           <NocViewButton pageId="topology" />
         </div>
+
+        {/* Legend row — inside sticky bar */}
+        <div className="topo-legend">
+          <span className="topo-legend__shape">
+            <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#22c55e" /></svg>
+            Online
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#ef4444" /></svg>
+            Offline
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#f59e0b" /></svg>
+            Degraded
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill="#22c55e" opacity={0.9} /></svg>
+            Switch (1U)
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill={topoColors.serverFill} stroke={topoColors.serverStroke} /></svg>
+            Server (2U)
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={12} height={12}><circle cx={6} cy={6} r={4} fill="#22c55e" /></svg>
+            Dual PDU
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={12} height={12}><circle cx={6} cy={6} r={4} fill="#ef4444" className="topo-server-led--warning" /></svg>
+            Single PDU
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke={topoColors.linkLldp} strokeWidth={2} /></svg>
+            LLDP
+          </span>
+          <span className="topo-legend__shape">
+            <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke="#a78bfa" strokeWidth={2} strokeDasharray="4,2" /></svg>
+            Manual
+          </span>
+          <span style={{ marginLeft: 'auto' }} className="text-light">
+            {nodes.length} devices · {edges.length} links
+          </span>
+        </div>
       </div>
 
-      {/* Legend */}
-      <div className="topo-legend">
-        <span className="topo-legend__shape">
-          <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#22c55e" /></svg>
-          Online
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#ef4444" /></svg>
-          Offline
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="#f59e0b" /></svg>
-          Degraded
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill="#22c55e" opacity={0.9} /></svg>
-          Switch (1U)
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={16} height={10}><rect x={0} y={0} width={16} height={10} rx={2} fill={topoColors.serverFill} stroke={topoColors.serverStroke} /></svg>
-          Server (2U)
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={12} height={12}><circle cx={6} cy={6} r={4} fill="#22c55e" /></svg>
-          Dual PDU
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={12} height={12}><circle cx={6} cy={6} r={4} fill="#ef4444" className="topo-server-led--warning" /></svg>
-          Single PDU
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke={topoColors.linkLldp} strokeWidth={2} /></svg>
-          LLDP
-        </span>
-        <span className="topo-legend__shape">
-          <svg width={24} height={2}><line x1={0} y1={1} x2={24} y2={1} stroke="#a78bfa" strokeWidth={2} strokeDasharray="4,2" /></svg>
-          Manual
-        </span>
-        <span style={{ marginLeft: 'auto' }} className="text-light">
-          {nodes.length} devices · {edges.length} links
-        </span>
-      </div>
-
-      {/* SVG Canvas */}
-      <div className="card" style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
+      {/* SVG Canvas — dynamic height from rack positions */}
+      <div className="card topo-canvas" style={{ position: 'relative' }}>
         {isLoading && (
           <div className="empty-state" style={{ position: 'absolute', inset: 0 }}>
             <Loader2 size={32} className="animate-spin" />
@@ -1164,7 +1176,7 @@ export default function TopologyPage() {
         <svg
           ref={svgRef}
           width="100%"
-          height="100%"
+          height={svgHeight}
           style={{ display: 'block', cursor: unitDragging ? 'grabbing' : rackDragging ? 'grabbing' : panDragging ? 'grabbing' : placingItem ? 'crosshair' : 'grab' }}
           onMouseMove={onSvgMouseMove}
           onMouseUp={onSvgMouseUp}
@@ -1179,12 +1191,7 @@ export default function TopologyPage() {
           </g>
         </svg>
         {showHint && (
-          <div style={{
-            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-            background: 'rgba(15,23,42,0.8)', color: 'white', padding: '8px 18px',
-            borderRadius: 20, fontSize: 12, zIndex: 1000, pointerEvents: 'none',
-            animation: 'topo-hint-fade 1s ease 4s forwards',
-          }}>
+          <div className="topo-hint-banner">
             Scroll to zoom &middot; Shift+Scroll to pan &middot; Drag headers to move racks &middot; F to fit all
           </div>
         )}

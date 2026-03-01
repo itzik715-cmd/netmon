@@ -2579,6 +2579,73 @@ a.stat-card {
   flex-shrink: 0;
 }
 
+/* ─── Topology Page Layout ──────────────────────────────────────────────── */
+
+.topo-page-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.topo-sticky-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px 8px;
+  margin: -24px -24px 0;           /* bleed into .content padding */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topo-sticky-toolbar__title {
+  display: flex;
+  flex-direction: column;
+}
+.topo-sticky-toolbar__title h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+.topo-sticky-toolbar__title p {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.topo-sticky-toolbar > .flex-row-gap {
+  flex-wrap: wrap;
+}
+
+.topo-sticky-toolbar .topo-legend {
+  padding: 0;
+  margin: 0;
+}
+
+.topo-canvas {
+  overflow: visible;
+  margin-top: 16px;
+}
+
+.topo-hint-banner {
+  position: sticky;
+  bottom: 20px;
+  z-index: 10;
+  margin: -40px auto 0;
+  width: fit-content;
+  background: rgba(15,23,42,0.8);
+  color: white;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 12px;
+  pointer-events: none;
+  animation: topo-hint-fade 1s ease 4s forwards;
+}
+
 /* ─── Topology Rack Visualization ─────────────────────────────────────────── */
 
 .topo-rack { cursor: grab; }
