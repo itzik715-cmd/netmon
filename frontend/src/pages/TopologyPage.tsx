@@ -58,9 +58,13 @@ interface StoreCatalogEntry {
 }
 
 const STORE_CATALOG: StoreCatalogEntry[] = [
+  { type: 'ats', label: 'ATS', uSize: 1, color: '#8b5cf6' },
   { type: 'ats', label: 'ATS', uSize: 2, color: '#8b5cf6' },
   { type: 'ats', label: 'ATS', uSize: 3, color: '#8b5cf6' },
   { type: 'ats', label: 'ATS', uSize: 4, color: '#8b5cf6' },
+  { type: 'drawer', label: 'Drawer', uSize: 2, color: '#78716c' },
+  { type: 'drawer', label: 'Drawer', uSize: 3, color: '#78716c' },
+  { type: 'drawer', label: 'Drawer', uSize: 4, color: '#78716c' },
   { type: 'shelf', label: 'Shelf', uSize: 1, color: '#64748b' },
   { type: 'modem', label: 'Modem', uSize: 1, color: '#0ea5e9' },
   { type: 'oob_switch', label: 'OOB Switch', uSize: 1, color: '#f59e0b' },
@@ -846,6 +850,14 @@ export default function TopologyPage() {
                 <line x1={EQUIP_X + 8} y1={itemH / 2} x2={EQUIP_X + EQUIP_W - 8} y2={itemH / 2}
                   stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
               </>}
+              {item.item_type === 'drawer' && <>
+                {/* Drawer handle */}
+                <rect x={EQUIP_X + EQUIP_W / 2 - 16} y={itemH / 2 - 2} width={32} height={4} rx={2}
+                  fill="rgba(255,255,255,0.35)" />
+                {/* Drawer outline */}
+                <rect x={EQUIP_X + 4} y={2} width={EQUIP_W - 8} height={itemH - 4} rx={1}
+                  fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} />
+              </>}
               {item.item_type === 'modem' && <>
                 {/* Signal bars */}
                 {[0, 1, 2, 3].map(b => (
@@ -1225,6 +1237,7 @@ export default function TopologyPage() {
               >
                 <div className="topo-store-card__preview" style={{ background: entry.color, height: Math.max(entry.uSize * 10, 16) }}>
                   {entry.type === 'ats' && <span>⚡</span>}
+                  {entry.type === 'drawer' && <span style={{ fontSize: 9 }}>🗄</span>}
                   {entry.type === 'shelf' && <span style={{ fontSize: 10 }}>━</span>}
                   {entry.type === 'modem' && <span style={{ fontSize: 9 }}>📡</span>}
                   {entry.type === 'oob_switch' && <span style={{ fontSize: 9 }}>🔌</span>}
