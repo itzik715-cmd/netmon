@@ -11,6 +11,43 @@ import toast from 'react-hot-toast'
 
 type Tab = 'overview' | 'traffic' | 'mitigations' | 'bgp' | 'detection' | 'config'
 
+// ── CIDR helpers ──────────────────────────────────────────────────────────
+
+function parseCidr(cidr: string): { start: number; end: number; prefix: number } | null {
+  const m = cidr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/)
+  if (!m) return null
+  const prefix = parseInt(m[5])
+  const ip = ((+m[1]) << 24 | (+m[2]) << 16 | (+m[3]) << 8 | (+m[4])) >>> 0
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0
+  const start = (ip & mask) >>> 0
+  const end = (start | (~mask >>> 0)) >>> 0
+  return { start, end, prefix }
+}
+
+function cidrContains(outer: string, inner: string): boolean {
+  const o = parseCidr(outer), i = parseCidr(inner)
+  if (!o || !i) return false
+  return o.start <= i.start && o.end >= i.end
+}
+
+function cidrOverlaps(a: string, b: string): boolean {
+  return cidrContains(a, b) || cidrContains(b, a)
+}
+
+/** Expand a CIDR larger than /24 into individual /24s (e.g. /23 → two /24s, /22 → four /24s). */
+function expandTo24s(cidr: string): string[] {
+  const p = parseCidr(cidr)
+  if (!p) return [cidr]
+  if (p.prefix >= 24) return [cidr]
+  const count = 1 << (24 - p.prefix)
+  const out: string[] = []
+  for (let i = 0; i < count; i++) {
+    const ip = (p.start + (i << 8)) >>> 0
+    out.push(`${(ip >>> 24) & 0xff}.${(ip >>> 16) & 0xff}.${(ip >>> 8) & 0xff}.${ip & 0xff}/24`)
+  }
+  return out
+}
+
 function fmtPps(v: number): string {
   if (!v) return '0'
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M'
@@ -826,14 +863,14 @@ function ConfigPanel() {
     saveMut.mutate({ key, value })
   }
 
-  // Diff: FNM networks vs NetMon owned subnets
+  // Diff: FNM networks vs NetMon owned subnets (CIDR-aware)
   const ownedList: string[] = (ownedSubnets || [])
     .filter((s: any) => s.is_active)
     .map((s: any) => s.subnet)
-  const fnmSet = new Set(nets)
-  const ownedSet = new Set(ownedList)
-  const inFnmNotOwned = nets.filter((n) => !ownedSet.has(n))
-  const inOwnedNotFnm = ownedList.filter((n) => !fnmSet.has(n))
+  // A FNM subnet is covered if any owned subnet contains or matches it
+  const inFnmNotOwned = nets.filter((n) => !ownedList.some((o) => cidrOverlaps(o, n)))
+  // An owned subnet is covered if any FNM subnet falls within it or matches it
+  const inOwnedNotFnm = ownedList.filter((o) => !nets.some((n) => cidrOverlaps(o, n)))
 
   return (
     <>
@@ -940,12 +977,23 @@ function ConfigPanel() {
                       In Owned Subnets but NOT in FastNetMon ({inOwnedNotFnm.length})
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {inOwnedNotFnm.map((n) => (
-                        <span key={n} className="tag-orange" style={{ cursor: 'pointer' }} title="Click to add to FastNetMon"
-                          onClick={() => { if (confirm(`Add ${n} to FastNetMon monitored networks?`)) addNetMut.mutate({ list: 'networks_list', cidr: n }) }}>
-                          + {n}
-                        </span>
-                      ))}
+                      {inOwnedNotFnm.map((n) => {
+                        const expanded = expandTo24s(n)
+                        const label = expanded.length > 1
+                          ? `Add ${n} as ${expanded.length} x /24s to FastNetMon?\n\n${expanded.join('\n')}`
+                          : `Add ${n} to FastNetMon monitored networks?`
+                        return (
+                          <span key={n} className="tag-orange" style={{ cursor: 'pointer' }}
+                            title={expanded.length > 1 ? `Will expand to ${expanded.length} x /24s` : 'Click to add to FastNetMon'}
+                            onClick={() => {
+                              if (confirm(label)) {
+                                expanded.forEach((cidr) => addNetMut.mutate({ list: 'networks_list', cidr }))
+                              }
+                            }}>
+                            + {n}{expanded.length > 1 ? ` (${expanded.length}x/24)` : ''}
+                          </span>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
