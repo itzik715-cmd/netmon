@@ -559,21 +559,21 @@ function DuoStatusPanel() {
 
 function FastNetMonPanel() {
   const [config, setConfig] = useState({
-    enabled: false,
-    shared_node: true,
-    monitor_host: '',
-    monitor_port: '10007',
-    monitor_use_ssl: false,
-    monitor_api_user: 'admin',
-    monitor_api_password: '',
-    blocker_host: '',
-    blocker_port: '10007',
-    blocker_use_ssl: false,
-    blocker_api_user: 'admin',
-    blocker_api_password: '',
+    mitigation_enabled: false,
+    mitigation_host: '',
+    mitigation_port: '10007',
+    mitigation_use_ssl: false,
+    mitigation_api_user: 'admin',
+    mitigation_api_password: '',
+    blackhole_enabled: false,
+    blackhole_host: '',
+    blackhole_port: '10007',
+    blackhole_use_ssl: false,
+    blackhole_api_user: 'admin',
+    blackhole_api_password: '',
   })
   const [fnmTestResult, setFnmTestResult] = useState<{
-    monitor_ok: boolean; blocker_ok: boolean; monitor_version?: string; blocker_version?: string
+    mitigation_ok: boolean; blackhole_ok: boolean; mitigation_version?: string; blackhole_version?: string
   } | null>(null)
   const [fnmTesting, setFnmTesting] = useState(false)
 
@@ -583,18 +583,18 @@ function FastNetMonPanel() {
       const d = r.data
       setConfig((prev) => ({
         ...prev,
-        enabled: d.fnm_enabled === 'true',
-        shared_node: d.fnm_shared_node !== 'false',
-        monitor_host: d.fnm_monitor_host || '',
-        monitor_port: d.fnm_monitor_port || '10007',
-        monitor_use_ssl: d.fnm_monitor_use_ssl === 'true',
-        monitor_api_user: d.fnm_monitor_api_user || 'admin',
-        monitor_api_password: d.fnm_monitor_api_password || '',
-        blocker_host: d.fnm_blocker_host || '',
-        blocker_port: d.fnm_blocker_port || '10007',
-        blocker_use_ssl: d.fnm_blocker_use_ssl === 'true',
-        blocker_api_user: d.fnm_blocker_api_user || 'admin',
-        blocker_api_password: d.fnm_blocker_api_password || '',
+        mitigation_enabled: d.fnm_mitigation_enabled === 'true',
+        mitigation_host: d.fnm_mitigation_host || '',
+        mitigation_port: d.fnm_mitigation_port || '10007',
+        mitigation_use_ssl: d.fnm_mitigation_use_ssl === 'true',
+        mitigation_api_user: d.fnm_mitigation_api_user || 'admin',
+        mitigation_api_password: d.fnm_mitigation_api_password || '',
+        blackhole_enabled: d.fnm_blackhole_enabled === 'true',
+        blackhole_host: d.fnm_blackhole_host || '',
+        blackhole_port: d.fnm_blackhole_port || '10007',
+        blackhole_use_ssl: d.fnm_blackhole_use_ssl === 'true',
+        blackhole_api_user: d.fnm_blackhole_api_user || 'admin',
+        blackhole_api_password: d.fnm_blackhole_api_password || '',
       }))
       return d
     }),
@@ -602,18 +602,18 @@ function FastNetMonPanel() {
 
   const saveFnmMutation = useMutation({
     mutationFn: () => settingsApi.saveFastnetmon({
-      fnm_enabled: String(config.enabled),
-      fnm_shared_node: String(config.shared_node),
-      fnm_monitor_host: config.monitor_host,
-      fnm_monitor_port: config.monitor_port,
-      fnm_monitor_use_ssl: String(config.monitor_use_ssl),
-      fnm_monitor_api_user: config.monitor_api_user,
-      fnm_monitor_api_password: config.monitor_api_password,
-      fnm_blocker_host: config.blocker_host,
-      fnm_blocker_port: config.blocker_port,
-      fnm_blocker_use_ssl: String(config.blocker_use_ssl),
-      fnm_blocker_api_user: config.blocker_api_user,
-      fnm_blocker_api_password: config.blocker_api_password,
+      fnm_mitigation_enabled: String(config.mitigation_enabled),
+      fnm_mitigation_host: config.mitigation_host,
+      fnm_mitigation_port: config.mitigation_port,
+      fnm_mitigation_use_ssl: String(config.mitigation_use_ssl),
+      fnm_mitigation_api_user: config.mitigation_api_user,
+      fnm_mitigation_api_password: config.mitigation_api_password,
+      fnm_blackhole_enabled: String(config.blackhole_enabled),
+      fnm_blackhole_host: config.blackhole_host,
+      fnm_blackhole_port: config.blackhole_port,
+      fnm_blackhole_use_ssl: String(config.blackhole_use_ssl),
+      fnm_blackhole_api_user: config.blackhole_api_user,
+      fnm_blackhole_api_password: config.blackhole_api_password,
     }),
     onSuccess: () => toast.success('FastNetMon configuration saved'),
   })
@@ -640,7 +640,7 @@ function FastNetMonPanel() {
     </div>
   )
 
-  const nodeFields = (prefix: 'monitor' | 'blocker') => (
+  const nodeFields = (prefix: 'mitigation' | 'blackhole') => (
     <>
       {fnmField('Host / IP', `${prefix}_host` as keyof typeof config, 'text', '192.168.1.10')}
       {fnmField('Port', `${prefix}_port` as keyof typeof config, 'text', '10007')}
@@ -664,91 +664,71 @@ function FastNetMonPanel() {
       </div>
       <div className="card-body">
         <div className="flex-col-gap">
-          <div className="toggle-row">
-            <div>
-              <div className="toggle-row__title">Enable FastNetMon Integration</div>
-              <div className="toggle-row__description">Connect to FastNetMon Advanced for DDoS detection and automated BGP blackhole mitigation</div>
-            </div>
-            <button className={`toggle ${config.enabled ? 'toggle--active' : ''}`}
-              onClick={() => setConfig((p) => ({ ...p, enabled: !p.enabled }))}>
-              <span className="toggle__knob" />
-            </button>
-          </div>
-
-          {config.enabled && (
-            <>
-              <div className="info-box">
-                <span className="info-box__title">How to enable the FastNetMon REST API:</span>
-                <pre style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: "'DM Mono', monospace" }}>
+          <div className="info-box">
+            <span className="info-box__title">How to enable the FastNetMon REST API:</span>
+            <pre style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: "'DM Mono', monospace" }}>
 {`sudo fcli set main web_api_host 0.0.0.0
 sudo fcli set main web_api_port 10007
 sudo fcli set main web_api_login admin
 sudo fcli set main web_api_password YOUR_SECURE_PASSWORD
-sudo systemctl restart fastnetmon_web_api
-
-# For HTTPS (recommended):
-sudo fcli set main web_api_ssl true
-sudo fcli set main web_api_ssl_port 10443
 sudo systemctl restart fastnetmon_web_api`}
-                </pre>
-              </div>
+            </pre>
+          </div>
 
-              <div className="toggle-row">
-                <div>
-                  <div className="toggle-row__title">Use Same Server for Monitor & Block</div>
-                  <div className="toggle-row__description">Enable if one FastNetMon instance handles both detection and blocking. Disable to configure separate monitor and blocker nodes.</div>
-                </div>
-                <button className={`toggle ${config.shared_node ? 'toggle--active' : ''}`}
-                  onClick={() => setConfig((p) => ({ ...p, shared_node: !p.shared_node }))}>
-                  <span className="toggle__knob" />
-                </button>
-              </div>
+          {/* ── Mitigation Server ── */}
+          <div className="settings-section-divider" />
+          <div className="toggle-row">
+            <div>
+              <div className="toggle-row__title">Mitigation Server</div>
+              <div className="toggle-row__description">FlowSpec mitigation via BGP to spine routers</div>
+            </div>
+            <button className={`toggle ${config.mitigation_enabled ? 'toggle--active' : ''}`}
+              onClick={() => setConfig((p) => ({ ...p, mitigation_enabled: !p.mitigation_enabled }))}>
+              <span className="toggle__knob" />
+            </button>
+          </div>
+          {config.mitigation_enabled && nodeFields('mitigation')}
 
-              <div className="settings-section-divider" />
-              <div className="form-section-title">{config.shared_node ? 'FastNetMon Server' : 'Monitor Node'}</div>
-              {!config.shared_node && (
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-8px 0 4px' }}>
-                  This node detects attacks and sends alerts. It does NOT block traffic.
-                </p>
-              )}
-              {nodeFields('monitor')}
+          {/* ── Blackhole Server ── */}
+          <div className="settings-section-divider" />
+          <div className="toggle-row">
+            <div>
+              <div className="toggle-row__title">Blackhole Server</div>
+              <div className="toggle-row__description">IP blackholing via null route or BGP community</div>
+            </div>
+            <button className={`toggle ${config.blackhole_enabled ? 'toggle--active' : ''}`}
+              onClick={() => setConfig((p) => ({ ...p, blackhole_enabled: !p.blackhole_enabled }))}>
+              <span className="toggle__knob" />
+            </button>
+          </div>
+          {config.blackhole_enabled && nodeFields('blackhole')}
 
-              {!config.shared_node && (
-                <>
-                  <div className="settings-section-divider" />
-                  <div className="form-section-title">Blocker Node</div>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-8px 0 4px' }}>
-                    This node executes the actual BGP blackhole/FlowSpec blocks.
-                  </p>
-                  {nodeFields('blocker')}
-                </>
-              )}
-
-              <div className="settings-section-divider" />
-              <div>
-                <button onClick={handleTestFnm} disabled={fnmTesting || !config.monitor_host} className="btn btn-outline">
-                  {fnmTesting ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
-                  Test Connection
-                </button>
-                {fnmTestResult && (
-                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div className={fnmTestResult.monitor_ok ? 'test-success' : 'test-error'}>
-                      {fnmTestResult.monitor_ok ? '\u2713' : '\u2717'} {config.shared_node ? 'Server' : 'Monitor Node'}: {fnmTestResult.monitor_ok
-                        ? `Connected${fnmTestResult.monitor_version ? ` (${fnmTestResult.monitor_version})` : ''}`
-                        : 'Unreachable'}
-                    </div>
-                    {!config.shared_node && (
-                      <div className={fnmTestResult.blocker_ok ? 'test-success' : 'test-error'}>
-                        {fnmTestResult.blocker_ok ? '\u2713' : '\u2717'} Blocker Node: {fnmTestResult.blocker_ok
-                          ? `Connected${fnmTestResult.blocker_version ? ` (${fnmTestResult.blocker_version})` : ''}`
-                          : 'Unreachable'}
-                      </div>
-                    )}
+          {/* ── Test + Save ── */}
+          <div className="settings-section-divider" />
+          <div>
+            <button onClick={handleTestFnm} disabled={fnmTesting || (!config.mitigation_host && !config.blackhole_host)} className="btn btn-outline">
+              {fnmTesting ? <Loader2 size={13} className="animate-spin" /> : <TestTube size={13} />}
+              Test Connection
+            </button>
+            {fnmTestResult && (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {config.mitigation_enabled && (
+                  <div className={fnmTestResult.mitigation_ok ? 'test-success' : 'test-error'}>
+                    {fnmTestResult.mitigation_ok ? '\u2713' : '\u2717'} Mitigation Server: {fnmTestResult.mitigation_ok
+                      ? `Connected${fnmTestResult.mitigation_version ? ` (${fnmTestResult.mitigation_version})` : ''}`
+                      : 'Unreachable'}
+                  </div>
+                )}
+                {config.blackhole_enabled && (
+                  <div className={fnmTestResult.blackhole_ok ? 'test-success' : 'test-error'}>
+                    {fnmTestResult.blackhole_ok ? '\u2713' : '\u2717'} Blackhole Server: {fnmTestResult.blackhole_ok
+                      ? `Connected${fnmTestResult.blackhole_version ? ` (${fnmTestResult.blackhole_version})` : ''}`
+                      : 'Unreachable'}
                   </div>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
 
           <div className="settings-save-bar">
             <button onClick={() => saveFnmMutation.mutate()} disabled={saveFnmMutation.isPending} className="btn btn-primary">

@@ -179,13 +179,14 @@ async def save_duo_config(
 # ─── FastNetMon Config ───────────────────────────────────────────────────────
 
 _FNM_KEYS = [
-    "fnm_enabled", "fnm_shared_node",
-    "fnm_monitor_host", "fnm_monitor_port", "fnm_monitor_use_ssl",
-    "fnm_monitor_api_user", "fnm_monitor_api_password",
-    "fnm_blocker_host", "fnm_blocker_port", "fnm_blocker_use_ssl",
-    "fnm_blocker_api_user", "fnm_blocker_api_password",
+    "fnm_mitigation_enabled",
+    "fnm_mitigation_host", "fnm_mitigation_port", "fnm_mitigation_use_ssl",
+    "fnm_mitigation_api_user", "fnm_mitigation_api_password",
+    "fnm_blackhole_enabled",
+    "fnm_blackhole_host", "fnm_blackhole_port", "fnm_blackhole_use_ssl",
+    "fnm_blackhole_api_user", "fnm_blackhole_api_password",
 ]
-_FNM_SECRET_KEYS = {"fnm_monitor_api_password", "fnm_blocker_api_password"}
+_FNM_SECRET_KEYS = {"fnm_mitigation_api_password", "fnm_blackhole_api_password"}
 
 
 @router.get("/fastnetmon/config")
@@ -239,50 +240,46 @@ async def test_fastnetmon(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin()),
 ):
-    """Test connectivity to FastNetMon nodes."""
+    """Test connectivity to FastNetMon servers."""
     from app.services.fastnetmon_client import FastNetMonClient
 
     result = await db.execute(select(SystemSetting).where(SystemSetting.key.in_(_FNM_KEYS)))
     cfg = {s.key: s.value for s in result.scalars().all()}
 
-    monitor_ok = False
-    monitor_version = None
-    blocker_ok = False
-    blocker_version = None
+    mitigation_ok = False
+    mitigation_version = None
+    blackhole_ok = False
+    blackhole_version = None
 
-    # Test monitor node
-    if cfg.get("fnm_monitor_host"):
+    # Test mitigation server
+    if cfg.get("fnm_mitigation_host"):
         client = FastNetMonClient(
-            host=cfg["fnm_monitor_host"],
-            port=int(cfg.get("fnm_monitor_port", "10007")),
-            username=cfg.get("fnm_monitor_api_user", "admin"),
-            password=cfg.get("fnm_monitor_api_password", ""),
-            use_ssl=cfg.get("fnm_monitor_use_ssl", "false") == "true",
+            host=cfg["fnm_mitigation_host"],
+            port=int(cfg.get("fnm_mitigation_port", "10007")),
+            username=cfg.get("fnm_mitigation_api_user", "admin"),
+            password=cfg.get("fnm_mitigation_api_password", ""),
+            use_ssl=cfg.get("fnm_mitigation_use_ssl", "false") == "true",
         )
         status = await client.get_status()
-        monitor_ok = bool(status)
-        monitor_version = status.get("version") or status.get("raw", "")[:80] if status else None
+        mitigation_ok = bool(status)
+        mitigation_version = status.get("version") or status.get("raw", "")[:80] if status else None
 
-    # Test blocker node (only if separate)
-    shared = cfg.get("fnm_shared_node", "true") == "true"
-    if shared:
-        blocker_ok = monitor_ok
-        blocker_version = monitor_version
-    elif cfg.get("fnm_blocker_host"):
+    # Test blackhole server
+    if cfg.get("fnm_blackhole_host"):
         client = FastNetMonClient(
-            host=cfg["fnm_blocker_host"],
-            port=int(cfg.get("fnm_blocker_port", "10007")),
-            username=cfg.get("fnm_blocker_api_user", "admin"),
-            password=cfg.get("fnm_blocker_api_password", ""),
-            use_ssl=cfg.get("fnm_blocker_use_ssl", "false") == "true",
+            host=cfg["fnm_blackhole_host"],
+            port=int(cfg.get("fnm_blackhole_port", "10007")),
+            username=cfg.get("fnm_blackhole_api_user", "admin"),
+            password=cfg.get("fnm_blackhole_api_password", ""),
+            use_ssl=cfg.get("fnm_blackhole_use_ssl", "false") == "true",
         )
         status = await client.get_status()
-        blocker_ok = bool(status)
-        blocker_version = status.get("version") or status.get("raw", "")[:80] if status else None
+        blackhole_ok = bool(status)
+        blackhole_version = status.get("version") or status.get("raw", "")[:80] if status else None
 
     return {
-        "monitor_ok": monitor_ok,
-        "blocker_ok": blocker_ok,
-        "monitor_version": monitor_version,
-        "blocker_version": blocker_version,
+        "mitigation_ok": mitigation_ok,
+        "blackhole_ok": blackhole_ok,
+        "mitigation_version": mitigation_version,
+        "blackhole_version": blackhole_version,
     }

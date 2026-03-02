@@ -71,10 +71,10 @@ function fmtBytes(b: number): string {
 
 // ── Overview Panel ─────────────────────────────────────────────────────────
 
-function OverviewPanel() {
+function OverviewPanel({ node }: { node: string }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['fnm-dashboard'],
-    queryFn: () => fastnetmonApi.dashboard().then((r) => r.data),
+    queryKey: ['fnm-dashboard', node],
+    queryFn: () => fastnetmonApi.dashboard(node).then((r) => r.data),
     refetchInterval: 15_000,
   })
 
@@ -193,24 +193,24 @@ function OverviewPanel() {
 
 // ── Traffic Panel ──────────────────────────────────────────────────────────
 
-function TrafficPanel() {
+function TrafficPanel({ node }: { node: string }) {
   const [netFilter, setNetFilter] = useState('')
 
   const { data: traffic, isLoading: tLoading } = useQuery({
-    queryKey: ['fnm-traffic'],
-    queryFn: () => fastnetmonApi.traffic().then((r) => r.data),
+    queryKey: ['fnm-traffic', node],
+    queryFn: () => fastnetmonApi.traffic(node).then((r) => r.data),
     refetchInterval: 10_000,
   })
 
   const { data: hosts, isLoading: hLoading } = useQuery({
-    queryKey: ['fnm-host-counters'],
-    queryFn: () => fastnetmonApi.hostCounters().then((r) => r.data),
+    queryKey: ['fnm-host-counters', node],
+    queryFn: () => fastnetmonApi.hostCounters(node).then((r) => r.data),
     refetchInterval: 15_000,
   })
 
   const { data: networks, isLoading: nLoading } = useQuery({
-    queryKey: ['fnm-network-counters'],
-    queryFn: () => fastnetmonApi.networkCounters().then((r) => r.data),
+    queryKey: ['fnm-network-counters', node],
+    queryFn: () => fastnetmonApi.networkCounters(node).then((r) => r.data),
     refetchInterval: 30_000,
   })
 
@@ -369,38 +369,38 @@ function TrafficPanel() {
 
 // ── Mitigations Panel ──────────────────────────────────────────────────────
 
-function MitigationsPanel() {
+function MitigationsPanel({ node }: { node: string }) {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
   const [newIp, setNewIp] = useState('')
 
   const { data: blackholes, isLoading: bLoading } = useQuery({
-    queryKey: ['fnm-blackholes'],
-    queryFn: () => fastnetmonApi.blackholes().then((r) => r.data),
+    queryKey: ['fnm-blackholes', node],
+    queryFn: () => fastnetmonApi.blackholes(node).then((r) => r.data),
     refetchInterval: 10_000,
   })
 
   const { data: flowspec, isLoading: fLoading } = useQuery({
-    queryKey: ['fnm-flowspec'],
-    queryFn: () => fastnetmonApi.flowspec().then((r) => r.data),
+    queryKey: ['fnm-flowspec', node],
+    queryFn: () => fastnetmonApi.flowspec(node).then((r) => r.data),
     refetchInterval: 15_000,
   })
 
   const removeMutation = useMutation({
-    mutationFn: (uuid: string) => fastnetmonApi.removeBlackhole(uuid),
+    mutationFn: (uuid: string) => fastnetmonApi.removeBlackhole(uuid, node),
     onSuccess: () => {
       toast.success('Blackhole removed')
-      qc.invalidateQueries({ queryKey: ['fnm-blackholes'] })
-      qc.invalidateQueries({ queryKey: ['fnm-dashboard'] })
+      qc.invalidateQueries({ queryKey: ['fnm-blackholes', node] })
+      qc.invalidateQueries({ queryKey: ['fnm-dashboard', node] })
     },
   })
 
   const addMutation = useMutation({
-    mutationFn: (ip: string) => fastnetmonApi.addBlackhole(ip),
+    mutationFn: (ip: string) => fastnetmonApi.addBlackhole(ip, node),
     onSuccess: () => {
       toast.success('Blackhole added')
-      qc.invalidateQueries({ queryKey: ['fnm-blackholes'] })
-      qc.invalidateQueries({ queryKey: ['fnm-dashboard'] })
+      qc.invalidateQueries({ queryKey: ['fnm-blackholes', node] })
+      qc.invalidateQueries({ queryKey: ['fnm-dashboard', node] })
       setShowAdd(false)
       setNewIp('')
     },
@@ -548,10 +548,10 @@ function MitigationsPanel() {
 
 // ── BGP Panel ──────────────────────────────────────────────────────────────
 
-function BgpPanel() {
+function BgpPanel({ node }: { node: string }) {
   const { data: peers, isLoading } = useQuery({
-    queryKey: ['fnm-bgp-peers'],
-    queryFn: () => fastnetmonApi.bgpPeers().then((r) => r.data),
+    queryKey: ['fnm-bgp-peers', node],
+    queryFn: () => fastnetmonApi.bgpPeers(node).then((r) => r.data),
     refetchInterval: 30_000,
   })
 
@@ -674,20 +674,20 @@ function EditableField({ label, configKey, value, onSave, suffix, desc }: {
 
 // ── Detection Panel ────────────────────────────────────────────────────────
 
-function DetectionPanel() {
+function DetectionPanel({ node }: { node: string }) {
   const qc = useQueryClient()
   const { data: hostgroups, isLoading } = useQuery({
-    queryKey: ['fnm-hostgroups'],
-    queryFn: () => fastnetmonApi.hostgroups().then((r) => r.data),
+    queryKey: ['fnm-hostgroups', node],
+    queryFn: () => fastnetmonApi.hostgroups(node).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
   const saveMut = useMutation({
     mutationFn: ({ name, key, value }: { name: string; key: string; value: string }) =>
-      fastnetmonApi.updateHostgroup(name, key, value),
+      fastnetmonApi.updateHostgroup(name, key, value, node),
     onSuccess: () => {
       toast.success('Threshold updated')
-      qc.invalidateQueries({ queryKey: ['fnm-hostgroups'] })
+      qc.invalidateQueries({ queryKey: ['fnm-hostgroups', node] })
     },
   })
 
@@ -801,7 +801,7 @@ function ThresholdRow({ row, groupName, onSave }: {
 
 // ── Config Panel ───────────────────────────────────────────────────────────
 
-function ConfigPanel() {
+function ConfigPanel({ node }: { node: string }) {
   const qc = useQueryClient()
   const [showNets, setShowNets] = useState(false)
   const [showWhitelist, setShowWhitelist] = useState(false)
@@ -811,8 +811,8 @@ function ConfigPanel() {
   const [newWl, setNewWl] = useState('')
 
   const { data: config, isLoading } = useQuery({
-    queryKey: ['fnm-internal-config'],
-    queryFn: () => fastnetmonApi.config().then((r) => r.data),
+    queryKey: ['fnm-internal-config', node],
+    queryFn: () => fastnetmonApi.config(node).then((r) => r.data),
     refetchInterval: 60_000,
   })
 
@@ -823,20 +823,20 @@ function ConfigPanel() {
 
   const saveMut = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
-      fastnetmonApi.updateConfig(key, value),
+      fastnetmonApi.updateConfig(key, value, node),
     onSuccess: () => {
       toast.success('Setting updated')
-      qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
-      qc.invalidateQueries({ queryKey: ['fnm-dashboard'] })
+      qc.invalidateQueries({ queryKey: ['fnm-internal-config', node] })
+      qc.invalidateQueries({ queryKey: ['fnm-dashboard', node] })
     },
   })
 
   const addNetMut = useMutation({
     mutationFn: ({ list, cidr }: { list: string; cidr: string }) =>
-      fastnetmonApi.addNetwork(list, cidr),
+      fastnetmonApi.addNetwork(list, cidr, node),
     onSuccess: () => {
       toast.success('Network added')
-      qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
+      qc.invalidateQueries({ queryKey: ['fnm-internal-config', node] })
       setNewNet('')
       setNewWl('')
     },
@@ -844,10 +844,10 @@ function ConfigPanel() {
 
   const removeNetMut = useMutation({
     mutationFn: ({ list, cidr }: { list: string; cidr: string }) =>
-      fastnetmonApi.removeNetwork(list, cidr),
+      fastnetmonApi.removeNetwork(list, cidr, node),
     onSuccess: () => {
       toast.success('Network removed')
-      qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
+      qc.invalidateQueries({ queryKey: ['fnm-internal-config', node] })
     },
   })
 
@@ -1125,15 +1125,27 @@ function ConfigPanel() {
 
 export default function FastNetMonPage() {
   const [tab, setTab] = useState<Tab>('overview')
+  const [selectedNode, setSelectedNode] = useState<string>('')
   const navigate = useNavigate()
 
   const { data: fnmConfig } = useQuery({
     queryKey: ['fnm-config'],
     queryFn: () => settingsApi.getFastnetmon().then((r) => r.data),
   })
-  const fnmEnabled = String(fnmConfig?.fnm_enabled).toLowerCase() === 'true'
 
-  if (fnmConfig && !fnmEnabled) {
+  const mitigationEnabled = String(fnmConfig?.fnm_mitigation_enabled).toLowerCase() === 'true'
+  const blackholeEnabled = String(fnmConfig?.fnm_blackhole_enabled).toLowerCase() === 'true'
+  const anyEnabled = mitigationEnabled || blackholeEnabled
+
+  // Auto-select the active node
+  const activeNode = selectedNode
+    || (mitigationEnabled ? 'mitigation' : '')
+    || (blackholeEnabled ? 'blackhole' : '')
+    || 'mitigation'
+
+  const showSelector = mitigationEnabled && blackholeEnabled
+
+  if (fnmConfig && !anyEnabled) {
     return (
       <div className="content">
         <div className="page-header">
@@ -1148,7 +1160,7 @@ export default function FastNetMonPage() {
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>FastNetMon Integration is Disabled</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                Configure FastNetMon to enable DDoS detection and automated BGP blackhole mitigation
+                Configure at least one FastNetMon server (Mitigation or Blackhole) to enable DDoS detection and mitigation
               </div>
             </div>
             <button className="btn btn-primary" onClick={() => navigate('/settings')}>
@@ -1168,6 +1180,59 @@ export default function FastNetMonPage() {
           <p>DDoS Detection and Mitigation Management</p>
         </div>
       </div>
+
+      {/* Server Selector */}
+      {showSelector && (
+        <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', width: 'fit-content' }}>
+          <button
+            onClick={() => setSelectedNode('mitigation')}
+            style={{
+              padding: '8px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: activeNode === 'mitigation' ? 'var(--primary-500, #3b82f6)' : 'var(--bg-secondary, #1e293b)',
+              color: activeNode === 'mitigation' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Shield size={14} />
+            Mitigation Server
+          </button>
+          <button
+            onClick={() => setSelectedNode('blackhole')}
+            style={{
+              padding: '8px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              border: 'none',
+              borderLeft: '1px solid var(--border)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: activeNode === 'blackhole' ? 'var(--primary-500, #3b82f6)' : 'var(--bg-secondary, #1e293b)',
+              color: activeNode === 'blackhole' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Ban size={14} />
+            Blackhole Server
+          </button>
+        </div>
+      )}
+
+      {/* Single-server label when only one enabled */}
+      {!showSelector && anyEnabled && (
+        <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Server size={13} />
+          {mitigationEnabled ? 'Mitigation Server' : 'Blackhole Server'}
+        </div>
+      )}
 
       <div className="tab-bar">
         <button className={`tab-btn${tab === 'overview' ? ' active' : ''}`} onClick={() => setTab('overview')}>
@@ -1190,12 +1255,12 @@ export default function FastNetMonPage() {
         </button>
       </div>
 
-      {tab === 'overview' && <OverviewPanel />}
-      {tab === 'traffic' && <TrafficPanel />}
-      {tab === 'mitigations' && <MitigationsPanel />}
-      {tab === 'bgp' && <BgpPanel />}
-      {tab === 'detection' && <DetectionPanel />}
-      {tab === 'config' && <ConfigPanel />}
+      {tab === 'overview' && <OverviewPanel node={activeNode} />}
+      {tab === 'traffic' && <TrafficPanel node={activeNode} />}
+      {tab === 'mitigations' && <MitigationsPanel node={activeNode} />}
+      {tab === 'bgp' && <BgpPanel node={activeNode} />}
+      {tab === 'detection' && <DetectionPanel node={activeNode} />}
+      {tab === 'config' && <ConfigPanel node={activeNode} />}
     </div>
   )
 }
