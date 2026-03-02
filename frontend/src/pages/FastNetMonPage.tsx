@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fastnetmonApi, settingsApi } from '../services/api'
+import { fastnetmonApi, settingsApi, flowsApi } from '../services/api'
 import { useNavigate } from 'react-router-dom'
 import {
   ShieldAlert, ShieldOff, Activity, Network, Shield, Ban,
@@ -570,13 +570,16 @@ function BgpPanel() {
 
 // ── Editable Setting Helpers ──────────────────────────────────────────────
 
-function EditableToggle({ label, configKey, value, onSave }: {
+function EditableToggle({ label, configKey, value, onSave, desc }: {
   label: string; configKey: string; value: boolean
-  onSave: (key: string, value: string) => void
+  onSave: (key: string, value: string) => void; desc?: string
 }) {
   return (
     <tr>
-      <td><strong>{label}</strong></td>
+      <td>
+        <strong>{label}</strong>
+        {desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>{desc}</div>}
+      </td>
       <td>
         <button
           className={`toggle toggle--sm ${value ? 'toggle--active' : ''}`}
@@ -589,9 +592,9 @@ function EditableToggle({ label, configKey, value, onSave }: {
   )
 }
 
-function EditableField({ label, configKey, value, onSave, suffix }: {
+function EditableField({ label, configKey, value, onSave, suffix, desc }: {
   label: string; configKey: string; value: string | number
-  onSave: (key: string, value: string) => void; suffix?: string
+  onSave: (key: string, value: string) => void; suffix?: string; desc?: string
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value ?? ''))
@@ -603,7 +606,10 @@ function EditableField({ label, configKey, value, onSave, suffix }: {
 
   return (
     <tr>
-      <td><strong>{label}</strong></td>
+      <td>
+        <strong>{label}</strong>
+        {desc && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>{desc}</div>}
+      </td>
       <td>
         {editing ? (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -763,11 +769,19 @@ function ConfigPanel() {
   const [showNets, setShowNets] = useState(false)
   const [showWhitelist, setShowWhitelist] = useState(false)
   const [showRemoteWl, setShowRemoteWl] = useState(false)
+  const [showDiff, setShowDiff] = useState(false)
+  const [newNet, setNewNet] = useState('')
+  const [newWl, setNewWl] = useState('')
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['fnm-internal-config'],
     queryFn: () => fastnetmonApi.config().then((r) => r.data),
     refetchInterval: 60_000,
+  })
+
+  const { data: ownedSubnets } = useQuery({
+    queryKey: ['owned-subnets'],
+    queryFn: () => flowsApi.ownedSubnets().then((r) => r.data),
   })
 
   const saveMut = useMutation({
@@ -777,6 +791,26 @@ function ConfigPanel() {
       toast.success('Setting updated')
       qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
       qc.invalidateQueries({ queryKey: ['fnm-dashboard'] })
+    },
+  })
+
+  const addNetMut = useMutation({
+    mutationFn: ({ list, cidr }: { list: string; cidr: string }) =>
+      fastnetmonApi.addNetwork(list, cidr),
+    onSuccess: () => {
+      toast.success('Network added')
+      qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
+      setNewNet('')
+      setNewWl('')
+    },
+  })
+
+  const removeNetMut = useMutation({
+    mutationFn: ({ list, cidr }: { list: string; cidr: string }) =>
+      fastnetmonApi.removeNetwork(list, cidr),
+    onSuccess: () => {
+      toast.success('Network removed')
+      qc.invalidateQueries({ queryKey: ['fnm-internal-config'] })
     },
   })
 
@@ -792,6 +826,15 @@ function ConfigPanel() {
     saveMut.mutate({ key, value })
   }
 
+  // Diff: FNM networks vs NetMon owned subnets
+  const ownedList: string[] = (ownedSubnets || [])
+    .filter((s: any) => s.is_active)
+    .map((s: any) => s.subnet)
+  const fnmSet = new Set(nets)
+  const ownedSet = new Set(ownedList)
+  const inFnmNotOwned = nets.filter((n) => !ownedSet.has(n))
+  const inOwnedNotFnm = ownedList.filter((n) => !fnmSet.has(n))
+
   return (
     <>
       {/* General */}
@@ -799,14 +842,14 @@ function ConfigPanel() {
         <div className="card__header"><Shield size={16} /><h3>General Settings</h3></div>
         <div className="table-wrap">
           <table><tbody>
-            <EditableToggle label="Enable Ban" configKey="enable_ban" value={!!c.enable_ban} onSave={handleSave} />
-            <EditableField label="Ban Time (seconds)" configKey="ban_time" value={c.ban_time} onSave={handleSave} />
-            <EditableToggle label="Unban Enabled" configKey="unban_enabled" value={!!c.unban_enabled} onSave={handleSave} />
-            <EditableToggle label="Unban Only If Attack Finished" configKey="unban_only_if_attack_finished" value={!!c.unban_only_if_attack_finished} onSave={handleSave} />
-            <EditableToggle label="Keep Blocked Hosts On Restart" configKey="keep_blocked_hosts_during_restart" value={!!c.keep_blocked_hosts_during_restart} onSave={handleSave} />
-            <EditableToggle label="Process Incoming Traffic" configKey="process_incoming_traffic" value={!!c.process_incoming_traffic} onSave={handleSave} />
-            <EditableToggle label="Process Outgoing Traffic" configKey="process_outgoing_traffic" value={!!c.process_outgoing_traffic} onSave={handleSave} />
-            <EditableToggle label="Process IPv6 Traffic" configKey="process_ipv6_traffic" value={!!c.process_ipv6_traffic} onSave={handleSave} />
+            <EditableToggle label="Enable Ban" configKey="enable_ban" value={!!c.enable_ban} onSave={handleSave} desc="Master switch: block IPs that exceed detection thresholds" />
+            <EditableField label="Ban Time" configKey="ban_time" value={c.ban_time} onSave={handleSave} suffix="s" desc="How long (seconds) an attacked IP stays blocked" />
+            <EditableToggle label="Unban Enabled" configKey="unban_enabled" value={!!c.unban_enabled} onSave={handleSave} desc="Automatically unblock IPs after ban_time expires" />
+            <EditableToggle label="Unban Only If Attack Finished" configKey="unban_only_if_attack_finished" value={!!c.unban_only_if_attack_finished} onSave={handleSave} desc="Wait for traffic to drop below thresholds before unblocking" />
+            <EditableToggle label="Keep Blocked Hosts On Restart" configKey="keep_blocked_hosts_during_restart" value={!!c.keep_blocked_hosts_during_restart} onSave={handleSave} desc="Persist active blocks across FastNetMon service restarts" />
+            <EditableToggle label="Process Incoming Traffic" configKey="process_incoming_traffic" value={!!c.process_incoming_traffic} onSave={handleSave} desc="Analyze inbound traffic for DDoS detection" />
+            <EditableToggle label="Process Outgoing Traffic" configKey="process_outgoing_traffic" value={!!c.process_outgoing_traffic} onSave={handleSave} desc="Analyze outbound traffic (detect compromised hosts)" />
+            <EditableToggle label="Process IPv6 Traffic" configKey="process_ipv6_traffic" value={!!c.process_ipv6_traffic} onSave={handleSave} desc="Include IPv6 packets in traffic analysis" />
           </tbody></table>
         </div>
       </div>
@@ -816,12 +859,12 @@ function ConfigPanel() {
         <div className="card__header"><Wifi size={16} /><h3>Traffic Collection</h3></div>
         <div className="table-wrap">
           <table><tbody>
-            <EditableToggle label="sFlow" configKey="sflow" value={!!c.sflow} onSave={handleSave} />
-            <EditableField label="sFlow Host" configKey="sflow_host" value={c.sflow_host} onSave={handleSave} />
-            <EditableToggle label="NetFlow" configKey="netflow" value={!!c.netflow} onSave={handleSave} />
-            <EditableField label="Speed Calculation Delay (s)" configKey="speed_calculation_delay" value={c.speed_calculation_delay} onSave={handleSave} />
-            <EditableField label="Average Calculation Time (s)" configKey="average_calculation_time" value={c.average_calculation_time} onSave={handleSave} />
-            <EditableField label="AF Packet Sampling Rate" configKey="mirror_af_packet_sampling_rate" value={c.mirror_af_packet_sampling_rate} onSave={handleSave} />
+            <EditableToggle label="sFlow" configKey="sflow" value={!!c.sflow} onSave={handleSave} desc="Receive sFlow samples from switches/routers" />
+            <EditableField label="sFlow Host" configKey="sflow_host" value={c.sflow_host} onSave={handleSave} desc="IP address to listen for sFlow datagrams (0.0.0.0 = all)" />
+            <EditableToggle label="NetFlow" configKey="netflow" value={!!c.netflow} onSave={handleSave} desc="Receive NetFlow v5/v9/IPFIX flow records" />
+            <EditableField label="Speed Calculation Delay" configKey="speed_calculation_delay" value={c.speed_calculation_delay} onSave={handleSave} suffix="s" desc="Interval between speed recalculations (lower = more CPU)" />
+            <EditableField label="Average Calculation Time" configKey="average_calculation_time" value={c.average_calculation_time} onSave={handleSave} suffix="s" desc="Window size for averaging traffic counters" />
+            <EditableField label="AF Packet Sampling Rate" configKey="mirror_af_packet_sampling_rate" value={c.mirror_af_packet_sampling_rate} onSave={handleSave} desc="Sampling ratio for AF_PACKET mirror (1 in N packets)" />
           </tbody></table>
         </div>
       </div>
@@ -831,16 +874,16 @@ function ConfigPanel() {
         <div className="card__header"><Network size={16} /><h3>BGP Settings</h3></div>
         <div className="table-wrap">
           <table><tbody>
-            <EditableToggle label="GoBGP Enabled" configKey="gobgp" value={!!c.gobgp} onSave={handleSave} />
-            <EditableToggle label="FlowSpec Announces" configKey="gobgp_flow_spec_announces" value={!!c.gobgp_flow_spec_announces} onSave={handleSave} />
-            <EditableField label="FlowSpec Default Action" configKey="gobgp_flow_spec_default_action" value={c.gobgp_flow_spec_default_action} onSave={handleSave} />
-            <EditableField label="FlowSpec Ban Time (s)" configKey="flow_spec_ban_time" value={c.flow_spec_ban_time} onSave={handleSave} />
-            <EditableField label="Next Hop (Host)" configKey="gobgp_next_hop" value={c.gobgp_next_hop} onSave={handleSave} />
-            <EditableToggle label="Announce Host" configKey="gobgp_announce_host" value={!!c.gobgp_announce_host} onSave={handleSave} />
-            <EditableToggle label="Announce Whole Subnet" configKey="gobgp_announce_whole_subnet" value={!!c.gobgp_announce_whole_subnet} onSave={handleSave} />
-            <EditableField label="Community (Host)" configKey="gobgp_community_host" value={c.gobgp_community_host} onSave={handleSave} />
-            <EditableField label="Community (Subnet)" configKey="gobgp_community_subnet" value={c.gobgp_community_subnet} onSave={handleSave} />
-            <EditableField label="Community (Remote)" configKey="gobgp_community_remote_host" value={c.gobgp_community_remote_host} onSave={handleSave} />
+            <EditableToggle label="GoBGP Enabled" configKey="gobgp" value={!!c.gobgp} onSave={handleSave} desc="Use GoBGP daemon for BGP blackhole/FlowSpec announcements" />
+            <EditableToggle label="FlowSpec Announces" configKey="gobgp_flow_spec_announces" value={!!c.gobgp_flow_spec_announces} onSave={handleSave} desc="Send BGP FlowSpec rules to peers during attacks" />
+            <EditableField label="FlowSpec Default Action" configKey="gobgp_flow_spec_default_action" value={c.gobgp_flow_spec_default_action} onSave={handleSave} desc="Action for FlowSpec rules: discard, rate-limit, redirect" />
+            <EditableField label="FlowSpec Ban Time" configKey="flow_spec_ban_time" value={c.flow_spec_ban_time} onSave={handleSave} suffix="s" desc="Duration of FlowSpec rules before withdrawal" />
+            <EditableField label="Next Hop (Host)" configKey="gobgp_next_hop" value={c.gobgp_next_hop} onSave={handleSave} desc="BGP next-hop for blackhole routes (0.0.0.0 = self)" />
+            <EditableToggle label="Announce Host" configKey="gobgp_announce_host" value={!!c.gobgp_announce_host} onSave={handleSave} desc="Announce /32 blackhole route for attacked IPs" />
+            <EditableToggle label="Announce Whole Subnet" configKey="gobgp_announce_whole_subnet" value={!!c.gobgp_announce_whole_subnet} onSave={handleSave} desc="Announce entire subnet instead of single /32 host" />
+            <EditableField label="Community (Host)" configKey="gobgp_community_host" value={c.gobgp_community_host} onSave={handleSave} desc="BGP community attached to per-host blackhole routes" />
+            <EditableField label="Community (Subnet)" configKey="gobgp_community_subnet" value={c.gobgp_community_subnet} onSave={handleSave} desc="BGP community attached to per-subnet blackhole routes" />
+            <EditableField label="Community (Remote)" configKey="gobgp_community_remote_host" value={c.gobgp_community_remote_host} onSave={handleSave} desc="BGP community for remote-triggered blackhole (RTBH)" />
           </tbody></table>
         </div>
       </div>
@@ -850,33 +893,109 @@ function ConfigPanel() {
         <div className="card__header"><AlertTriangle size={16} /><h3>Notifications</h3></div>
         <div className="table-wrap">
           <table><tbody>
-            <EditableToggle label="Email Enabled" configKey="email_notifications_enabled" value={!!c.email_notifications_enabled} onSave={handleSave} />
-            <EditableField label="SMTP Host" configKey="email_notifications_host" value={c.email_notifications_host} onSave={handleSave} />
-            <EditableField label="SMTP Port" configKey="email_notifications_port" value={c.email_notifications_port} onSave={handleSave} />
-            <EditableField label="From Address" configKey="email_notifications_from" value={c.email_notifications_from} onSave={handleSave} />
+            <EditableToggle label="Email Enabled" configKey="email_notifications_enabled" value={!!c.email_notifications_enabled} onSave={handleSave} desc="Send email alerts when attacks are detected/mitigated" />
+            <EditableField label="SMTP Host" configKey="email_notifications_host" value={c.email_notifications_host} onSave={handleSave} desc="SMTP relay server IP or hostname" />
+            <EditableField label="SMTP Port" configKey="email_notifications_port" value={c.email_notifications_port} onSave={handleSave} desc="SMTP port (25 = plain, 587 = STARTTLS, 465 = SSL)" />
+            <EditableField label="From Address" configKey="email_notifications_from" value={c.email_notifications_from} onSave={handleSave} desc="Sender address for alert emails" />
             <tr>
-              <td><strong>Recipients</strong></td>
+              <td>
+                <strong>Recipients</strong>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>Email addresses that receive attack alerts</div>
+              </td>
               <td className="mono">{c.email_notifications_recipients?.join(', ') || '—'}</td>
             </tr>
-            <EditableToggle label="Telegram Enabled" configKey="telegram_notifications_enabled" value={!!c.telegram_notifications_enabled} onSave={handleSave} />
-            <EditableToggle label="Slack Enabled" configKey="slack_notifications_enabled" value={!!c.slack_notifications_enabled} onSave={handleSave} />
+            <EditableToggle label="Telegram Enabled" configKey="telegram_notifications_enabled" value={!!c.telegram_notifications_enabled} onSave={handleSave} desc="Send attack notifications via Telegram bot" />
+            <EditableToggle label="Slack Enabled" configKey="slack_notifications_enabled" value={!!c.slack_notifications_enabled} onSave={handleSave} desc="Send attack notifications to a Slack webhook" />
           </tbody></table>
         </div>
       </div>
 
-      {/* Networks */}
+      {/* Monitored Networks */}
       <div className="card">
         <div className="card__header"><Network size={16} /><h3>Monitored Networks ({nets.length})</h3>
           <div className="card__actions">
+            <button className="btn btn-outline btn-sm" onClick={() => setShowDiff(!showDiff)}>
+              {showDiff ? 'Hide' : 'Show'} Diff vs Owned Subnets
+            </button>
             <button className="btn btn-outline btn-sm" onClick={() => setShowNets(!showNets)}>
-              {showNets ? 'Hide' : 'Show'} List
+              {showNets ? 'Hide' : 'Manage'} List
             </button>
           </div>
         </div>
+
+        {/* Diff panel */}
+        {showDiff && (
+          <div style={{ padding: '0 20px 16px' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Comparing FastNetMon <strong>networks_list</strong> ({nets.length}) with NetMon <strong>Owned Subnets</strong> ({ownedList.length} active)
+            </div>
+
+            {inFnmNotOwned.length === 0 && inOwnedNotFnm.length === 0 ? (
+              <div className="tag-green" style={{ padding: '8px 14px' }}>All synced — both lists match</div>
+            ) : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {inOwnedNotFnm.length > 0 && (
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--warning-500, #f59e0b)' }}>
+                      In Owned Subnets but NOT in FastNetMon ({inOwnedNotFnm.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {inOwnedNotFnm.map((n) => (
+                        <span key={n} className="tag-orange" style={{ cursor: 'pointer' }} title="Click to add to FastNetMon"
+                          onClick={() => { if (confirm(`Add ${n} to FastNetMon monitored networks?`)) addNetMut.mutate({ list: 'networks_list', cidr: n }) }}>
+                          + {n}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {inFnmNotOwned.length > 0 && (
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--text-muted)' }}>
+                      In FastNetMon but NOT in Owned Subnets ({inFnmNotOwned.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {inFnmNotOwned.map((n) => (
+                        <span key={n} className="tag-gray">{n}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Editable network list */}
         {showNets && (
           <div style={{ padding: '0 20px 16px' }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input
+                className="form-input btn-sm"
+                style={{ width: 200 }}
+                value={newNet}
+                onChange={(e) => setNewNet(e.target.value)}
+                placeholder="10.0.0.0/24"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newNet) addNetMut.mutate({ list: 'networks_list', cidr: newNet })
+                }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!newNet || addNetMut.isPending}
+                onClick={() => addNetMut.mutate({ list: 'networks_list', cidr: newNet })}
+              >
+                <Plus size={12} /> Add Network
+              </button>
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {nets.map((n) => <span key={n} className="tag-blue">{n}</span>)}
+              {nets.map((n) => (
+                <span key={n} className="tag-blue" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {n}
+                  <Trash2 size={10} style={{ cursor: 'pointer', opacity: 0.6 }}
+                    onClick={() => { if (confirm(`Remove ${n} from monitored networks?`)) removeNetMut.mutate({ list: 'networks_list', cidr: n }) }} />
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -896,15 +1015,40 @@ function ConfigPanel() {
         </div>
         {showWhitelist && (
           <div style={{ padding: '0 20px 12px' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Local Whitelist</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Local Whitelist — IPs excluded from detection</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                className="form-input btn-sm"
+                style={{ width: 200 }}
+                value={newWl}
+                onChange={(e) => setNewWl(e.target.value)}
+                placeholder="192.168.1.0/24"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newWl) addNetMut.mutate({ list: 'networks_whitelist', cidr: newWl })
+                }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!newWl || addNetMut.isPending}
+                onClick={() => { addNetMut.mutate({ list: 'networks_whitelist', cidr: newWl }); setNewWl('') }}
+              >
+                <Plus size={12} /> Add
+              </button>
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {wl.map((ip) => <span key={ip} className="tag-green">{ip}</span>)}
+              {wl.map((ip) => (
+                <span key={ip} className="tag-green" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {ip}
+                  <Trash2 size={10} style={{ cursor: 'pointer', opacity: 0.6 }}
+                    onClick={() => { if (confirm(`Remove ${ip} from whitelist?`)) removeNetMut.mutate({ list: 'networks_whitelist', cidr: ip }) }} />
+                </span>
+              ))}
             </div>
           </div>
         )}
         {showRemoteWl && (
           <div style={{ padding: '0 20px 12px' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Remote Whitelist</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Remote Whitelist — externally managed exclusions</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {wlRemote.map((ip) => <span key={ip} className="tag-orange">{ip}</span>)}
             </div>

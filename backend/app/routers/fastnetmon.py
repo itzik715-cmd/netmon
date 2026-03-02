@@ -217,3 +217,36 @@ async def update_hostgroup(
     if not ok:
         raise HTTPException(status_code=502, detail=f"Failed to update {name}.{payload.key}")
     return {"message": f"Updated {name}.{payload.key}"}
+
+
+# ── Network List Management ───────────────────────────────────────────────
+
+class NetworkListRequest(BaseModel):
+    list_name: str  # networks_list, networks_whitelist, networks_whitelist_remote
+    cidr: str
+
+
+@router.put("/network")
+async def add_network(
+    payload: NetworkListRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above),
+):
+    client = _require(await _get_client(db))
+    ok = await client.add_network(payload.list_name, payload.cidr)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Failed to add {payload.cidr} to {payload.list_name}")
+    return {"message": f"Added {payload.cidr} to {payload.list_name}"}
+
+
+@router.delete("/network")
+async def remove_network(
+    payload: NetworkListRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above),
+):
+    client = _require(await _get_client(db))
+    ok = await client.remove_network(payload.list_name, payload.cidr)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Failed to remove {payload.cidr} from {payload.list_name}")
+    return {"message": f"Removed {payload.cidr} from {payload.list_name}"}

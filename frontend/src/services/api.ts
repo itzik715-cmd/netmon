@@ -310,4 +310,6 @@ export const fastnetmonApi = {
   config: () => api.get('/fastnetmon/config'),
   updateConfig: (key: string, value: string) => api.put('/fastnetmon/config', { key, value }),
   updateHostgroup: (name: string, key: string, value: string) => api.put(`/fastnetmon/hostgroup/${name}`, { key, value }),
+  addNetwork: (list_name: string, cidr: string) => api.put('/fastnetmon/network', { list_name, cidr }),
+  removeNetwork: (list_name: string, cidr: string) => api.delete('/fastnetmon/network', { data: { list_name, cidr } }),
 }

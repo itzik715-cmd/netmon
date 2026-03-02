@@ -125,6 +125,30 @@ class FastNetMonClient:
             logger.error("FastNetMon update_config(%s=%s) failed (%s): %s", key, value, self.node_label, e)
             return False
 
+    async def add_network(self, list_name: str, cidr: str) -> bool:
+        """PUT /main/{list_name}/{cidr} — add a subnet to a list (URL-encoded)."""
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(cidr, safe='')
+            resp = await self._request("PUT", f"/main/{list_name}/{encoded}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", False)
+        except Exception as e:
+            logger.error("FastNetMon add_network(%s, %s) failed (%s): %s", list_name, cidr, self.node_label, e)
+            return False
+
+    async def remove_network(self, list_name: str, cidr: str) -> bool:
+        """DELETE /main/{list_name}/{cidr} — remove a subnet from a list (URL-encoded)."""
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(cidr, safe='')
+            resp = await self._request("DELETE", f"/main/{list_name}/{encoded}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", False)
+        except Exception as e:
+            logger.error("FastNetMon remove_network(%s, %s) failed (%s): %s", list_name, cidr, self.node_label, e)
+            return False
+
     # ── Hostgroups / Detection ──────────────────────────────────────────────
 
     async def get_hostgroups(self) -> list:
