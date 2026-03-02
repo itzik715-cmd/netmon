@@ -220,6 +220,50 @@ function ruleToForm(rule: WanAlertRule): WanAlertForm {
   }
 }
 
+/* ── Inline editable note for owned subnets ──── */
+
+function SubnetNote({ subnet, onSave }: { subnet: OwnedSubnet; onSave: (cidr: string, note: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(subnet.note || '')
+
+  if (editing) {
+    return (
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <input
+          className="form-input btn-sm"
+          style={{ width: 180, fontSize: 12 }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { onSave(subnet.subnet, draft); setEditing(false) }
+            if (e.key === 'Escape') { setDraft(subnet.note || ''); setEditing(false) }
+          }}
+          autoFocus
+          placeholder="Add a note..."
+        />
+        <button className="btn btn-primary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+          onClick={() => { onSave(subnet.subnet, draft); setEditing(false) }}>Save</button>
+        <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+          onClick={() => { setDraft(subnet.note || ''); setEditing(false) }}>
+          <X size={10} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <span
+      className="text-muted text-sm"
+      style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      onClick={() => { setDraft(subnet.note || ''); setEditing(true) }}
+      title="Click to edit note"
+    >
+      {subnet.note || '\u2014'}
+      <Pencil size={10} style={{ opacity: 0.4 }} />
+    </span>
+  )
+}
+
 /* ── Main component ───────────────────────────── */
 
 export default function WanDashboardPage() {
@@ -369,6 +413,11 @@ export default function WanDashboardPage() {
     mutationFn: (id: number) => flowsApi.deleteOwnedSubnet(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Subnet deleted') },
     onError: () => toast.error('Failed to delete subnet'),
+  })
+  const updateNoteMutation = useMutation({
+    mutationFn: ({ subnet, note }: { subnet: string; note: string }) => flowsApi.setSubnetNote(subnet, note),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['owned-subnets'] }); toast.success('Note saved') },
+    onError: () => toast.error('Failed to save note'),
   })
 
   const p95In = wanData?.p95_in_bps || 0
@@ -987,7 +1036,9 @@ export default function WanDashboardPage() {
                         {s.is_active ? 'Active' : 'Ignored'}
                       </button>
                     </td>
-                    <td className="text-muted text-sm">{s.note || '\u2014'}</td>
+                    <td>
+                      <SubnetNote subnet={s} onSave={(cidr, note) => updateNoteMutation.mutate({ subnet: cidr, note })} />
+                    </td>
                     <td>
                       {s.source === 'manual' && s.id && (
                         <button className="btn-icon" title="Delete" onClick={() => { if (confirm(`Delete ${s.subnet}?`)) deleteSubnetMutation.mutate(s.id!) }}>

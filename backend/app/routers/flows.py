@@ -95,6 +95,10 @@ class SubnetCreate(BaseModel):
         return str(net)
 
 
+class SubnetUpdate(BaseModel):
+    note: Optional[str] = None
+
+
 class SubnetToggle(BaseModel):
     subnet: str
     is_active: bool
@@ -438,6 +442,53 @@ async def toggle_owned_subnet(
         db.add(OwnedSubnet(subnet=cidr, source="learned", is_active=False))
 
     return {"status": "ok", "subnet": cidr, "is_active": payload.is_active}
+
+
+@router.put("/owned-subnets/{subnet_id}")
+async def update_owned_subnet(
+    subnet_id: int,
+    payload: SubnetUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Update an owned subnet's note."""
+    subnet = (await db.execute(
+        select(OwnedSubnet).where(OwnedSubnet.id == subnet_id)
+    )).scalar_one_or_none()
+    if not subnet:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    subnet.note = payload.note
+    return {"status": "ok", "id": subnet.id, "note": subnet.note}
+
+
+class SubnetNoteByName(BaseModel):
+    subnet: str
+    note: Optional[str] = None
+
+
+@router.post("/owned-subnets/note")
+async def set_subnet_note(
+    payload: SubnetNoteByName,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above()),
+):
+    """Set note on a subnet by CIDR. Creates an override row for learned subnets if needed."""
+    cidr = str(ip_network(payload.subnet, strict=False))
+    existing = (await db.execute(
+        select(OwnedSubnet).where(OwnedSubnet.subnet == cidr)
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.note = payload.note
+        await db.flush()
+        return {"status": "ok", "id": existing.id, "note": existing.note}
+
+    # No override row yet — create one (keeps is_active=True so it stays active)
+    row = OwnedSubnet(subnet=cidr, source="learned", is_active=True, note=payload.note)
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return {"status": "ok", "id": row.id, "note": row.note}
 
 
 @router.delete("/owned-subnets/{subnet_id}", status_code=204)

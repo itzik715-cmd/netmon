@@ -851,6 +851,16 @@ function ConfigPanel() {
     },
   })
 
+  const addOwnedMut = useMutation({
+    mutationFn: (data: { subnet: string; note?: string }) =>
+      flowsApi.createOwnedSubnet(data),
+    onSuccess: () => {
+      toast.success('Added to Owned Subnets')
+      qc.invalidateQueries({ queryKey: ['owned-subnets'] })
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || 'Failed to add subnet'),
+  })
+
   if (isLoading) return <div className="empty-state"><Loader2 size={24} className="animate-spin" /></div>
   if (!config) return null
 
@@ -1004,7 +1014,11 @@ function ConfigPanel() {
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {inFnmNotOwned.map((n) => (
-                        <span key={n} className="tag-gray">{n}</span>
+                        <span key={n} className="tag-gray" style={{ cursor: 'pointer' }}
+                          title="Click to add to Owned Subnets"
+                          onClick={() => { if (confirm(`Add ${n} to NetMon Owned Subnets?`)) addOwnedMut.mutate({ subnet: n }) }}>
+                          + {n}
+                        </span>
                       ))}
                     </div>
                   </div>

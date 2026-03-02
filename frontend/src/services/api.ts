@@ -170,6 +170,8 @@ export const flowsApi = {
   ownedSubnets: () => api.get('/flows/owned-subnets'),
   createOwnedSubnet: (data: { subnet: string; note?: string }) => api.post('/flows/owned-subnets', data),
   toggleOwnedSubnet: (data: { subnet: string; is_active: boolean }) => api.post('/flows/owned-subnets/toggle', data),
+  updateOwnedSubnet: (id: number, data: { note?: string }) => api.put(`/flows/owned-subnets/${id}`, data),
+  setSubnetNote: (subnet: string, note: string) => api.post('/flows/owned-subnets/note', { subnet, note }),
   deleteOwnedSubnet: (id: number) => api.delete(`/flows/owned-subnets/${id}`),
   peerDetail: (ip: string, peer: string, params?: object) =>
     api.get('/flows/peer-detail', { params: { ip, peer, ...params } }),
