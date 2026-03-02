@@ -369,10 +369,12 @@ fi
 
 # Check Duo configuration
 if grep -q "^DUO_ENABLED=true" "$PROJECT_DIR/.env" 2>/dev/null; then
-  DUO_SECRET_VAL=$(grep "^DUO_RADIUS_SECRET=" "$PROJECT_DIR/.env" | cut -d= -f2-)
-  if [ -z "$DUO_SECRET_VAL" ]; then
-    warn "DUO_ENABLED=true but DUO_RADIUS_SECRET is empty!"
-    warn "Run: sudo bash scripts/install_duo_authproxy.sh and update .env"
+  DUO_IKEY_VAL=$(grep "^DUO_IKEY=" "$PROJECT_DIR/.env" | cut -d= -f2-)
+  DUO_SKEY_VAL=$(grep "^DUO_SKEY=" "$PROJECT_DIR/.env" | cut -d= -f2-)
+  DUO_HOST_VAL=$(grep "^DUO_API_HOST=" "$PROJECT_DIR/.env" | cut -d= -f2-)
+  if [ -z "$DUO_IKEY_VAL" ] || [ -z "$DUO_SKEY_VAL" ] || [ -z "$DUO_HOST_VAL" ]; then
+    warn "DUO_ENABLED=true but Duo credentials are incomplete!"
+    warn "Set DUO_IKEY, DUO_SKEY, and DUO_API_HOST in .env or configure via Settings → MFA"
   fi
 fi
 

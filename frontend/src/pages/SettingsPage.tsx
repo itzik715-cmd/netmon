@@ -422,9 +422,9 @@ function SystemHealthPanel() {
 function DuoStatusPanel() {
   const [duoConfig, setDuoConfig] = useState({
     enabled: false,
-    radius_host: '',
-    radius_port: '1812',
-    radius_secret: '',
+    ikey: '',
+    skey: '',
+    api_host: '',
     timeout: '60',
   })
   const [duoTestResult, setDuoTestResult] = useState<{ success: boolean; message: string } | null>(null)
@@ -437,9 +437,9 @@ function DuoStatusPanel() {
       setDuoConfig((prev) => ({
         ...prev,
         enabled: String(data.duo_enabled).toLowerCase() === 'true',
-        radius_host: data.duo_radius_host || '',
-        radius_port: data.duo_radius_port || '1812',
-        radius_secret: data.duo_radius_secret || '',
+        ikey: data.duo_ikey || '',
+        skey: data.duo_skey || '',
+        api_host: data.duo_api_host || '',
         timeout: data.duo_timeout || '60',
       }))
       return data
@@ -449,9 +449,9 @@ function DuoStatusPanel() {
   const saveDuoMutation = useMutation({
     mutationFn: () => settingsApi.saveDuo({
       duo_enabled: duoConfig.enabled,
-      duo_radius_host: duoConfig.radius_host,
-      duo_radius_port: duoConfig.radius_port,
-      duo_radius_secret: duoConfig.radius_secret,
+      duo_ikey: duoConfig.ikey,
+      duo_skey: duoConfig.skey,
+      duo_api_host: duoConfig.api_host,
       duo_timeout: duoConfig.timeout,
     }),
     onSuccess: () => toast.success('Duo MFA configuration saved'),
@@ -464,11 +464,11 @@ function DuoStatusPanel() {
       const r = await authApi.duoStatus()
       const data = r.data
       if (data.healthy) {
-        setDuoTestResult({ success: true, message: `Auth Proxy reachable at ${data.radius_host}:${data.radius_port}` })
+        setDuoTestResult({ success: true, message: `Duo API verified (${data.api_host})` })
       } else if (data.configured) {
-        setDuoTestResult({ success: false, message: 'Auth Proxy configured but not responding — check host and shared secret' })
+        setDuoTestResult({ success: false, message: data.message || 'Duo API not responding — check your Integration Key, Secret Key, and API Hostname' })
       } else {
-        setDuoTestResult({ success: false, message: 'Duo not fully configured — save configuration first' })
+        setDuoTestResult({ success: false, message: 'Duo not fully configured — fill in all fields and save first' })
       }
     } catch (err: any) {
       setDuoTestResult({ success: false, message: err.response?.data?.detail || 'Test failed' })
@@ -514,20 +514,20 @@ function DuoStatusPanel() {
               <div className="info-box">
                 <span className="info-box__title">Setup:</span>
                 <ol style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.6 }}>
-                  <li>In <span className="mono">admin.duosecurity.com</span> — create an application of type <strong>"RADIUS"</strong> and copy the ikey, skey, and api_hostname.</li>
-                  <li>On the NetMon server, run: <span className="mono">sudo bash scripts/install_duo_authproxy.sh --ikey ... --skey ... --apihost ...</span></li>
-                  <li>The script will generate a RADIUS shared secret — paste it in the "Shared Secret" field below.</li>
-                  <li>The Auth Proxy runs locally and communicates with Duo cloud on behalf of your users. The browser never leaves your network.</li>
+                  <li>Log in to <span className="mono">admin.duosecurity.com</span></li>
+                  <li>Go to <strong>Applications</strong> &rarr; <strong>Protect an Application</strong></li>
+                  <li>Search for <strong>"Web SDK"</strong> and click <strong>Protect</strong></li>
+                  <li>Copy the <strong>Integration key</strong>, <strong>Secret key</strong>, and <strong>API hostname</strong> into the fields below</li>
                 </ol>
               </div>
 
-              {duoField('Auth Proxy Host', 'radius_host', 'text', 'host.docker.internal')}
-              {duoField('RADIUS Port', 'radius_port', 'text', '1812')}
-              {duoField('Shared Secret', 'radius_secret', 'password', 'Enter RADIUS shared secret')}
+              {duoField('Integration Key', 'ikey', 'text', 'DIXXXXXXXXXXXXXXXXXX')}
+              {duoField('Secret Key', 'skey', 'password', 'Enter secret key')}
+              {duoField('API Hostname', 'api_host', 'text', 'api-XXXXXXXX.duosecurity.com')}
               {duoField('Timeout (seconds)', 'timeout', 'text', '60')}
 
               <p className="form-help">
-                Timeout should be at least 60 seconds to allow the user to approve the Duo Push notification on their phone.
+                Timeout should be at least 60 seconds to allow users to approve the Duo Push notification.
               </p>
 
               <div>

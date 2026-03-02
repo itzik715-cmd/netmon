@@ -1,20 +1,22 @@
 """
-Duo MFA via RADIUS Auth Proxy.
+Duo MFA via Duo Auth API (direct HTTPS).
 
-Sends RADIUS Access-Request (RFC 2865) to a local Duo Auth Proxy running
-in duo_only_client mode. The proxy triggers a Duo Push and responds with
-Access-Accept (approved) or Access-Reject (denied / timeout).
+Calls Duo's cloud API to trigger a Push notification. No local Auth Proxy
+or RADIUS setup required — just the Integration Key, Secret Key, and
+API Hostname from the Duo Admin panel.
 
-Pure stdlib — no external RADIUS library required.
+Uses httpx (already a project dependency) for async HTTP requests.
 """
 import asyncio
+import base64
+import email.utils
 import hashlib
+import hmac
 import logging
-import os
-import socket
-import struct
+import urllib.parse
 from typing import Dict
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -24,18 +26,8 @@ logger = logging.getLogger(__name__)
 
 # DB setting keys
 DUO_DB_KEYS = [
-    "duo_enabled", "duo_radius_host", "duo_radius_port",
-    "duo_radius_secret", "duo_timeout",
+    "duo_enabled", "duo_ikey", "duo_skey", "duo_api_host", "duo_timeout",
 ]
-
-# RADIUS codes (RFC 2865)
-RADIUS_ACCESS_REQUEST = 1
-RADIUS_ACCESS_ACCEPT = 2
-RADIUS_ACCESS_REJECT = 3
-
-# RADIUS attribute types
-ATTR_USER_NAME = 1
-ATTR_USER_PASSWORD = 2
 
 
 async def get_duo_config(db: AsyncSession) -> Dict[str, object]:
@@ -48,123 +40,140 @@ async def get_duo_config(db: AsyncSession) -> Dict[str, object]:
 
     return {
         "enabled": db_map.get("duo_enabled", str(settings.DUO_ENABLED)).lower() in ("true", "1", "yes"),
-        "radius_host": db_map.get("duo_radius_host") or settings.DUO_RADIUS_HOST,
-        "radius_port": int(db_map.get("duo_radius_port") or settings.DUO_RADIUS_PORT),
-        "radius_secret": db_map.get("duo_radius_secret") or settings.DUO_RADIUS_SECRET,
-        "timeout": int(db_map.get("duo_timeout") or settings.DUO_RADIUS_TIMEOUT),
+        "ikey": db_map.get("duo_ikey") or settings.DUO_IKEY,
+        "skey": db_map.get("duo_skey") or settings.DUO_SKEY,
+        "api_host": db_map.get("duo_api_host") or settings.DUO_API_HOST,
+        "timeout": int(db_map.get("duo_timeout") or settings.DUO_TIMEOUT),
     }
 
 
-def _pad_password(password: bytes, secret: bytes, authenticator: bytes) -> bytes:
+def _sign_request(
+    method: str, host: str, path: str,
+    params: dict, ikey: str, skey: str,
+) -> tuple:
     """
-    Encrypt User-Password per RFC 2865 Section 5.2.
+    Sign a Duo Auth API request per Duo's signing spec.
 
-    The password is padded to a multiple of 16 bytes, then XOR'd with
-    MD5(secret + authenticator) in 16-byte blocks.
+    Returns (date_header, authorization_header).
     """
-    # Pad to multiple of 16
-    padded = password + b"\x00" * (16 - len(password) % 16) if len(password) % 16 else password
-    if len(padded) == 0:
-        padded = b"\x00" * 16
+    now = email.utils.formatdate()
 
-    result = b""
-    prev_block = authenticator
-    for i in range(0, len(padded), 16):
-        digest = hashlib.md5(secret + prev_block).digest()
-        block = bytes(a ^ b for a, b in zip(padded[i:i + 16], digest))
-        result += block
-        prev_block = block
-    return result
+    # Canonical params: sorted, URL-encoded
+    canon_params = urllib.parse.urlencode(sorted(params.items()))
+
+    # Canonical request: date\nmethod\nhost\npath\nparams
+    canon = "\n".join([now, method.upper(), host.lower(), path, canon_params])
+
+    # HMAC-SHA1 signature
+    sig = hmac.new(
+        skey.encode("utf-8"),
+        canon.encode("utf-8"),
+        hashlib.sha1,
+    ).hexdigest()
+
+    # Basic auth header: base64(ikey:signature)
+    auth = base64.b64encode(f"{ikey}:{sig}".encode("utf-8")).decode("utf-8")
+
+    return now, f"Basic {auth}"
 
 
-def _build_radius_packet(username: str, secret: bytes) -> tuple:
+async def verify_duo_push(
+    api_host: str, ikey: str, skey: str,
+    username: str, timeout: int = 60,
+) -> bool:
     """
-    Build a RADIUS Access-Request packet.
+    Send a Duo Push notification and wait for the user to approve/deny.
 
-    Returns (packet_bytes, request_authenticator).
+    The /auth/v2/auth endpoint blocks until the user responds or the
+    request times out on Duo's side.
+
+    Returns True if the user approved, False otherwise.
     """
-    identifier = os.urandom(1)[0]
-    authenticator = os.urandom(16)
+    path = "/auth/v2/auth"
+    params = {
+        "username": username,
+        "factor": "push",
+        "device": "auto",
+    }
 
-    # Build attributes
-    user_bytes = username.encode("utf-8")
-    attr_username = struct.pack("BB", ATTR_USER_NAME, 2 + len(user_bytes)) + user_bytes
+    date_str, auth_header = _sign_request("POST", api_host, path, params, ikey, skey)
 
-    # Password: "duo_push" — Duo Auth Proxy in duo_only_client mode ignores this
-    password_encrypted = _pad_password(b"duo_push", secret, authenticator)
-    attr_password = struct.pack("BB", ATTR_USER_PASSWORD, 2 + len(password_encrypted)) + password_encrypted
-
-    attributes = attr_username + attr_password
-
-    # Header: Code (1 byte) + ID (1 byte) + Length (2 bytes) + Authenticator (16 bytes)
-    length = 20 + len(attributes)
-    header = struct.pack("!BBH", RADIUS_ACCESS_REQUEST, identifier, length) + authenticator
-
-    return header + attributes, authenticator, identifier
-
-
-def _send_radius_request(host: str, port: int, secret: bytes,
-                         username: str, timeout: int = 60) -> bool:
-    """
-    Send a RADIUS Access-Request and wait for the response.
-
-    Blocking call — use asyncio.to_thread() to avoid blocking the event loop.
-    Returns True on Access-Accept, False on Access-Reject or timeout.
-    """
-    packet, authenticator, identifier = _build_radius_packet(username, secret)
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(timeout)
     try:
-        sock.sendto(packet, (host, port))
-        data, _ = sock.recvfrom(4096)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout + 15)) as client:
+            resp = await client.post(
+                f"https://{api_host}{path}",
+                data=params,
+                headers={
+                    "Date": date_str,
+                    "Authorization": auth_header,
+                },
+            )
 
-        if len(data) < 20:
-            logger.warning("RADIUS response too short (%d bytes)", len(data))
-            return False
-
-        code = data[0]
-        resp_id = data[1]
-
-        if resp_id != identifier:
-            logger.warning("RADIUS response ID mismatch (expected %d, got %d)", identifier, resp_id)
-            return False
-
-        if code == RADIUS_ACCESS_ACCEPT:
-            logger.info("Duo RADIUS: Access-Accept for %s", username)
-            return True
-        elif code == RADIUS_ACCESS_REJECT:
-            logger.info("Duo RADIUS: Access-Reject for %s", username)
-            return False
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("stat") == "OK":
+                result = data.get("response", {}).get("result")
+                status_msg = data.get("response", {}).get("status_msg", "")
+                logger.info("Duo push result for %s: %s (%s)", username, result, status_msg)
+                return result == "allow"
+            else:
+                msg = data.get("message", "unknown error")
+                logger.warning("Duo API error for %s: %s", username, msg)
+                return False
         else:
-            logger.warning("Duo RADIUS: unexpected code %d for %s", code, username)
+            logger.warning("Duo API HTTP %d for %s", resp.status_code, username)
             return False
 
-    except socket.timeout:
-        logger.warning("Duo RADIUS: timeout waiting for response for %s (%ds)", username, timeout)
+    except httpx.TimeoutException:
+        logger.warning("Duo push timed out for %s (%ds)", username, timeout)
         return False
-    except OSError as e:
-        logger.error("Duo RADIUS: socket error for %s: %s", username, e)
-        return False
-    finally:
-        sock.close()
+    except Exception as e:
+        logger.error("Duo push failed for %s: %s", username, e)
+        raise
 
 
-async def verify_duo_radius(host: str, port: int, secret: bytes,
-                            username: str, timeout: int = 60) -> bool:
-    """Async wrapper around the blocking RADIUS request."""
-    return await asyncio.to_thread(_send_radius_request, host, port, secret, username, timeout)
-
-
-async def ping_auth_proxy(host: str, port: int, secret: bytes, timeout: int = 3) -> bool:
+async def ping_duo_api(api_host: str) -> bool:
     """
-    Quick connectivity check — send a RADIUS request with a probe username
-    and see if we get any response (Accept or Reject) within a short timeout.
+    Quick health check — calls /auth/v2/ping (unauthenticated).
+    Returns True if Duo's API is reachable.
     """
     try:
-        return await asyncio.to_thread(
-            _send_radius_request, host, port, secret, "__duo_ping__", timeout
-        )
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"https://{api_host}/auth/v2/ping")
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("stat") == "OK"
     except Exception:
-        # Any response (even Reject) means the proxy is reachable
-        return False
+        pass
+    return False
+
+
+async def check_duo_auth(api_host: str, ikey: str, skey: str) -> dict:
+    """
+    Authenticated health check — calls /auth/v2/check.
+    Verifies that ikey/skey/host are correct.
+    """
+    path = "/auth/v2/check"
+    params = {}
+
+    date_str, auth_header = _sign_request("POST", api_host, path, params, ikey, skey)
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://{api_host}{path}",
+                data=params,
+                headers={
+                    "Date": date_str,
+                    "Authorization": auth_header,
+                },
+            )
+
+        data = resp.json()
+        return {
+            "ok": data.get("stat") == "OK",
+            "message": data.get("response", {}).get("time", "") if data.get("stat") == "OK"
+                       else data.get("message", "Unknown error"),
+        }
+    except Exception as e:
+        return {"ok": False, "message": str(e)}

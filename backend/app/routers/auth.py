@@ -10,7 +10,7 @@ from app.services.auth import (
     decode_token, hash_password, log_audit
 )
 from app.services.ldap_auth import authenticate_ldap, get_or_create_ldap_user, test_ldap_connection
-from app.services.duo_auth import get_duo_config, verify_duo_radius, ping_auth_proxy
+from app.services.duo_auth import get_duo_config, verify_duo_push, ping_duo_api, check_duo_auth
 from app.middleware.rbac import get_current_user, require_admin
 from app.schemas.auth import (
     LoginRequest, Token, PasswordChangeRequest,
@@ -87,14 +87,14 @@ async def login(
     await db.refresh(user, ["role"])
     role_name = user.role.name if user.role else "readonly"
 
-    # Check if Duo MFA is required (RADIUS Auth Proxy)
+    # Check if Duo MFA is required (direct Duo Auth API)
     duo_cfg = await get_duo_config(db)
-    if duo_cfg["enabled"] and duo_cfg.get("radius_secret"):
+    if duo_cfg["enabled"] and duo_cfg.get("ikey") and duo_cfg.get("skey") and duo_cfg.get("api_host"):
         try:
-            ok = await verify_duo_radius(
-                duo_cfg["radius_host"],
-                duo_cfg["radius_port"],
-                duo_cfg["radius_secret"].encode(),
+            ok = await verify_duo_push(
+                duo_cfg["api_host"],
+                duo_cfg["ikey"],
+                duo_cfg["skey"],
                 user.username,
                 timeout=duo_cfg.get("timeout", 60),
             )
@@ -116,7 +116,7 @@ async def login(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Duo RADIUS failed: {e}")
+            logger.error(f"Duo Auth API failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="MFA service unavailable. Please try again later.",
@@ -158,19 +158,21 @@ async def login(
 
 @router.get("/duo/status", dependencies=[Depends(require_admin())])
 async def duo_status(db: AsyncSession = Depends(get_db)):
-    """Return Duo RADIUS Auth Proxy status for the admin settings page."""
+    """Return Duo Auth API status for the admin settings page."""
     duo_cfg = await get_duo_config(db)
-    configured = bool(duo_cfg["enabled"] and duo_cfg.get("radius_secret"))
+    configured = bool(
+        duo_cfg["enabled"] and duo_cfg.get("ikey")
+        and duo_cfg.get("skey") and duo_cfg.get("api_host")
+    )
     healthy = False
+    check_msg = ""
     if configured:
         try:
-            # ping_auth_proxy sends a probe and checks for any RADIUS response
-            healthy = await ping_auth_proxy(
-                duo_cfg["radius_host"],
-                duo_cfg["radius_port"],
-                duo_cfg["radius_secret"].encode(),
-                timeout=3,
+            result = await check_duo_auth(
+                duo_cfg["api_host"], duo_cfg["ikey"], duo_cfg["skey"]
             )
+            healthy = result["ok"]
+            check_msg = result.get("message", "")
         except Exception:
             healthy = False
 
@@ -178,8 +180,8 @@ async def duo_status(db: AsyncSession = Depends(get_db)):
         "enabled": duo_cfg["enabled"],
         "configured": configured,
         "healthy": healthy,
-        "radius_host": duo_cfg.get("radius_host", "") if duo_cfg["enabled"] else "",
-        "radius_port": duo_cfg.get("radius_port", 1812) if duo_cfg["enabled"] else 1812,
+        "api_host": duo_cfg.get("api_host", "") if duo_cfg["enabled"] else "",
+        "message": check_msg,
     }
 
 

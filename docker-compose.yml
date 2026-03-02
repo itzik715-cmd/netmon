@@ -69,14 +69,12 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       SNMP_POLL_INTERVAL_SECONDS: ${SNMP_POLL_INTERVAL:-60}
       HTTPS_ONLY: ${HTTPS_ONLY:-false}
-      # Duo MFA via RADIUS Auth Proxy (optional)
+      # Duo MFA via Auth API (optional)
       DUO_ENABLED: ${DUO_ENABLED:-false}
-      DUO_RADIUS_HOST: ${DUO_RADIUS_HOST:-host.docker.internal}
-      DUO_RADIUS_PORT: ${DUO_RADIUS_PORT:-1812}
-      DUO_RADIUS_SECRET: ${DUO_RADIUS_SECRET:-}
-      DUO_RADIUS_TIMEOUT: ${DUO_RADIUS_TIMEOUT:-60}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      DUO_IKEY: ${DUO_IKEY:-}
+      DUO_SKEY: ${DUO_SKEY:-}
+      DUO_API_HOST: ${DUO_API_HOST:-}
+      DUO_TIMEOUT: ${DUO_TIMEOUT:-60}
     volumes:
       - ./logs:/app/logs
       - ./nginx/ssl:/etc/nginx/ssl

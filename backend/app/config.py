@@ -65,12 +65,12 @@ class Settings(BaseSettings):
     # HTTPS
     HTTPS_ONLY: bool = True
 
-    # Duo MFA via RADIUS Auth Proxy (optional)
+    # Duo MFA via Auth API (optional)
     DUO_ENABLED: bool = False
-    DUO_RADIUS_HOST: str = "host.docker.internal"  # Auth Proxy on the host
-    DUO_RADIUS_PORT: int = 1812
-    DUO_RADIUS_SECRET: str = ""       # Shared secret from install_duo_authproxy.sh
-    DUO_RADIUS_TIMEOUT: int = 60      # Seconds to wait for Duo Push approval
+    DUO_IKEY: str = ""        # Integration key from Duo Admin
+    DUO_SKEY: str = ""        # Secret key from Duo Admin
+    DUO_API_HOST: str = ""    # API hostname (e.g. api-XXXXXXXX.duosecurity.com)
+    DUO_TIMEOUT: int = 60     # Seconds to wait for Duo Push approval
 
     class Config:
         env_file = ".env"

@@ -128,16 +128,15 @@ async def get_duo_config(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin()),
 ):
-    """Get Duo RADIUS Auth Proxy configuration (secrets masked)."""
+    """Get Duo Auth API configuration (secrets masked)."""
     keys = [
-        "duo_enabled", "duo_radius_host", "duo_radius_port",
-        "duo_radius_secret", "duo_timeout",
+        "duo_enabled", "duo_ikey", "duo_skey", "duo_api_host", "duo_timeout",
     ]
     result = await db.execute(select(SystemSetting).where(SystemSetting.key.in_(keys)))
     settings_map = {s.key: s.value for s in result.scalars().all()}
-    # Mask shared secret
-    if "duo_radius_secret" in settings_map and settings_map["duo_radius_secret"]:
-        settings_map["duo_radius_secret"] = "***"
+    # Mask secret key
+    if "duo_skey" in settings_map and settings_map["duo_skey"]:
+        settings_map["duo_skey"] = "***"
     return settings_map
 
 
@@ -147,12 +146,11 @@ async def save_duo_config(
     current_user: User = Depends(require_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save Duo RADIUS Auth Proxy configuration."""
+    """Save Duo Auth API configuration."""
     allowed_keys = {
-        "duo_enabled", "duo_radius_host", "duo_radius_port",
-        "duo_radius_secret", "duo_timeout",
+        "duo_enabled", "duo_ikey", "duo_skey", "duo_api_host", "duo_timeout",
     }
-    secret_keys = {"duo_radius_secret"}
+    secret_keys = {"duo_skey"}
 
     for key, value in payload.items():
         if key not in allowed_keys:
