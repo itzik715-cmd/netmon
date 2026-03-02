@@ -69,12 +69,14 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       SNMP_POLL_INTERVAL_SECONDS: ${SNMP_POLL_INTERVAL:-60}
       HTTPS_ONLY: ${HTTPS_ONLY:-false}
-      # Duo MFA (optional)
+      # Duo MFA via RADIUS Auth Proxy (optional)
       DUO_ENABLED: ${DUO_ENABLED:-false}
-      DUO_INTEGRATION_KEY: ${DUO_INTEGRATION_KEY:-}
-      DUO_SECRET_KEY: ${DUO_SECRET_KEY:-}
-      DUO_API_HOSTNAME: ${DUO_API_HOSTNAME:-}
-      DUO_REDIRECT_URI: ${DUO_REDIRECT_URI:-}
+      DUO_RADIUS_HOST: ${DUO_RADIUS_HOST:-host.docker.internal}
+      DUO_RADIUS_PORT: ${DUO_RADIUS_PORT:-1812}
+      DUO_RADIUS_SECRET: ${DUO_RADIUS_SECRET:-}
+      DUO_RADIUS_TIMEOUT: ${DUO_RADIUS_TIMEOUT:-60}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./logs:/app/logs
       - ./nginx/ssl:/etc/nginx/ssl
@@ -132,8 +134,8 @@ services:
     container_name: netmon-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NETMON_LISTEN_IP:-0.0.0.0}:80:80"
+      - "${NETMON_LISTEN_IP:-0.0.0.0}:443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl

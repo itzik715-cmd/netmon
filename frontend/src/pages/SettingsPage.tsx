@@ -422,10 +422,10 @@ function SystemHealthPanel() {
 function DuoStatusPanel() {
   const [duoConfig, setDuoConfig] = useState({
     enabled: false,
-    integration_key: '',
-    secret_key: '',
-    api_hostname: '',
-    redirect_uri: '',
+    radius_host: '',
+    radius_port: '1812',
+    radius_secret: '',
+    timeout: '60',
   })
   const [duoTestResult, setDuoTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [duoTesting, setDuoTesting] = useState(false)
@@ -437,10 +437,10 @@ function DuoStatusPanel() {
       setDuoConfig((prev) => ({
         ...prev,
         enabled: String(data.duo_enabled).toLowerCase() === 'true',
-        integration_key: data.duo_integration_key || '',
-        secret_key: data.duo_secret_key || '',
-        api_hostname: data.duo_api_hostname || '',
-        redirect_uri: data.duo_redirect_uri || '',
+        radius_host: data.duo_radius_host || '',
+        radius_port: data.duo_radius_port || '1812',
+        radius_secret: data.duo_radius_secret || '',
+        timeout: data.duo_timeout || '60',
       }))
       return data
     }),
@@ -449,10 +449,10 @@ function DuoStatusPanel() {
   const saveDuoMutation = useMutation({
     mutationFn: () => settingsApi.saveDuo({
       duo_enabled: duoConfig.enabled,
-      duo_integration_key: duoConfig.integration_key,
-      duo_secret_key: duoConfig.secret_key,
-      duo_api_hostname: duoConfig.api_hostname,
-      duo_redirect_uri: duoConfig.redirect_uri,
+      duo_radius_host: duoConfig.radius_host,
+      duo_radius_port: duoConfig.radius_port,
+      duo_radius_secret: duoConfig.radius_secret,
+      duo_timeout: duoConfig.timeout,
     }),
     onSuccess: () => toast.success('Duo MFA configuration saved'),
   })
@@ -464,9 +464,9 @@ function DuoStatusPanel() {
       const r = await authApi.duoStatus()
       const data = r.data
       if (data.healthy) {
-        setDuoTestResult({ success: true, message: `Connected to Duo API (${data.api_hostname})` })
+        setDuoTestResult({ success: true, message: `Auth Proxy reachable at ${data.radius_host}:${data.radius_port}` })
       } else if (data.configured) {
-        setDuoTestResult({ success: false, message: 'Duo configured but API unreachable — check hostname and credentials' })
+        setDuoTestResult({ success: false, message: 'Auth Proxy configured but not responding — check host and shared secret' })
       } else {
         setDuoTestResult({ success: false, message: 'Duo not fully configured — save configuration first' })
       }
@@ -498,7 +498,7 @@ function DuoStatusPanel() {
             <div>
               <div className="toggle-row__title">Enable Duo MFA</div>
               <div className="toggle-row__description">
-                Require all users to verify via Duo after entering credentials
+                Require all users to verify via Duo Push after entering credentials
               </div>
             </div>
             <button
@@ -512,17 +512,22 @@ function DuoStatusPanel() {
           {duoConfig.enabled && (
             <>
               <div className="info-box">
-                <span className="info-box__title">Setup:</span> Go to{' '}
-                <span className="mono">admin.duosecurity.com</span> → Applications → Protect an Application → search <strong>"Web SDK"</strong> → Protect. Copy the Client ID, Client Secret, and API Hostname below.
+                <span className="info-box__title">Setup:</span>
+                <ol style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.6 }}>
+                  <li>In <span className="mono">admin.duosecurity.com</span> — create an application of type <strong>"RADIUS"</strong> and copy the ikey, skey, and api_hostname.</li>
+                  <li>On the NetMon server, run: <span className="mono">sudo bash scripts/install_duo_authproxy.sh --ikey ... --skey ... --apihost ...</span></li>
+                  <li>The script will generate a RADIUS shared secret — paste it in the "Shared Secret" field below.</li>
+                  <li>The Auth Proxy runs locally and communicates with Duo cloud on behalf of your users. The browser never leaves your network.</li>
+                </ol>
               </div>
 
-              {duoField('Client ID (Integration Key)', 'integration_key', 'text', 'DIXXXXXXXXXXXXXXXXXX')}
-              {duoField('Client Secret (Secret Key)', 'secret_key', 'password', 'Enter secret key')}
-              {duoField('API Hostname', 'api_hostname', 'text', 'api-XXXXXXXX.duosecurity.com')}
-              {duoField('Redirect URI', 'redirect_uri', 'text', 'https://netmon.example.com/login')}
+              {duoField('Auth Proxy Host', 'radius_host', 'text', 'host.docker.internal')}
+              {duoField('RADIUS Port', 'radius_port', 'text', '1812')}
+              {duoField('Shared Secret', 'radius_secret', 'password', 'Enter RADIUS shared secret')}
+              {duoField('Timeout (seconds)', 'timeout', 'text', '60')}
 
               <p className="form-help">
-                The Redirect URI must match the one configured in the Duo Admin Panel and must point to your NetMon login page.
+                Timeout should be at least 60 seconds to allow the user to approve the Duo Push notification on their phone.
               </p>
 
               <div>

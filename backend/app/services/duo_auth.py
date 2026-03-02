@@ -1,16 +1,20 @@
 """
-Duo Universal Prompt MFA integration.
+Duo MFA via RADIUS Auth Proxy.
 
-Uses the duo_universal SDK for OIDC-based redirect flow.
-State is preserved in Redis between redirect-out and callback.
-Configuration can come from DB settings (GUI) or env vars (fallback).
+Sends RADIUS Access-Request (RFC 2865) to a local Duo Auth Proxy running
+in duo_only_client mode. The proxy triggers a Duo Push and responds with
+Access-Accept (approved) or Access-Reject (denied / timeout).
+
+Pure stdlib — no external RADIUS library required.
 """
-import json
+import asyncio
+import hashlib
 import logging
-from typing import Optional, Dict, Any, Tuple
+import os
+import socket
+import struct
+from typing import Dict
 
-import redis.asyncio as aioredis
-from duo_universal.client import Client, DuoException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -18,17 +22,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-DUO_STATE_TTL_SECONDS = 300  # 5 minutes
-DUO_STATE_PREFIX = "duo_state:"
-
 # DB setting keys
 DUO_DB_KEYS = [
-    "duo_enabled", "duo_integration_key", "duo_secret_key",
-    "duo_api_hostname", "duo_redirect_uri",
+    "duo_enabled", "duo_radius_host", "duo_radius_port",
+    "duo_radius_secret", "duo_timeout",
 ]
 
+# RADIUS codes (RFC 2865)
+RADIUS_ACCESS_REQUEST = 1
+RADIUS_ACCESS_ACCEPT = 2
+RADIUS_ACCESS_REJECT = 3
 
-async def get_duo_config(db: AsyncSession) -> Dict[str, str]:
+# RADIUS attribute types
+ATTR_USER_NAME = 1
+ATTR_USER_PASSWORD = 2
+
+
+async def get_duo_config(db: AsyncSession) -> Dict[str, object]:
     """Load Duo config from DB, falling back to env vars."""
     from app.models.settings import SystemSetting
     result = await db.execute(
@@ -38,89 +48,123 @@ async def get_duo_config(db: AsyncSession) -> Dict[str, str]:
 
     return {
         "enabled": db_map.get("duo_enabled", str(settings.DUO_ENABLED)).lower() in ("true", "1", "yes"),
-        "integration_key": db_map.get("duo_integration_key") or settings.DUO_INTEGRATION_KEY,
-        "secret_key": db_map.get("duo_secret_key") or settings.DUO_SECRET_KEY,
-        "api_hostname": db_map.get("duo_api_hostname") or settings.DUO_API_HOSTNAME,
-        "redirect_uri": db_map.get("duo_redirect_uri") or settings.DUO_REDIRECT_URI,
+        "radius_host": db_map.get("duo_radius_host") or settings.DUO_RADIUS_HOST,
+        "radius_port": int(db_map.get("duo_radius_port") or settings.DUO_RADIUS_PORT),
+        "radius_secret": db_map.get("duo_radius_secret") or settings.DUO_RADIUS_SECRET,
+        "timeout": int(db_map.get("duo_timeout") or settings.DUO_RADIUS_TIMEOUT),
     }
 
 
-def build_duo_client(cfg: Dict[str, Any]) -> Optional[Client]:
-    """Build a Duo Client from config dict. Returns None if not fully configured."""
-    if not cfg.get("enabled"):
-        return None
-    ikey = cfg.get("integration_key", "")
-    skey = cfg.get("secret_key", "")
-    host = cfg.get("api_hostname", "")
-    redirect = cfg.get("redirect_uri", "")
-    if not all([ikey, skey, host, redirect]):
-        logger.warning("Duo enabled but missing required configuration")
-        return None
-    return Client(
-        client_id=ikey,
-        client_secret=skey,
-        host=host,
-        redirect_uri=redirect,
-    )
+def _pad_password(password: bytes, secret: bytes, authenticator: bytes) -> bytes:
+    """
+    Encrypt User-Password per RFC 2865 Section 5.2.
+
+    The password is padded to a multiple of 16 bytes, then XOR'd with
+    MD5(secret + authenticator) in 16-byte blocks.
+    """
+    # Pad to multiple of 16
+    padded = password + b"\x00" * (16 - len(password) % 16) if len(password) % 16 else password
+    if len(padded) == 0:
+        padded = b"\x00" * 16
+
+    result = b""
+    prev_block = authenticator
+    for i in range(0, len(padded), 16):
+        digest = hashlib.md5(secret + prev_block).digest()
+        block = bytes(a ^ b for a, b in zip(padded[i:i + 16], digest))
+        result += block
+        prev_block = block
+    return result
 
 
-def duo_health_check_with_client(client: Optional[Client]) -> bool:
-    """Check connectivity to Duo. Returns True if healthy."""
-    if not client:
-        return False
+def _build_radius_packet(username: str, secret: bytes) -> tuple:
+    """
+    Build a RADIUS Access-Request packet.
+
+    Returns (packet_bytes, request_authenticator).
+    """
+    identifier = os.urandom(1)[0]
+    authenticator = os.urandom(16)
+
+    # Build attributes
+    user_bytes = username.encode("utf-8")
+    attr_username = struct.pack("BB", ATTR_USER_NAME, 2 + len(user_bytes)) + user_bytes
+
+    # Password: "duo_push" — Duo Auth Proxy in duo_only_client mode ignores this
+    password_encrypted = _pad_password(b"duo_push", secret, authenticator)
+    attr_password = struct.pack("BB", ATTR_USER_PASSWORD, 2 + len(password_encrypted)) + password_encrypted
+
+    attributes = attr_username + attr_password
+
+    # Header: Code (1 byte) + ID (1 byte) + Length (2 bytes) + Authenticator (16 bytes)
+    length = 20 + len(attributes)
+    header = struct.pack("!BBH", RADIUS_ACCESS_REQUEST, identifier, length) + authenticator
+
+    return header + attributes, authenticator, identifier
+
+
+def _send_radius_request(host: str, port: int, secret: bytes,
+                         username: str, timeout: int = 60) -> bool:
+    """
+    Send a RADIUS Access-Request and wait for the response.
+
+    Blocking call — use asyncio.to_thread() to avoid blocking the event loop.
+    Returns True on Access-Accept, False on Access-Reject or timeout.
+    """
+    packet, authenticator, identifier = _build_radius_packet(username, secret)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
     try:
-        client.health_check()
-        return True
-    except DuoException as e:
-        logger.error(f"Duo health check failed: {e}")
-        return False
+        sock.sendto(packet, (host, port))
+        data, _ = sock.recvfrom(4096)
 
+        if len(data) < 20:
+            logger.warning("RADIUS response too short (%d bytes)", len(data))
+            return False
 
-def create_duo_auth_url(client: Client, username: str) -> Tuple[str, str]:
-    """Generate the Duo auth URL and state parameter. Returns (auth_url, state)."""
-    state = client.generate_state()
-    auth_url = client.create_auth_url(username, state)
-    return auth_url, state
+        code = data[0]
+        resp_id = data[1]
 
+        if resp_id != identifier:
+            logger.warning("RADIUS response ID mismatch (expected %d, got %d)", identifier, resp_id)
+            return False
 
-def verify_duo_code(client: Client, duo_code: str, username: str) -> bool:
-    """Exchange the Duo authorization code for a 2FA result. Returns True if allowed."""
-    try:
-        token = client.exchange_authorization_code_for_2fa_result(duo_code, username)
-        if token and token.get("auth_result", {}).get("result") == "allow":
+        if code == RADIUS_ACCESS_ACCEPT:
+            logger.info("Duo RADIUS: Access-Accept for %s", username)
             return True
-        logger.warning(f"Duo 2FA denied for {username}: {token}")
+        elif code == RADIUS_ACCESS_REJECT:
+            logger.info("Duo RADIUS: Access-Reject for %s", username)
+            return False
+        else:
+            logger.warning("Duo RADIUS: unexpected code %d for %s", code, username)
+            return False
+
+    except socket.timeout:
+        logger.warning("Duo RADIUS: timeout waiting for response for %s (%ds)", username, timeout)
         return False
-    except DuoException as e:
-        logger.error(f"Duo code exchange failed for {username}: {e}")
+    except OSError as e:
+        logger.error("Duo RADIUS: socket error for %s: %s", username, e)
         return False
-
-
-async def store_duo_state(state: str, user_data: Dict[str, Any]) -> None:
-    """Store pre-authenticated user data in Redis, keyed by Duo state."""
-    r = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
-    try:
-        key = f"{DUO_STATE_PREFIX}{state}"
-        await r.set(key, json.dumps(user_data), ex=DUO_STATE_TTL_SECONDS)
     finally:
-        await r.aclose()
+        sock.close()
 
 
-async def retrieve_and_delete_duo_state(state: str) -> Optional[Dict[str, Any]]:
+async def verify_duo_radius(host: str, port: int, secret: bytes,
+                            username: str, timeout: int = 60) -> bool:
+    """Async wrapper around the blocking RADIUS request."""
+    return await asyncio.to_thread(_send_radius_request, host, port, secret, username, timeout)
+
+
+async def ping_auth_proxy(host: str, port: int, secret: bytes, timeout: int = 3) -> bool:
     """
-    Retrieve and atomically delete stored user data for a Duo state.
-    Returns None if not found or expired (prevents replay).
+    Quick connectivity check — send a RADIUS request with a probe username
+    and see if we get any response (Accept or Reject) within a short timeout.
     """
-    r = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
     try:
-        key = f"{DUO_STATE_PREFIX}{state}"
-        pipe = r.pipeline()
-        pipe.get(key)
-        pipe.delete(key)
-        results = await pipe.execute()
-        raw = results[0]
-        if raw is None:
-            return None
-        return json.loads(raw)
-    finally:
-        await r.aclose()
+        return await asyncio.to_thread(
+            _send_radius_request, host, port, secret, "__duo_ping__", timeout
+        )
+    except Exception:
+        # Any response (even Reject) means the proxy is reachable
+        return False

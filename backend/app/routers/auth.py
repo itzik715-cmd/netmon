@@ -10,14 +10,11 @@ from app.services.auth import (
     decode_token, hash_password, log_audit
 )
 from app.services.ldap_auth import authenticate_ldap, get_or_create_ldap_user, test_ldap_connection
-from app.services.duo_auth import (
-    get_duo_config, build_duo_client, create_duo_auth_url, store_duo_state,
-    retrieve_and_delete_duo_state, verify_duo_code, duo_health_check_with_client
-)
+from app.services.duo_auth import get_duo_config, verify_duo_radius, ping_auth_proxy
 from app.middleware.rbac import get_current_user, require_admin
 from app.schemas.auth import (
     LoginRequest, Token, PasswordChangeRequest,
-    RefreshTokenRequest, LDAPConfigRequest, DuoCallbackRequest
+    RefreshTokenRequest, LDAPConfigRequest,
 )
 from app.config import settings
 from app.extensions import limiter
@@ -90,31 +87,36 @@ async def login(
     await db.refresh(user, ["role"])
     role_name = user.role.name if user.role else "readonly"
 
-    # Check if Duo MFA is required (load config from DB + env fallback)
+    # Check if Duo MFA is required (RADIUS Auth Proxy)
     duo_cfg = await get_duo_config(db)
-    duo_client = build_duo_client(duo_cfg)
-    if duo_client is not None:
+    if duo_cfg["enabled"] and duo_cfg.get("radius_secret"):
         try:
-            auth_url, state = create_duo_auth_url(duo_client, user.username)
-            await store_duo_state(state, {
-                "user_id": user.id,
-                "username": user.username,
-                "role": role_name,
-                "must_change_password": user.must_change_password,
-                "auth_source": auth_source,
-            })
+            ok = await verify_duo_radius(
+                duo_cfg["radius_host"],
+                duo_cfg["radius_port"],
+                duo_cfg["radius_secret"].encode(),
+                user.username,
+                timeout=duo_cfg.get("timeout", 60),
+            )
+            if not ok:
+                await log_audit(
+                    db, "duo_mfa_failed", user_id=user.id,
+                    username=user.username, source_ip=source_ip,
+                    success=False, details=f"auth_source={auth_source}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="MFA verification failed or timed out. Please try again.",
+                )
             await log_audit(
-                db, "duo_mfa_initiated", user_id=user.id,
+                db, "duo_mfa_success", user_id=user.id,
                 username=user.username, source_ip=source_ip,
                 details=f"auth_source={auth_source}"
             )
-            return JSONResponse(content={
-                "duo_required": True,
-                "duo_auth_url": auth_url,
-                "duo_state": state,
-            })
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Duo initiation failed: {e}")
+            logger.error(f"Duo RADIUS failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="MFA service unavailable. Please try again later.",
@@ -154,112 +156,30 @@ async def login(
     return response
 
 
-@router.post("/duo/callback", response_model=Token)
-async def duo_callback(
-    request: Request,
-    payload: DuoCallbackRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Complete Duo MFA flow: validate the code, then issue JWT tokens."""
-    source_ip = get_client_ip(request)
-
-    # Retrieve and atomically delete stored state
-    user_data = await retrieve_and_delete_duo_state(payload.state)
-    if not user_data:
-        await log_audit(
-            db, "duo_callback_failed", source_ip=source_ip,
-            success=False, details="Invalid or expired Duo state"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired MFA session. Please log in again.",
-        )
-
-    # Build Duo client from DB config to verify the code
-    duo_cfg = await get_duo_config(db)
-    duo_client = build_duo_client(duo_cfg)
-    if not duo_client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MFA service not configured.",
-        )
-
-    # Verify the Duo authorization code
-    username = user_data["username"]
-    if not verify_duo_code(duo_client, payload.duo_code, username):
-        await log_audit(
-            db, "duo_mfa_failed", username=username,
-            source_ip=source_ip, success=False,
-            details="Duo code verification failed"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA verification failed. Please try again.",
-        )
-
-    # Re-check user is still active
-    result = await db.execute(select(User).where(User.id == user_data["user_id"]))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is disabled.",
-        )
-
-    # Issue tokens
-    session_start = datetime.now(timezone.utc).isoformat()
-    access_token = create_access_token({
-        "sub": str(user_data["user_id"]),
-        "username": username,
-        "role": user_data["role"],
-    })
-    refresh_token_str = create_refresh_token(
-        {"sub": str(user_data["user_id"]), "username": username},
-        session_start=session_start,
-    )
-
-    await log_audit(
-        db, "login_success", user_id=user_data["user_id"],
-        username=username, source_ip=source_ip, success=True,
-        details=f"auth_source={user_data['auth_source']}, mfa=duo"
-    )
-
-    role_name = user_data["role"]
-    session_max = settings.SESSION_MAX_HOURS * 3600 if role_name != "readonly" and settings.SESSION_MAX_HOURS > 0 else None
-
-    token_response = Token(
-        access_token=access_token,
-        refresh_token=refresh_token_str,
-        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        must_change_password=user_data["must_change_password"],
-        role=role_name,
-        session_start=session_start,
-        session_max_seconds=session_max,
-    )
-    response = JSONResponse(content=token_response.model_dump())
-    _set_refresh_cookie(response, refresh_token_str)
-    return response
-
-
 @router.get("/duo/status", dependencies=[Depends(require_admin())])
 async def duo_status(db: AsyncSession = Depends(get_db)):
-    """Return Duo MFA config for the admin settings page."""
+    """Return Duo RADIUS Auth Proxy status for the admin settings page."""
     duo_cfg = await get_duo_config(db)
-    duo_client = build_duo_client(duo_cfg)
+    configured = bool(duo_cfg["enabled"] and duo_cfg.get("radius_secret"))
     healthy = False
-    if duo_client:
+    if configured:
         try:
-            healthy = duo_health_check_with_client(duo_client)
+            # ping_auth_proxy sends a probe and checks for any RADIUS response
+            healthy = await ping_auth_proxy(
+                duo_cfg["radius_host"],
+                duo_cfg["radius_port"],
+                duo_cfg["radius_secret"].encode(),
+                timeout=3,
+            )
         except Exception:
             healthy = False
 
     return {
         "enabled": duo_cfg["enabled"],
-        "configured": duo_client is not None,
+        "configured": configured,
         "healthy": healthy,
-        "api_hostname": duo_cfg.get("api_hostname", "") if duo_cfg["enabled"] else "",
-        "integration_key": duo_cfg.get("integration_key", "") if duo_cfg["enabled"] else "",
-        "redirect_uri": duo_cfg.get("redirect_uri", "") if duo_cfg["enabled"] else "",
+        "radius_host": duo_cfg.get("radius_host", "") if duo_cfg["enabled"] else "",
+        "radius_port": duo_cfg.get("radius_port", 1812) if duo_cfg["enabled"] else 1812,
     }
 
 

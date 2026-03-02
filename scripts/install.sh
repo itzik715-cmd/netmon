@@ -178,6 +178,16 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
   fi
   log "Docker socket GID: ${DOCKER_GID}"
 
+  # Prompt for listen IP
+  echo ""
+  echo -e "${YELLOW}Network Listen IP${NC}"
+  echo "  Bind NetMon to a specific IP (e.g. internal-only access)."
+  echo "  Leave blank for 0.0.0.0 (all interfaces)."
+  read -rp "  Listen IP [0.0.0.0]: " LISTEN_IP
+  LISTEN_IP="${LISTEN_IP:-0.0.0.0}"
+  sed -i "s|^NETMON_LISTEN_IP=.*|NETMON_LISTEN_IP=${LISTEN_IP}|" "$PROJECT_DIR/.env"
+  log "Listen IP set to: ${LISTEN_IP}"
+
   log "Generated .env with random secrets"
 else
   warn ".env already exists, skipping generation"
@@ -355,6 +365,15 @@ ADMIN_PASS=$($DOCKER_COMPOSE logs backend 2>/dev/null \
   | grep -oP 'Password: \K\S+' | tail -1)
 if [ -z "$ADMIN_PASS" ]; then
   ADMIN_PASS="(check logs: $DOCKER_COMPOSE logs backend | grep Password)"
+fi
+
+# Check Duo configuration
+if grep -q "^DUO_ENABLED=true" "$PROJECT_DIR/.env" 2>/dev/null; then
+  DUO_SECRET_VAL=$(grep "^DUO_RADIUS_SECRET=" "$PROJECT_DIR/.env" | cut -d= -f2-)
+  if [ -z "$DUO_SECRET_VAL" ]; then
+    warn "DUO_ENABLED=true but DUO_RADIUS_SECRET is empty!"
+    warn "Run: sudo bash scripts/install_duo_authproxy.sh and update .env"
+  fi
 fi
 
 step "Installation Complete!"
