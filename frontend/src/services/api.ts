@@ -308,4 +308,6 @@ export const fastnetmonApi = {
   bgpPeers: () => api.get('/fastnetmon/bgp'),
   hostgroups: () => api.get('/fastnetmon/hostgroups'),
   config: () => api.get('/fastnetmon/config'),
+  updateConfig: (key: string, value: string) => api.put('/fastnetmon/config', { key, value }),
+  updateHostgroup: (name: string, key: string, value: string) => api.put(`/fastnetmon/hostgroup/${name}`, { key, value }),
 }

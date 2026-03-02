@@ -172,7 +172,7 @@ async def get_hostgroups(
     return await _require(await _get_client(db)).get_hostgroups()
 
 
-# ── Configuration (read-only) ──────────────────────────────────────────────
+# ── Configuration ──────────────────────────────────────────────────────────
 
 @router.get("/config")
 async def get_config(
@@ -180,3 +180,40 @@ async def get_config(
     _: User = Depends(get_current_user),
 ):
     return await _require(await _get_client(db)).get_config()
+
+
+class ConfigUpdateRequest(BaseModel):
+    key: str
+    value: str
+
+
+@router.put("/config")
+async def update_config(
+    payload: ConfigUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above),
+):
+    client = _require(await _get_client(db))
+    ok = await client.update_config(payload.key, payload.value)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Failed to update {payload.key}")
+    return {"message": f"Updated {payload.key}"}
+
+
+class HostgroupUpdateRequest(BaseModel):
+    key: str
+    value: str
+
+
+@router.put("/hostgroup/{name}")
+async def update_hostgroup(
+    name: str,
+    payload: HostgroupUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator_or_above),
+):
+    client = _require(await _get_client(db))
+    ok = await client.update_hostgroup(name, payload.key, payload.value)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Failed to update {name}.{payload.key}")
+    return {"message": f"Updated {name}.{payload.key}"}

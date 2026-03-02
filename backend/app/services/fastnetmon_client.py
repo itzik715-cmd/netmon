@@ -115,6 +115,16 @@ class FastNetMonClient:
             logger.warning("FastNetMon get_config failed (%s): %s", self.node_label, e)
             return {}
 
+    async def update_config(self, key: str, value) -> bool:
+        """PUT /main/{key}/{value} — update a single config setting."""
+        try:
+            resp = await self._request("PUT", f"/main/{key}/{value}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", False)
+        except Exception as e:
+            logger.error("FastNetMon update_config(%s=%s) failed (%s): %s", key, value, self.node_label, e)
+            return False
+
     # ── Hostgroups / Detection ──────────────────────────────────────────────
 
     async def get_hostgroups(self) -> list:
@@ -126,6 +136,16 @@ class FastNetMonClient:
         except Exception as e:
             logger.warning("FastNetMon get_hostgroups failed (%s): %s", self.node_label, e)
             return []
+
+    async def update_hostgroup(self, name: str, key: str, value) -> bool:
+        """PUT /hostgroup/{name}/{key}/{value} — update a hostgroup setting."""
+        try:
+            resp = await self._request("PUT", f"/hostgroup/{name}/{key}/{value}")
+            data = resp.json() if resp.status_code == 200 else {}
+            return data.get("success", False)
+        except Exception as e:
+            logger.error("FastNetMon update_hostgroup(%s.%s=%s) failed (%s): %s", name, key, value, self.node_label, e)
+            return False
 
     # ── BGP ─────────────────────────────────────────────────────────────────
 
@@ -174,13 +194,11 @@ class FastNetMonClient:
                 directions[direction] = {"direction": direction}
             d = directions[direction]
 
-            # Build the field name
-            rest = " ".join(parts[1:])  # e.g. "traffic", "tcp traffic", "tcp_syn traffic", "dropped traffic", "fragmented traffic"
-            rest = rest.replace(" traffic", "")  # e.g. "", "tcp", "tcp_syn", "dropped", "fragmented"
-            if rest == "":
-                prefix = "total"
-            else:
-                prefix = rest.replace(" ", "_")
+            # Build the field name: strip trailing "traffic" word
+            content_parts = parts[1:]  # ["traffic"] or ["tcp", "traffic"] or ["tcp_syn", "traffic"]
+            if content_parts and content_parts[-1] == "traffic":
+                content_parts = content_parts[:-1]
+            prefix = "_".join(content_parts) if content_parts else "total"
 
             if unit == "pps":
                 d[f"{prefix}_pps"] = value
