@@ -14,9 +14,7 @@ router = APIRouter(prefix="/api/users", tags=["User Management"])
 
 @router.get("/", response_model=List[UserResponse], dependencies=[Depends(require_admin())])
 async def list_users(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(User).where(User.is_active == True)
-    )
+    result = await db.execute(select(User))
     users = result.scalars().all()
     # Load roles
     for user in users:

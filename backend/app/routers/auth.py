@@ -87,9 +87,9 @@ async def login(
     await db.refresh(user, ["role"])
     role_name = user.role.name if user.role else "readonly"
 
-    # Check if Duo MFA is required (direct Duo Auth API)
+    # Check if Duo MFA is required (direct Duo Auth API) — per-user toggle
     duo_cfg = await get_duo_config(db)
-    if duo_cfg["enabled"] and duo_cfg.get("ikey") and duo_cfg.get("skey") and duo_cfg.get("api_host"):
+    if duo_cfg["enabled"] and duo_cfg.get("ikey") and duo_cfg.get("skey") and duo_cfg.get("api_host") and user.mfa_enabled:
         try:
             ok = await verify_duo_push(
                 duo_cfg["api_host"],

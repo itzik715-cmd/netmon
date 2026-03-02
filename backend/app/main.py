@@ -343,6 +343,15 @@ async def run_migrations():
             except Exception as e:
                 logger.warning("Migration index skipped: %s", e)
 
+        # users table: per-user MFA toggle
+        for col, col_type in [("mfa_enabled", "BOOLEAN DEFAULT TRUE")]:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_type}")
+                )
+            except Exception as e:
+                logger.warning("Migration ALTER users.%s skipped: %s", col, e)
+
     # device_locations migrations — separate transaction to avoid aborting the above
     async with engine.begin() as conn:
         for col, col_type in location_columns:

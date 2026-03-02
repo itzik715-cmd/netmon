@@ -19,6 +19,7 @@ class UserCreate(BaseModel):
     role_id: int
     is_active: bool = True
     must_change_password: bool = True
+    mfa_enabled: bool = True
 
     @field_validator("username")
     @classmethod
@@ -33,6 +34,7 @@ class UserUpdate(BaseModel):
     role_id: Optional[int] = None
     is_active: Optional[bool] = None
     must_change_password: Optional[bool] = None
+    mfa_enabled: Optional[bool] = None
     account_locked: Optional[bool] = None
 
 
@@ -43,6 +45,7 @@ class UserResponse(BaseModel):
     role: RoleResponse
     is_active: bool
     must_change_password: bool
+    mfa_enabled: bool
     auth_source: str
     account_locked: bool
     failed_attempts: int

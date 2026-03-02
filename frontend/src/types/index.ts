@@ -5,6 +5,7 @@ export interface User {
   role: { id: number; name: string; description?: string }
   is_active: boolean
   must_change_password: boolean
+  mfa_enabled: boolean
   auth_source: string
   account_locked: boolean
   failed_attempts: number

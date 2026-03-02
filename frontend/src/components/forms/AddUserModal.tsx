@@ -13,6 +13,7 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
     password: '',
     role_id: '',
     must_change_password: true,
+    mfa_enabled: true,
   })
 
   const { data: roles } = useQuery({
@@ -82,6 +83,16 @@ export default function AddUserModal({ onClose }: { onClose: () => void }) {
                 />
                 <span className="checkbox-row__text">
                   Force password change on first login
+                </span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={form.mfa_enabled}
+                  onChange={(e) => setForm((p) => ({ ...p, mfa_enabled: e.target.checked }))}
+                />
+                <span className="checkbox-row__text">
+                  Enable MFA (Duo Push)
                 </span>
               </label>
             </div>

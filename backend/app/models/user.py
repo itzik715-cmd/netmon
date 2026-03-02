@@ -40,6 +40,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
     failed_attempts = Column(Integer, default=0)
+    mfa_enabled = Column(Boolean, default=True)
     account_locked = Column(Boolean, default=False)
     locked_until = Column(DateTime(timezone=True), nullable=True)
     password_expires_at = Column(DateTime(timezone=True), nullable=True)
